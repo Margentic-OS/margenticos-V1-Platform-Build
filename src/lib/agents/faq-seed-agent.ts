@@ -15,8 +15,24 @@ import { logger } from '@/lib/logger'
 
 const PROMPT_VERSION = '1.0.0'
 const MODEL = 'claude-opus-4-6'
-const TIMEOUT_MS = 60000
 const MAX_TOKENS = 4000
+
+// ── Time budget ───────────────────────────────────────────────────────────────
+// This call is large: a Phase A read measured roughly 26,000 input tokens and up to
+// 4,000 output on Opus. 4,000 output tokens streamed at the slow end of Opus's range
+// is well over two minutes, so the old 60s ceiling could not have completed a
+// full-length answer and would have aborted a call that was working.
+//
+// The two numbers below are deliberately separate, and the overall one is the load
+// bearing half. CLAUDE.md records the trap: the Anthropic SDK defaults to a 10 minute
+// timeout and 2 retries, which is 30 minutes of retrying against a route that Vercel
+// kills at 300s, so the caller never sees the answer OR the error. Here the SDK's own
+// retry is switched OFF (maxRetries: 0) and retries are done here instead, each attempt
+// bounded by whatever is left of ATTEMPT budget, so worst case is ATTEMPT + remainder,
+// never a multiple of it.
+const ATTEMPT_TIMEOUT_MS = 150_000
+const OVERALL_BUDGET_MS = 240_000
+const MAX_ATTEMPTS = 2  // one retry
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,24 +124,7 @@ export async function generateFaqSeedCandidates(input: FaqSeedInput): Promise<Fa
   // ── 3. Call Anthropic API ──────────────────────────────────────────────────
   let rawResponse: string
   try {
-    const client = new Anthropic({ apiKey })
-
-    const stream = client.messages.stream(
-      {
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-      },
-      { signal: AbortSignal.timeout(TIMEOUT_MS) },
-    )
-
-    const message = await stream.finalMessage()
-    const textBlock = message.content.find((b): b is TextBlock => b.type === 'text')
-    if (!textBlock) {
-      throw new Error('No text block in Opus response')
-    }
-    rawResponse = textBlock.text.trim()
+    rawResponse = await callModelWithRetries({ apiKey, systemPrompt, userMessage })
   } catch (err) {
     const msg = `faq-seed-agent: API call failed — ${err instanceof Error ? err.message : String(err)}`
     logger.error(msg, { organisation_id: organisationId })
@@ -288,6 +287,88 @@ export async function writeFaqExtractionResults(
       // Best-effort: continue with next result even if this one fails
     }
   }
+}
+
+/**
+ * One streamed Opus call, retried at most MAX_ATTEMPTS times inside OVERALL_BUDGET_MS.
+ *
+ * Only transient faults are retried. A 4xx that is not 408/429 is the request itself
+ * being wrong, and sending it again would burn the remaining budget to receive the same
+ * refusal. Retrying is also safe to do at all only because this call has no side effect:
+ * nothing is written until the response parses.
+ */
+async function callModelWithRetries(args: {
+  apiKey: string
+  systemPrompt: string
+  userMessage: string
+}): Promise<string> {
+  const { apiKey, systemPrompt, userMessage } = args
+  const deadline = Date.now() + OVERALL_BUDGET_MS
+
+  // maxRetries: 0 is not a detail. Leaving the SDK's own retry on would multiply every
+  // number below by three and put the worst case far past the route's 300s ceiling.
+  const client = new Anthropic({ apiKey, maxRetries: 0 })
+
+  let lastError: unknown
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) break
+
+    try {
+      const stream = client.messages.stream(
+        {
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userMessage }],
+        },
+        { signal: AbortSignal.timeout(Math.min(ATTEMPT_TIMEOUT_MS, remaining)) },
+      )
+
+      const message = await stream.finalMessage()
+
+      // A truncated answer is a FAILURE with its own reason, never a success (ADR-059).
+      // It matters here because the JSON would be cut mid-object and the parse below
+      // would report "no JSON object found", sending whoever reads the log looking for a
+      // prompt fault when the real cause is the token ceiling.
+      if (message.stop_reason === 'max_tokens') {
+        throw new Error(
+          `Opus stopped at the ${MAX_TOKENS} token ceiling, so the answer is truncated and ` +
+          'its JSON is incomplete. This is not retried: the same request would truncate again.',
+        )
+      }
+
+      const textBlock = message.content.find((b): b is TextBlock => b.type === 'text')
+      if (!textBlock) {
+        throw new Error('No text block in Opus response')
+      }
+      return textBlock.text.trim()
+    } catch (err) {
+      lastError = err
+      if (attempt >= MAX_ATTEMPTS || !isRetryableModelError(err)) break
+      logger.warn('faq-seed-agent: retrying Opus call after a transient failure', {
+        attempt,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
+/** Transient faults worth a second attempt: transport trouble, rate limits, server faults. */
+function isRetryableModelError(err: unknown): boolean {
+  if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) return true
+
+  const status = (err as { status?: unknown })?.status
+  if (typeof status === 'number') {
+    return status === 408 || status === 429 || status >= 500
+  }
+
+  // No status at all means the request never reached a response: a socket error, a DNS
+  // failure, a dropped stream. All worth one more attempt.
+  return true
 }
 
 function buildSystemPrompt(organisationName: string): string {
