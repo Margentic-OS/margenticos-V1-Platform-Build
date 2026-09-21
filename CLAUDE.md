@@ -112,7 +112,18 @@ The system declares capabilities, not tool names:
   can_send_linkedin_dm        → currently: Lemlist
   can_enrich_contact          → currently: Apollo
   can_book_meeting            → currently: Cal.com (ADR-056)
-  can_validate_email          → currently: Hunter.io (phase two)
+  can_validate_email          → currently: MyEmailVerifier
+                                Hunter.io is STILL REGISTERED and is_active = false. It was
+                                named here as the phase-two choice and never became the live
+                                one. Read back from integrations_registry 2026-09-21:
+                                can_validate_email holds two rows, myemailverifier
+                                is_active = true and hunter is_active = false.
+                                This is also why 'myemailverifier' must stay on the
+                                pre-commit vendor-name list: the literal reached a column
+                                default (prospects.verification_provider) while the name was
+                                missing from that list, and a vendor name in a column
+                                default is the hardest kind to remove, because existing rows
+                                carry it.
 
 Agents and components reference capabilities only. Never tool names.
 A handler function maps each capability to whichever tool is registered for it.
@@ -593,11 +604,31 @@ same command shape. If that returns zero too, the instrument is broken, not the 
 
 **The 2026-09-04 near-miss.** A triage session searched
 `grep -c "toolName: 'Instantly'" SettingsView.tsx` and got **0**, and nearly retired a
-backlog row as fixed. The nested quotes were eaten by the shell. Re-run without them,
-the same file returns a hit on line 31, and `PLACEHOLDER_SETTINGS` still carries
-`'Apex Consulting'`, `'Instantly'`, `'Taplio'`, `'Lemlist'`, `'Apollo'` and
-`'Calendly'` as literals. The row would have been closed on the strength of a search
-that never executed.
+backlog row as fixed. The nested quotes were eaten by the shell, so the command never ran.
+The row would have been closed on the strength of a search that never executed.
+
+**THE LITERALS IN THAT EXAMPLE NO LONGER EXIST, AND THE FILE HAS MOVED. Corrected
+2026-09-21.** The story above is still exactly right about the SHELL; it had become wrong
+about the WORLD, which made it useless as the thing it is here to be. A reader following
+it would grep for `toolName: 'Instantly'`, get a truthful 0, and conclude from this file
+that their instrument was broken. An example of how to prove a zero must not itself be a
+stale zero.
+
+The file is now `src/components/dashboard/operator/SettingsView.tsx`, not the path above.
+Measured there 2026-09-21: `Apex Consulting`, `Instantly`, `Taplio`, `Lemlist`, `Apollo`,
+`Calendly` and `toolName` all return **0**, because the screen was made tool-agnostic and
+now renders CAPABILITY labels. `PLACEHOLDER_SETTINGS` still returns 1.
+
+So to prove a grep can find something in that file, search for a capability label that is
+genuinely there:
+
+    grep -c "Email validation" src/components/dashboard/operator/SettingsView.tsx   # 1
+    grep -c PLACEHOLDER_SETTINGS src/components/dashboard/operator/SettingsView.tsx # 1
+
+**Whoever reads this next: check these still return non-zero before trusting them, and
+correct this block if they do not.** A positive control has a shelf life, and this one
+expired without anybody noticing for the same reason every other entry in this file
+expired: nothing re-reads a document to see whether it is still true.
 
 Same session, same shape: `--include=*.ts` unquoted, which zsh tried to glob-expand and
 aborted the command with "no matches found" rather than running it.

@@ -160,7 +160,15 @@ export function FaqCurationView({ orgId, orgName }: FaqCurationViewProps) {
     try {
       const res = await fetch(`/api/operator/faq-extractions?client=${orgId}`, { credentials: 'same-origin' })
       if (res.status === 401) { router.push('/login'); return }
-      if (res.status === 403) { setExtractionsFetchError('Your account no longer has operator permissions.'); return }
+      if (res.status === 403) {
+        // Surface the route's own 403, which distinguishes a failed role lookup from a
+        // refused one. See the matching note on the 409 branches below.
+        const denied = await res.json().catch(() => ({})) as Record<string, unknown>
+        setExtractionsFetchError(typeof denied.error === 'string'
+          ? denied.error
+          : 'Could not load extractions (403).')
+        return
+      }
       if (!res.ok) { setExtractionsFetchError(`Could not load extraction queue (${res.status}).`); return }
 
       const json = await res.json() as { extractions: ExtractionItem[] }
@@ -261,7 +269,15 @@ export function FaqCurationView({ orgId, orgName }: FaqCurationViewProps) {
       })
 
       if (res.status === 401) { router.push('/login'); return }
-      if (res.status === 403) { updateExtractionState(extraction.id, { inFlight: 'idle', actionError: 'Operator access required.' }); return }
+      if (res.status === 403) {
+        // The route's own 403, not a fixed sentence. See the note on the fetch path above.
+        const denied = await res.json().catch(() => ({})) as Record<string, unknown>
+        updateExtractionState(extraction.id, {
+          inFlight: 'idle',
+          actionError: typeof denied.error === 'string' ? denied.error : 'Operator access required (403).',
+        })
+        return
+      }
       if (res.status === 409) {
         updateExtractionState(extraction.id, { inFlight: 'idle', actionError: 'Already actioned — refreshing.' })
         await fetchExtractions()
@@ -306,7 +322,15 @@ export function FaqCurationView({ orgId, orgName }: FaqCurationViewProps) {
       })
 
       if (res.status === 401) { router.push('/login'); return }
-      if (res.status === 403) { updateExtractionState(extraction.id, { inFlight: 'idle', actionError: 'Operator access required.' }); return }
+      if (res.status === 403) {
+        // The route's own 403, not a fixed sentence. See the note on the fetch path above.
+        const denied = await res.json().catch(() => ({})) as Record<string, unknown>
+        updateExtractionState(extraction.id, {
+          inFlight: 'idle',
+          actionError: typeof denied.error === 'string' ? denied.error : 'Operator access required (403).',
+        })
+        return
+      }
       if (res.status === 409) {
         updateExtractionState(extraction.id, { inFlight: 'idle', actionError: 'Already actioned — refreshing.' })
         await fetchExtractions()
@@ -342,7 +366,15 @@ export function FaqCurationView({ orgId, orgName }: FaqCurationViewProps) {
       })
 
       if (res.status === 401) { router.push('/login'); return }
-      if (res.status === 403) { updateExtractionState(extraction.id, { inFlight: 'idle', actionError: 'Operator access required.' }); return }
+      if (res.status === 403) {
+        // The route's own 403, not a fixed sentence. See the note on the fetch path above.
+        const denied = await res.json().catch(() => ({})) as Record<string, unknown>
+        updateExtractionState(extraction.id, {
+          inFlight: 'idle',
+          actionError: typeof denied.error === 'string' ? denied.error : 'Operator access required (403).',
+        })
+        return
+      }
       if (res.status === 409) {
         updateExtractionState(extraction.id, { inFlight: 'idle', actionError: 'Already actioned — refreshing.' })
         await fetchExtractions()

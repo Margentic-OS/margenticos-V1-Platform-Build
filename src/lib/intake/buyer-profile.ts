@@ -275,8 +275,21 @@ export const BUYER_PROFILE_QUESTIONS = {
     id: 'disqualifiers',
     label:
       'What would make you sit in a booked meeting and think, this was a waste of my time?',
+    // PROMISES ONLY WHAT THE SYSTEM DOES. This said "becomes a rule we apply before a name
+    // ever reaches you", which overstates in the one direction that matters. These answers
+    // reach three places: buyer-profile-authority requires them to appear verbatim in the
+    // ICP's tier_3.disqualifiers, icp-filter-spec folds the tier 1 and 2 ones into the
+    // sourcing notes, and research/synthesize puts them in front of the fit judge. Only the
+    // last of those can reject an individual person, and it judges from public information.
+    //
+    // So an answer that can be read off a public profile does filter. The most honest
+    // answers usually cannot be: whether the work is worth doing at the size the buyer
+    // wants, or what they are willing to spend, are not knowable before someone replies.
+    // Promising a pre-contact rule for those invites a complaint we would have to concede.
     helpText:
-      'Whatever you put here becomes a rule we apply before a name ever reaches you.',
+      'This shapes who we look for, and how each prospect is judged before they reach ' +
+      'your list. What can be checked from public information becomes a filter. The rest ' +
+      'we cannot confirm until someone replies.',
   },
 } as const satisfies Record<string, BuyerProfileQuestion>
 

@@ -198,7 +198,7 @@ export default function FileUploadSection({ initialFiles }: FileUploadSectionPro
         <span className="ml-1 text-text-muted font-normal text-[11px]">*</span>
       </p>
       <p className="text-[11px] text-text-muted mb-4 leading-relaxed">
-        Upload LinkedIn posts, emails, case studies — anything showing your voice in action.
+        Upload LinkedIn posts, emails, case studies: anything showing your voice in action.
         Raw and unedited beats polished every time. You can also upload existing ICP documents
         or case studies as reference material for the strategy agents.
         Supported formats: PDF, DOCX, TXT, MD. Max 10MB per file.
@@ -317,7 +317,7 @@ export default function FileUploadSection({ initialFiles }: FileUploadSectionPro
                 <p className="text-[10px] text-text-muted mt-0.5">
                   {extensionFromMime(file.mime_type)} · {formatBytes(file.file_size_bytes)} · {PURPOSE_LABELS[file.file_purpose]}
                   {file.extraction_status === 'failed' && (
-                    <span className="ml-1.5 text-amber-600">· Text extraction failed — file won't be read by agents</span>
+                    <span className="ml-1.5 text-amber-600">· Text extraction failed, so agents will not read this file</span>
                   )}
                 </p>
               </div>

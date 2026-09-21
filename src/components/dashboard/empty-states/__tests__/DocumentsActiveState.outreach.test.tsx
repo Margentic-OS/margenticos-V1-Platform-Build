@@ -66,6 +66,7 @@ function renderOverview(
       setupStatus={{ campaigns: 'in_progress', linkedin: 'pending' }}
       pendingProspectsCount={0}
       approvedProspectsCount={15}
+      eligibleToSendCount={15}
       metrics={m}
       liveness={liveness}
     />
