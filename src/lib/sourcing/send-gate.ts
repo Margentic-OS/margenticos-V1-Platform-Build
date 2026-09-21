@@ -43,9 +43,15 @@
 //                             So this predicate ALONE does not gate a bounced address.
 //                             findBlockedProspects in src/lib/suppression/send-gate.ts
 //                             checks both stores, and every send path must go through it.
-//                             The one caller that does not is the operator's ready-to-send
-//                             count, which therefore overstates. Tracked in the Notion
-//                             Backlog, gate "Before first paying client".
+//                             The operator's ready-to-send count used to be the one caller
+//                             that did not, and therefore overstated. FIXED 2026-09-21:
+//                             sendGateBlockedCount in src/lib/operator/unresearched-send-gate.ts
+//                             reads this same gate and passes the result to
+//                             findBlockedProspects, and the panel shows the blocked figure
+//                             beside the pending one. The count itself is still THIS
+//                             predicate, so the sentence above still holds: applySendGate
+//                             alone does not gate a bounced address, and any NEW caller
+//                             counting from it inherits the same overstatement.
 
 import { requireTierPresent } from '@/lib/sourcing/tier-verdict'
 
