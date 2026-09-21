@@ -61,7 +61,7 @@ import {
   ZERO_TOKEN_USAGE, readTokenUsage, addTokenUsage, COLLECTABLE_ENTRY_STATES,
   type RawSourceData,
 } from './research/types'
-import type { OpeningResult } from './research/write-opening'
+import { EMPTY_FOLLOWUP, type OpeningResult } from './research/write-opening'
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -432,6 +432,11 @@ const EMPTY_OPENING = {
   // the writer never ran at all.
   comparisons: [],
   gate_failures: [],
+  // FOUND THE SAME WAY, one feature later. The writer never ran, so written_won is false,
+  // so the approved template Email 1 ships and no follow-up may reference it. Empty rather
+  // than omitted for the same reason the arrays above are.
+  email2: EMPTY_FOLLOWUP,
+  email3: EMPTY_FOLLOWUP,
 } satisfies OpeningResult
 
 /** When the batch finished, or null when that is unknown and now() should apply. */

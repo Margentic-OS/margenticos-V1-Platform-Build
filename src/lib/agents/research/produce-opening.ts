@@ -13,7 +13,15 @@ import {
   getVariantEmail1Frame,
 } from '@/lib/composition/compose-sequence'
 import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
-import { writeAndJudgeOpening, type OpeningResult, type AttemptObservation, type NotWrittenReason } from './write-opening'
+import {
+  writeAndJudgeOpening,
+  EMPTY_FOLLOWUP,
+  type OpeningResult,
+  type AttemptObservation,
+  type NotWrittenReason,
+  type FollowupReference,
+} from './write-opening'
+import { buildFollowupReference } from './followup-frame'
 import { resolveBuyer } from './resolve-buyer'
 import { logger } from '@/lib/logger'
 import type { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
@@ -73,6 +81,51 @@ export interface ProduceOpeningInput {
    * omitted by both production callers, so it changes nothing about what a prospect gets.
    */
   onAttempt?: (observation: AttemptObservation) => void
+  /**
+   * THE FOLLOW-UP FLAG. True means also write emails 2 and 3.
+   *
+   * DEFAULTS TO FALSE AND IS NOT PASSED BY EITHER PRODUCTION CALLER. The inline agent and
+   * phase 2 of the batch path both call this function without it, so the feature is off in
+   * production by virtue of the call sites rather than by a constant someone could edit.
+   * The export script is the only caller that passes true.
+   *
+   * Phase 1 is read-only: nothing in composition, upload or storage reads what this
+   * produces. See the coherence note on OpeningResult.email2.
+   */
+  writeFollowups?: boolean
+}
+
+/**
+ * Build the tone-and-length reference for emails 2 and 3 from the client's own approved
+ * messaging document.
+ *
+ * RETURNS NULL RATHER THAN A PARTIAL REFERENCE. If either follow-up is missing from the
+ * variant, or either has no recognisable frame, or either strips down to nothing, the
+ * feature declines for this prospect and the template follow-ups ship. A half-reference
+ * would leave the writer inferring one email's register from the other's, which is a
+ * quieter failure than not running at all.
+ */
+export function buildFollowupsFor(
+  messagingContent: MessagingContent,
+  variantId: string,
+  companyName: string | null,
+): FollowupReference | null {
+  const variant = messagingContent.variants?.[variantId]
+  const emails = variant?.emails ?? messagingContent.emails
+  if (!emails) return null
+
+  const body = (position: number): string | null =>
+    emails.find(e => e.sequence_position === position)?.body ?? null
+
+  const templateBody2 = body(2)
+  const templateBody3 = body(3)
+  if (!templateBody2 || !templateBody3) return null
+
+  const reference2 = buildFollowupReference(templateBody2)
+  const reference3 = buildFollowupReference(templateBody3)
+  if (!reference2 || !reference3) return null
+
+  return { reference2, reference3, templateBody2, templateBody3, companyName }
 }
 
 /**
@@ -98,6 +151,12 @@ function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningResul
     bridge: null,
     observation: null,
     written_won: false,
+    // The sixth fallback path, and the only one that never enters writeAndJudgeOpening.
+    // Nulled here for the same reason the other five are nulled there: the approved
+    // template Email 1 ships, so a follow-up calling back to an observation would be
+    // calling back to one the prospect never received.
+    email2: EMPTY_FOLLOWUP,
+    email3: EMPTY_FOLLOWUP,
     retry_used: false,
     retries_used: 0,
     strong_material: false,
@@ -149,6 +208,7 @@ export async function produceOpening({
   icpBuyerTitle,
   uniqueness,
   onAttempt,
+  writeFollowups = false,
 }: ProduceOpeningInput): Promise<OpeningResult> {
   // THE DO-NOT-WRITE VERDICT HAS A READER, AND THIS IS IT. Added 2026-09-11.
   //
@@ -225,5 +285,12 @@ export async function produceOpening({
     prospectId: ctx.id,
     uniqueness,
     onAttempt,
+    // NULL UNLESS THE CALLER ASKED. Resolved here rather than inside the writer so the
+    // writer takes data and makes no document decisions, matching how messagingContent and
+    // icpBuyerTitle already reach it. A variant whose follow-ups cannot be referenced
+    // resolves to null and the run proceeds exactly as a flag-off run does.
+    followups: writeFollowups
+      ? buildFollowupsFor(messagingContent, variantId, ctx.company_name ?? null)
+      : null,
   })
 }
