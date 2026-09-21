@@ -15,6 +15,8 @@ import { verifyEnrichedBatch, deriveRunStatus, DEFAULT_VERIFY_BATCH_SIZE, MAX_RE
 import { myemailverifierHandler } from '../handlers/adapter-myemailverifier'
 import { TIER_NOT_REJECTED_FILTER } from '../tier-verdict'
 import { EXCLUDED_COUNTRIES } from '../send-eligibility-rules'
+import { pacedIntervalMs, probesWithinBudget, DEFAULT_RUN_BUDGET_MS } from '../verification-pacing'
+import { FALLBACK_RATE_LIMIT_PER_MINUTE } from '../verification-limits'
 import { aTargetableCode } from '@/test-utils/geography-fixture'
 
 /**
@@ -417,13 +419,44 @@ describe('BUG 4 — the daily free-tier counter', () => {
 })
 
 describe('BUG 2 — the default batch has to fit inside the route', () => {
-  // The loop sleeps 60000/30 = 2s between addresses, so N addresses cost 2*(N-1) seconds of
-  // deliberate waiting before any network time. The old default of 100 is ~198s of sleep
-  // inside a route that now declares maxDuration 300.
-  it('defaults to a batch whose rate-limit sleep fits well inside the 300s route', () => {
-    const sleepSeconds = 2 * (DEFAULT_VERIFY_BATCH_SIZE - 1)
-    expect(sleepSeconds).toBeLessThan(150)
-    expect(DEFAULT_VERIFY_BATCH_SIZE).toBeLessThan(100)
+  // ── THE INVARIANT IS THE SAME; THE MECHANISM UNDER IT CHANGED 2026-09-21 ────
+  //
+  // This test asserted `2 * (SIZE - 1) < 150` and `SIZE < 100`, against a loop that slept a
+  // flat two seconds between addresses. Both halves described the OLD design:
+  //
+  //   the flat 2s sleep    is gone, replaced by a pacer driven by the configured
+  //                        per-minute limit, so a hardcoded 2 here is no longer the spacing.
+  //   the small batch      is gone as a mechanism, because the batch size is no longer what
+  //                        keeps a run inside its request. The DEADLINE is. The default is
+  //                        now derived from the window rather than chosen to be safe, and
+  //                        it is 108, so `< 100` fails by construction.
+  //
+  // The thing worth protecting is unchanged and is restated below: a run started with the
+  // DEFAULT and no deadline must still finish inside maxDuration. Written against the same
+  // constants the production code uses, so it cannot drift from them the way a literal 2 did.
+  it('defaults to a batch whose paced waiting fits inside the run budget', () => {
+    const interval = pacedIntervalMs(FALLBACK_RATE_LIMIT_PER_MINUTE)
+    const pacedWaitMs = interval * (DEFAULT_VERIFY_BATCH_SIZE - 1)
+
+    // The last probe of a default-sized batch starts inside the window.
+    expect(pacedWaitMs).toBeLessThan(DEFAULT_RUN_BUDGET_MS)
+  })
+
+  // The budget itself has to fit the route, with room for the final probe's own timeout and
+  // the writes after the loop. This is the assertion the old `< 150` was reaching for.
+  it('leaves the 300s route room for the last probe and the tail', () => {
+    const ROUTE_MAX_MS = 300_000
+    const PROBE_TIMEOUT_MS = 20_000 // VERIFY_FETCH_TIMEOUT_MS in the handler
+
+    expect(DEFAULT_RUN_BUDGET_MS + PROBE_TIMEOUT_MS).toBeLessThan(ROUTE_MAX_MS)
+  })
+
+  // AND THE DEFAULT IS DERIVED, not written down. A hand-maintained number here is exactly
+  // what let this test and the constant drift apart in the first place.
+  it('derives the default from the window and the fallback pace', () => {
+    expect(DEFAULT_VERIFY_BATCH_SIZE).toBe(
+      probesWithinBudget(DEFAULT_RUN_BUDGET_MS, pacedIntervalMs(FALLBACK_RATE_LIMIT_PER_MINUTE)),
+    )
   })
 })
 
