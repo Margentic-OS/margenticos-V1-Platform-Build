@@ -526,6 +526,42 @@ chokepoint for the send decision.
 
 ---
 
+## Table: faq_seed_runs
+
+One row per FAQ seed run for one client, and the lock that stops two running at once.
+Written only by `POST /api/operator/faq-seed`. Service-role only.
+
+Fields:
+  id
+  organisation_id      FK organisations, ON DELETE CASCADE
+  state                'running' | 'completed' | 'failed'
+  started_at
+  finished_at
+  candidates_created   how many pending candidates the run wrote
+  started_by_user_id   FK auth.users
+  error_message
+
+**The lock is an index, not a check.** `faq_seed_runs_one_live_per_org` is UNIQUE on
+`organisation_id` WHERE `state = 'running'`, so a second concurrent run's INSERT raises
+23505 rather than two runs both reading "none in progress" and both paying for an Opus
+call. A claim older than ten minutes is taken over, because a route killed at Vercel's
+300s ceiling would otherwise hold it for ever.
+
+**Why not a claim row in `agent_runs`.** `agent_runs` already allows `status = 'running'`
+and is already reaped, so it was the obvious host. The seed agent writes its OWN
+completed-or-failed row at the end of every run, so a claim row there would make every
+run appear in `agent_runs` twice and anyone counting runs would be wrong. `agent_runs`
+stays the agent's history (ADR-029); this table is the lock and the operator-facing
+record.
+
+**Privileges, read back live on 2026-09-21 in both directions:** RLS enabled with zero
+policies, `service_role` holds all eight privileges, `anon` and `authenticated` hold
+none. The grants are revoked BY NAME as well as from PUBLIC, because Supabase's
+ALTER DEFAULT PRIVILEGES grants those two roles explicitly and a REVOKE FROM PUBLIC
+alone would be a silent no-op.
+
+---
+
 ## Table: meetings
 
 One row per meeting booked.
