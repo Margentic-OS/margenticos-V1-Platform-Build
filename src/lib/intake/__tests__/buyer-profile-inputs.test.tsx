@@ -387,7 +387,9 @@ describe('the reworded questions say what was asked for', () => {
       'What would make you sit in a booked meeting and think, this was a waste of my time?',
     )
     expect(BUYER_PROFILE_QUESTIONS.disqualifiers.helpText).toBe(
-      'Whatever you put here becomes a rule we apply before a name ever reaches you.',
+      'This shapes who we look for, and how each prospect is judged before they reach ' +
+      'your list. What can be checked from public information becomes a filter. The rest ' +
+      'we cannot confirm until someone replies.',
     )
     expect(screen.getByText(BUYER_PROFILE_QUESTIONS.disqualifiers.label)).toBeInTheDocument()
     expect(screen.getByText(BUYER_PROFILE_QUESTIONS.disqualifiers.helpText!))

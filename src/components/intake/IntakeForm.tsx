@@ -71,7 +71,10 @@ export default function IntakeForm({
   const [dispatchStatus, setDispatchStatus] = useState<'idle' | 'pending' | 'succeeded' | 'failed'>(
     alreadyDispatched ? 'succeeded' : 'idle'
   )
-  const [voiceTab, setVoiceTab] = useState<'upload' | 'type'>('upload')
+  // Typing is the default tab. The paragraph above it asks the client to paste writing
+  // they have already produced, and opening on the file picker asks for a different and
+  // larger action than the one the copy requests.
+  const [voiceTab, setVoiceTab] = useState<'upload' | 'type'>('type')
   const hasDispatchedRef = useRef(alreadyDispatched)
 
   // Called by the "Generate my strategy documents" button only.
@@ -234,7 +237,7 @@ export default function IntakeForm({
             Thin answers produce generic documents.
           </p>
           <p className="text-xs text-text-secondary leading-relaxed mb-3">
-            If you can, speak your answers rather than type them — people say 3x more when
+            If you can, speak your answers rather than type them. People say 3x more when
             talking than typing, and that extra detail is what makes the difference.
             We recommend using a dictation tool to make this easier.
           </p>
@@ -331,7 +334,7 @@ export default function IntakeForm({
                     {/* Dictation nudge */}
                     {question.dictation && (
                       <p className="text-[10px] text-text-muted mb-3">
-                        Speak this one if you can — it&apos;ll take 60 seconds and give us much more to work with.
+                        Speak this one if you can. It&apos;ll take 60 seconds and give us much more to work with.
                       </p>
                     )}
 
@@ -396,7 +399,7 @@ export default function IntakeForm({
                     {shortAnswerKeys.has(question.fieldKey) && (
                       <div className="mt-3 px-3 py-2 bg-[#FEF7E6] border border-[#F0D080] rounded-[6px]">
                         <p className="text-xs text-[#7A4800]">
-                          That&apos;s a short answer for a critical question — can you add a bit more? Even two or three more sentences will help.
+                          That&apos;s a short answer for a critical question. Can you add a bit more? Even two or three more sentences will help.
                         </p>
                       </div>
                     )}
