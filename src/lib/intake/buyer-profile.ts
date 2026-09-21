@@ -46,6 +46,7 @@ import {
   isProviderSeniorityBand,
   type ProviderSeniorityBand,
 } from '@/lib/sourcing/handlers/provider-seniority'
+import { findCountryOption, selectableCountries } from '@/lib/sourcing/country-code'
 
 // ─── The typed row ───────────────────────────────────────────────────────────
 
@@ -57,7 +58,13 @@ import {
  * its own rather than rows in the EAV store.
  */
 export interface BuyerProfile {
-  /** Q1. One country per entry, the client's own wording, in the order they added them. */
+  /**
+   * Q1. One country per entry, chosen from COUNTRY_OPTIONS, in the order they added them.
+   *
+   * WAS FREE TEXT AND IS NOT ANY MORE. The first client to answer this typed three countries
+   * into one entry, and the stored value was a single string naming all three, which resolves
+   * to no country at all. See COUNTRY_OPTIONS.
+   */
   target_countries: string[]
   /** Q2. Both set or both null. The database CHECK forbids answering only half of it. */
   buyer_headcount_min: number | null
@@ -66,7 +73,15 @@ export interface BuyerProfile {
   buyer_job_titles: string[]
   /** Q3, second half. Provider tokens, validated against the one list of them. */
   buyer_seniority_bands: ProviderSeniorityBand[]
-  /** Q4. Who receives the email. */
+  /**
+   * Q4. NO LONGER COLLECTED. The question that wrote it was deleted, not the column.
+   *
+   * It asked "who should we email first", which is the question the job titles field already
+   * asks, and the one person who has answered this form could not tell the two apart. The
+   * field stays on the interface so a row that already holds a value round-trips through the
+   * form unchanged rather than being blanked by a save the client did not intend. Whether to
+   * drop the column is a decision with live data behind it and is not this session's to make.
+   */
   first_contact_role: string
   /** Q4. null is "not answered", which is not the same state as false. */
   signoff_required: boolean | null
@@ -141,6 +156,65 @@ export const SENIORITY_OPTIONS: readonly SeniorityOption[] = PROVIDER_SENIORITY_
   band => ({ value: band, label: SENIORITY_LABELS[band] }),
 )
 
+// ─── Country options ─────────────────────────────────────────────────────────
+
+/**
+ * The countries a client can choose, derived from the platform's own alias table.
+ *
+ * ─── WHY THIS IS A CLOSED LIST AND NOT A TEXT BOX ────────────────────────────
+ *
+ * The first real client to answer this question typed three countries into one entry. What
+ * was stored was one string naming all three, and the whole point of a text[] column is that
+ * its length is the number of answers. That value is not merely untidy: nothing downstream can
+ * read it. toIso2CountryCode resolves one country name, and the geography derivation REFUSES
+ * anything that does not resolve, so a combined string would stop a filter-spec derivation
+ * days later, attached to a sourcing run rather than to the form that produced it.
+ *
+ * A closed list makes the bad value unrepresentable rather than merely discouraged. There is
+ * no keystroke that puts a comma-separated string into one entry, because there is no
+ * keystroke that puts anything into an entry: a client picks, and each pick is one entry.
+ *
+ * ─── WHY THE NAME IS STORED AND NOT THE CODE ─────────────────────────────────
+ *
+ * Both are canonical and either would resolve. The name is stored because two live consumers
+ * read this value as WORDS rather than as an identifier: it is interpolated into the ICP
+ * prompt as the binding value of company_profile.geography, which lands in a document a client
+ * reads, and a single stated country becomes the geography term appended to a web search
+ * query. A two-letter code is worse at both jobs and better at neither, since the code is one
+ * function call away wherever a comparison needs it.
+ *
+ * RULE ZERO: this names countries, and a country list is not a client assumption. It is the
+ * platform's existing jurisdiction vocabulary, read from the one module that owns it, offered
+ * whole and unranked. No entry here is preferred, defaulted or suggested.
+ */
+export const COUNTRY_OPTIONS = selectableCountries()
+
+/**
+ * Keep only entries that name a country this platform recognises, in canonical spelling.
+ *
+ * Mirrors normaliseSeniorityBands exactly, and for the same reason: the control can no longer
+ * produce anything else, so a value that is not a country arrived from a stale row or from a
+ * request that did not come through the form, and neither is a reason to store something the
+ * geography derivation will refuse. Deduplicated BY CODE rather than by string, so two
+ * spellings of one country cannot both survive.
+ *
+ * DROPPING IS DELIBERATE, AND IT IS THE NARROWER HARM. Preserving an unresolvable value keeps
+ * a string nothing can read and that stops a derivation; dropping it leaves the question
+ * visibly unanswered, which is a state the form already knows how to show and a client can
+ * fix. The one existing row holding such a value is repaired directly rather than by this
+ * function, because a silent repair on read is indistinguishable from data loss.
+ */
+export function normaliseCountries(values: readonly string[]): string[] {
+  const byCode = new Map<string, string>()
+  for (const raw of values) {
+    const option = findCountryOption(raw)
+    if (!option) continue
+    if (byCode.has(option.code)) continue
+    byCode.set(option.code, option.name)
+  }
+  return [...byCode.values()]
+}
+
 // ─── Question wording ────────────────────────────────────────────────────────
 
 export interface BuyerProfileQuestion {
@@ -176,31 +250,85 @@ export const BUYER_PROFILE_QUESTIONS = {
     id: 'buyer_seniority_bands',
     label: 'Seniority we will target',
   },
-  firstContact: {
-    id: 'first_contact_role',
-    label: 'Who should we email first?',
-    helpText: 'This is who receives the email. Not necessarily who signs the cheque.',
-  },
+  // WHERE "WHO SHOULD WE EMAIL FIRST?" USED TO BE.
+  //
+  // Deleted, not reworded. It asked the same thing as the job titles question above it in
+  // different words, and the first person to answer this form could not tell what it wanted.
+  // Two questions competing to collect one answer get two answers that disagree, and nothing
+  // downstream can tell which of them the client meant.
+  //
+  // What was worth keeping is the SECOND half of it, which asks something no other question
+  // asks: whether the buyer can act alone. That now hangs off the buyer already described
+  // rather than introducing a person of its own.
   signoffRequired: {
     id: 'signoff_required',
-    label: "Does that person need someone else's sign-off to buy?",
+    label: 'Can the person you just described approve this spend on their own?',
   },
   signoffRole: {
     id: 'signoff_role',
-    label: 'Who?',
+    label: 'Whose?',
     helpText:
-      'We will not email them. Knowing they exist changes how the emails are written, ' +
-      'because your buyer has to sell it internally.',
+      'We will not email that person. It changes how the emails are written, because your ' +
+      'buyer has to make the case internally.',
   },
   disqualifiers: {
     id: 'disqualifiers',
-    label: 'Who fits everything above and you would still turn away?',
+    label:
+      'What would make you sit in a booked meeting and think, this was a waste of my time?',
     helpText:
-      'For example: already has someone doing this, in a sector you avoid, at a stage ' +
-      'where they will not buy, or anyone at a competitor. These become rules we apply ' +
-      'before you ever see the name.',
+      'Whatever you put here becomes a rule we apply before a name ever reaches you.',
   },
 } as const satisfies Record<string, BuyerProfileQuestion>
+
+// ─── The two sign-off answers ────────────────────────────────────────────────
+
+/**
+ * The answers to the sign-off question, each carrying the value it stores.
+ *
+ * ─── THE POLARITY IS INVERTED FROM THE QUESTION IT REPLACED, AND THAT IS THE POINT ───
+ *
+ * The old question asked whether sign-off IS needed, so "yes" meant true. This one asks
+ * whether the buyer can approve ALONE, so "yes" means signoff_required is FALSE. The storage
+ * did not change and deliberately was not changed: signoff_required still means what it says,
+ * and every existing row still reads correctly.
+ *
+ * That inversion is exactly the kind of thing a component expresses as two onClick handlers
+ * with a hand-written boolean in each, where getting one backwards is invisible on screen and
+ * silently flips what the prompt is told about this client. So the pairing is DATA, asserted
+ * in a test that names both directions, and the component reads it rather than restating it.
+ */
+export interface SignoffAnswer {
+  label: string
+  /** What selecting this answer stores in signoff_required. */
+  signoffRequired: boolean
+}
+
+export const SIGNOFF_ANSWERS: readonly SignoffAnswer[] = [
+  { label: 'Yes', signoffRequired: false },
+  { label: "They need someone else's sign-off", signoffRequired: true },
+]
+
+// ─── The shape of a list, said out loud ──────────────────────────────────────
+
+/**
+ * The line shown above every list the client adds to.
+ *
+ * ─── WHY A SENTENCE AND NOT A BETTER BUTTON ──────────────────────────────────
+ *
+ * A single empty text box looks exactly like a box that takes the whole answer, because that
+ * is what a single empty text box is everywhere else in this form. "Add another" sat BELOW it
+ * and was read, reasonably, as an afterthought for people with more to say rather than as the
+ * shape of the control. The first client to meet it typed three answers into the one box.
+ *
+ * So the shape is stated before the first row rather than implied after it, the rows are
+ * numbered so that one row visibly means one answer, and the button names what it produces.
+ * None of the three works alone: a number on a single row is just a decoration, and a sentence
+ * above a control that still looks like a paragraph box is a sentence that loses.
+ *
+ * RULE ZERO: names no industry, title, sector, country or company, and gives no example of
+ * what to put in a row. It describes the control, not the answer.
+ */
+export const LIST_INPUT_HINT = 'One per row. Add a row for each one.'
 
 // ─── Normalisation ───────────────────────────────────────────────────────────
 

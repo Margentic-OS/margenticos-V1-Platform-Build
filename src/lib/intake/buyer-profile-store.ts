@@ -12,6 +12,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   EMPTY_BUYER_PROFILE,
+  normaliseCountries,
   normaliseList,
   normaliseSeniorityBands,
   type BuyerProfile,
@@ -48,6 +49,11 @@ function text(value: unknown): string {
 export function rowToBuyerProfile(row: Record<string, unknown> | null | undefined): BuyerProfile {
   if (!row) return { ...EMPTY_BUYER_PROFILE }
   return {
+    // DELIBERATELY NOT filtered against the country list on the way out, unlike the bands
+    // below. A stored value that is not a country is one a client typed before this question
+    // became a closed list, and hiding it on read would show them an unanswered question they
+    // are certain they answered. Rendering it as a chip they can remove is the honest version,
+    // and the write path stops it being stored again.
     target_countries: stringArray(row.target_countries),
     buyer_headcount_min: integerOrNull(row.buyer_headcount_min),
     buyer_headcount_max: integerOrNull(row.buyer_headcount_max),
@@ -65,15 +71,19 @@ export function rowToBuyerProfile(row: Record<string, unknown> | null | undefine
 /**
  * What gets written, given what the form submitted.
  *
- * Lists are trimmed and deduplicated, bands are filtered to ones the provider honours, and
- * signoff_role is CLEARED when sign-off is not required: leaving it would store an answer to a
- * question the client has since said does not apply, and a later reader cannot tell a stale
- * answer from a current one.
+ * Free-text lists are trimmed and deduplicated, countries are filtered to ones this platform
+ * recognises, bands are filtered to ones the provider honours, and signoff_role is CLEARED when
+ * sign-off is not required: leaving it would store an answer to a question the client has since
+ * said does not apply, and a later reader cannot tell a stale answer from a current one.
  */
 export function buyerProfileToRow(profile: BuyerProfile): Record<string, unknown> {
   const signoffRequired = profile.signoff_required
   return {
-    target_countries: normaliseList(profile.target_countries),
+    // Countries are validated against the closed list, NOT merely trimmed. The control cannot
+    // produce anything else, so this is the layer that holds when the request did not come
+    // through the control: a server action is a public entry point and a browser is not the
+    // only thing that can reach one. Same shape as the seniority bands on the line below.
+    target_countries: normaliseCountries(profile.target_countries),
     buyer_headcount_min: profile.buyer_headcount_min,
     buyer_headcount_max: profile.buyer_headcount_max,
     buyer_job_titles: normaliseList(profile.buyer_job_titles),
