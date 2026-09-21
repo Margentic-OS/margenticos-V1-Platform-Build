@@ -6,10 +6,11 @@
 // four document-generation agents automatically and these answers are collected ahead of the
 // work that reads them. src/lib/intake/buyer-profile.ts carries the full reasoning.
 //
-// It also needs four controls the generic renderer does not have: a list the client adds to,
-// a pair of integer inputs, a multi-select, and a field shown only when another answer is
-// yes. Adding four members to FieldType to express controls that appear in one section each
-// would put that complexity in the shared renderer for every question to carry.
+// It also needs five controls the generic renderer does not have: a list the client adds to,
+// a pair of integer inputs, a fixed-set multi-select, a searchable multi-select over a closed
+// list, and a field shown only when another answer takes one value. Adding five members to
+// FieldType to express controls that appear in one section each would put that complexity in
+// the shared renderer for every question to carry.
 //
 // SAVING. The whole row is written whenever one answer commits: on blur for text, immediately
 // for a toggle or a list edit. The store is a single row keyed by organisation, so there is no
@@ -23,7 +24,10 @@ import { useState, useCallback } from 'react'
 import { saveBuyerProfile } from '@/app/intake/buyer-profile-actions'
 import {
   BUYER_PROFILE_QUESTIONS,
+  COUNTRY_OPTIONS,
+  LIST_INPUT_HINT,
   SENIORITY_OPTIONS,
+  SIGNOFF_ANSWERS,
   parseHeadcount,
   type BuyerProfile,
 } from '@/lib/intake/buyer-profile'
@@ -61,6 +65,17 @@ function Label({ text, help }: { text: string; help?: string }) {
  * Entries are held as a plain array including blanks while the client is typing, and cleaned
  * on the way to the database. A row that is empty is still a row on screen, because removing
  * it as soon as it is cleared would delete the input under the cursor.
+ *
+ * ─── THE SHAPE OF A LIST IS STATED, NOT IMPLIED ──────────────────────────────
+ *
+ * This control rendered as one empty text box with "Add another" underneath, which is what a
+ * paragraph question looks like in this same form, and it was read that way: the first client
+ * to meet it put three answers in the first box. Three things now say list before anything is
+ * typed, and the reasoning for all three is on LIST_INPUT_HINT.
+ *
+ * The number is rendered as its own element beside the input rather than as placeholder text
+ * inside it, because placeholder text disappears the moment the client starts typing, which is
+ * the exact moment they are deciding how much to put in the box.
  */
 function ListInput({
   id,
@@ -77,8 +92,15 @@ function ListInput({
 
   return (
     <div className="space-y-2">
+      <p className="text-[11px] text-text-muted leading-relaxed">{LIST_INPUT_HINT}</p>
       {rows.map((entry, index) => (
-        <div key={index} className="flex gap-2">
+        <div key={index} className="flex gap-2 items-center">
+          <span
+            aria-hidden="true"
+            className="w-5 shrink-0 text-[11px] text-text-muted tabular-nums text-right"
+          >
+            {index + 1}.
+          </span>
           <input
             type="text"
             aria-label={`${id} entry ${index + 1}`}
@@ -110,10 +132,108 @@ function ListInput({
       <button
         type="button"
         onClick={() => onChange([...rows, ''])}
-        className="text-[11px] text-brand-green hover:opacity-80 transition-opacity min-h-[44px] touch-manipulation"
+        className="flex items-center gap-1.5 px-3 py-2 text-[11px] text-brand-green border border-brand-green rounded-[6px] hover:opacity-80 transition-opacity min-h-[44px] touch-manipulation"
       >
-        Add another
+        <span aria-hidden="true">+</span>
+        Add another row
       </button>
+    </div>
+  )
+}
+
+/**
+ * The countries this client sells into, picked from a closed list.
+ *
+ * ─── WHY A SEARCH BOX THAT STORES NOTHING ────────────────────────────────────
+ *
+ * The text in the search box is never an answer and never reaches the database. It filters the
+ * options underneath it and is cleared as soon as one is picked. That is what makes the
+ * failure this replaces unrepresentable rather than merely discouraged: a client who types
+ * three country names separated by commas matches no option, so there is no control state in
+ * which that string becomes an entry. COUNTRY_OPTIONS carries the rest of the reasoning.
+ *
+ * ─── WHY NOT A NATIVE <select multiple> ──────────────────────────────────────
+ *
+ * Forty-nine options is more than a native multiple-select shows without scrolling, it offers
+ * no way to search, and selecting a second option on a desktop browser requires knowing to
+ * hold a modifier key. The control that already exists in this section for a fixed set is the
+ * seniority pill row, and this is the same idea with a filter in front of it because the set is
+ * an order of magnitude bigger.
+ */
+function CountryMultiSelect({
+  selected,
+  onChange,
+}: {
+  selected: string[]
+  onChange: (next: string[]) => void
+}) {
+  const [query, setQuery] = useState('')
+
+  const alreadyChosen = new Set(selected.map(name => name.toLowerCase()))
+  const needle = query.trim().toLowerCase()
+  const matches = COUNTRY_OPTIONS.filter(
+    option =>
+      !alreadyChosen.has(option.name.toLowerCase()) &&
+      option.name.toLowerCase().includes(needle),
+  )
+
+  return (
+    <div className="space-y-3">
+      {selected.length > 0 && (
+        <ul aria-label="Countries you have chosen" className="flex gap-2 flex-wrap">
+          {selected.map(name => (
+            <li key={name}>
+              <span className="inline-flex items-center gap-1.5 px-3 py-2 text-[11px] rounded-[20px] bg-brand-green text-[#F5F0E8]">
+                {name}
+                <button
+                  type="button"
+                  aria-label={`Remove ${name}`}
+                  onClick={() => onChange(selected.filter(chosen => chosen !== name))}
+                  className="text-[13px] leading-none touch-manipulation"
+                >
+                  &times;
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <input
+        type="search"
+        aria-label="Search for a country to add"
+        placeholder="Search for a country, then pick it"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        className={inputBase}
+      />
+
+      {matches.length > 0 ? (
+        <ul
+          aria-label="Countries you can add"
+          className="max-h-48 overflow-y-auto flex gap-2 flex-wrap"
+        >
+          {matches.map(option => (
+            <li key={option.code}>
+              <button
+                type="button"
+                onClick={() => {
+                  onChange([...selected, option.name])
+                  setQuery('')
+                }}
+                className={pill(false)}
+              >
+                {option.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[11px] text-text-muted leading-relaxed">
+          Nothing matches that. Countries are added one at a time: search for one and pick
+          it, then search again for the next.
+        </p>
+      )}
     </div>
   )
 }
@@ -181,14 +301,12 @@ export default function BuyerProfileSection({
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Q1 — countries */}
+      {/* Q1 — countries, picked from a closed list rather than typed */}
       <div className={cardBase}>
         <Label text={q.countries.label} help={q.countries.helpText} />
-        <ListInput
-          id={q.countries.id}
-          entries={profile.target_countries}
-          onChange={next => setProfile({ ...profile, target_countries: next })}
-          onCommit={() => commit(profile)}
+        <CountryMultiSelect
+          selected={profile.target_countries}
+          onChange={next => commit({ ...profile, target_countries: next })}
         />
       </div>
 
@@ -251,36 +369,33 @@ export default function BuyerProfileSection({
         </div>
       </div>
 
-      {/* Q4 — first contact, and whether they need sign-off */}
+      {/* Q4 — whether the buyer described above can act alone.
+          THE "WHO SHOULD WE EMAIL FIRST?" INPUT THAT STOOD HERE IS DELETED, not hidden. It
+          collected the same answer as the job titles question and was not understood. The
+          column it wrote is untouched and its stored value rides through this form unchanged,
+          so nothing a client does here blanks an answer they gave before.
+          THE ANSWERS ARE INVERTED relative to the question this replaces, and the pairing is
+          read from SIGNOFF_ANSWERS rather than written out here. "Yes" means the buyer can
+          approve alone, which is signoff_required = false. */}
       <div className={cardBase}>
-        <Label text={q.firstContact.label} help={q.firstContact.helpText} />
-        <input
-          type="text"
-          aria-label={q.firstContact.label}
-          value={profile.first_contact_role}
-          onChange={e => setProfile({ ...profile, first_contact_role: e.target.value })}
-          onBlur={() => commit(profile)}
-          className={inputBase}
-        />
-
-        <div className="mt-5">
-          <Label text={q.signoffRequired.label} />
-          <div className="flex gap-2">
-            {([['Yes', true], ['No', false]] as const).map(([text, value]) => (
-              <button
-                key={text}
-                type="button"
-                aria-pressed={profile.signoff_required === value}
-                onClick={() => commit({ ...profile, signoff_required: value })}
-                className={pill(profile.signoff_required === value)}
-              >
-                {text}
-              </button>
-            ))}
-          </div>
+        <Label text={q.signoffRequired.label} />
+        <div className="flex gap-2 flex-wrap">
+          {SIGNOFF_ANSWERS.map(answer => (
+            <button
+              key={answer.label}
+              type="button"
+              aria-pressed={profile.signoff_required === answer.signoffRequired}
+              onClick={() =>
+                commit({ ...profile, signoff_required: answer.signoffRequired })
+              }
+              className={pill(profile.signoff_required === answer.signoffRequired)}
+            >
+              {answer.label}
+            </button>
+          ))}
         </div>
 
-        {/* Shown only when sign-off is required. */}
+        {/* Shown only when the client says someone else has to sign off. */}
         {profile.signoff_required === true && (
           <div className="mt-5">
             <Label text={q.signoffRole.label} help={q.signoffRole.helpText} />
