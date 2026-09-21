@@ -240,12 +240,16 @@ export async function POST(request: NextRequest) {
     // charged against the same window. Tiering that runs long shortens the verification run
     // instead of pushing it past the deadline.
     const periodMs = await readCronPeriodMs(supabase, MONITOR_SLUG)
-    const deadlineAt = requestStartedAt + runBudgetMs(periodMs)
+    const budgetMs = runBudgetMs(periodMs)
+    const deadlineAt = requestStartedAt + budgetMs
 
     logger.info('verify-pending: run window', {
       organisation_id: organisationId,
       cron_period_ms: periodMs,
-      budget_ms: runBudgetMs(periodMs),
+      budget_ms: budgetMs,
+      // A null period means the schedule could not be read and the compiled budget was used.
+      // Logged beside the value so a derived window and a fallback one are distinguishable.
+      budget_source: periodMs === null ? 'compiled fallback' : 'derived from the cron period',
       ms_already_spent: Date.now() - requestStartedAt,
     })
 
