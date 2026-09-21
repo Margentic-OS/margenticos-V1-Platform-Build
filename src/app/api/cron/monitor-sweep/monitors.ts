@@ -145,4 +145,11 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // This closes one hole, not the class. Everything else the product does in a browser is
   // still unobserved.
   ['MON-032', 'mon_032'],
+
+  // A prospect assigned to a variant the live messaging document no longer contains.
+  // Before MON-033 this was a logger.warn to stdout, and the logger has no Sentry wiring,
+  // so a document short a variant moved live prospects with nothing to say it had. The
+  // view reads prospects.variant_reassigned_at, which resolveVariant writes at the moment
+  // it moves one, so the monitor reads state rather than a log line.
+  ['MON-033', 'mon_033'],
 ] as const

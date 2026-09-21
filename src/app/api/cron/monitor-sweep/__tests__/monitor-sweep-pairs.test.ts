@@ -106,3 +106,46 @@ describe('monitor-sweep monitor registry', () => {
     ).toBe(true)
   })
 })
+// PIECE 3: MON-033, the reassignment monitor.
+//
+// The warning that a prospect had been moved off a missing variant went to stdout. The
+// logger has no Sentry wiring, so a document short a variant moved live prospects and
+// nothing surfaced it. MON-033 reads prospects.variant_reassigned_at, which resolveVariant
+// writes at the moment it moves one, so the monitor reads STATE rather than a log line.
+describe('MON-033 is registered and its view exists', () => {
+  const migrationsDir = join(process.cwd(), 'supabase', 'migrations')
+  const MIGRATION = '20260921120000_variant_reassignment_record_and_mon_033.sql'
+  const sql = () => readFileSync(join(migrationsDir, MIGRATION), 'utf-8')
+
+  it('is in the registry, paired with its view', () => {
+    expect(MONITORS).toContainEqual(['MON-033', 'mon_033'])
+  })
+
+  it('the migrations create the view it names', () => {
+    expect(sql()).toMatch(/CREATE OR REPLACE VIEW public\.mon_033/)
+  })
+
+  // The view is useless without the column, and the column is useless unless the write
+  // path sets it. Both are asserted here so the pair cannot drift apart.
+  it('the same migration adds the columns the view reads', () => {
+    expect(sql()).toContain('variant_reassigned_from')
+    expect(sql()).toContain('variant_reassigned_at')
+  })
+
+  it('and compose-sequence actually writes them', () => {
+    const src = readFileSync(
+      join(migrationsDir, '..', '..', 'src', 'lib', 'composition', 'compose-sequence.ts'),
+      'utf-8',
+    )
+    expect(src).toContain('variant_reassigned_from')
+    expect(src).toContain('variant_reassigned_at')
+  })
+
+  // Service role only. RLS is one layer and the GRANT is the other; a view runs as its
+  // owner unless security_invoker is set, so an anon grant here would be a read straight
+  // past RLS on prospects.
+  it('is revoked from anon and authenticated, and granted to service_role', () => {
+    expect(sql()).toMatch(/REVOKE ALL ON public\.mon_033 FROM anon, authenticated/)
+    expect(sql()).toMatch(/GRANT SELECT ON public\.mon_033 TO service_role/)
+  })
+})

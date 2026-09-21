@@ -753,9 +753,6 @@ async function resolveVariant(
   client_id: string,
   messagingDocId: string
 ): Promise<string> {
-  // If already assigned, use it — never reassign.
-  if (prospect.variant_id) return prospect.variant_id
-
   // Determine available variant keys from the messaging document.
   const availableVariants = messagingDoc.variants
     ? Object.keys(messagingDoc.variants).sort()
@@ -763,6 +760,63 @@ async function resolveVariant(
 
   if (availableVariants.length === 0) {
     throw new Error('compose-sequence: messaging document has no variants to assign.')
+  }
+
+  // If already assigned AND the document still has that variant, use it. Never reassign a
+  // prospect whose variant is present: the assignment is what keeps their researched
+  // opening pointed at the offer line it was written for.
+  if (prospect.variant_id && availableVariants.includes(prospect.variant_id)) {
+    return prospect.variant_id
+  }
+
+  // ─── The variant is gone from the document ────────────────────────────────
+  //
+  // This used to fall through to getVariantEmails, which could not find the variant,
+  // logged a warning to stdout and returned THE FIRST VARIANT'S EMAILS. The prospect's
+  // researched opening was written against the missing variant's offer line and shipped
+  // above a different one, and nothing downstream could tell: the logger has no Sentry
+  // wiring, no monitor read it, and the approval screen never showed a variant count.
+  //
+  // Reassigning deterministically across the survivors is not a fix for the document
+  // being short a variant. It makes the consequence CONSISTENT and VISIBLE instead of
+  // arbitrary and silent: the same prospect always lands in the same place, the move is
+  // recorded on the row, and MON-033 reports that it happened.
+  //
+  // THE RECORD IS THE POINT. variant_reassigned_from says WHICH variant they left, which
+  // is what makes a later re-research decision possible. Measured 2026-09-20 on the one
+  // real occurrence: all four offer lines promised the same thing, so the existing copy
+  // stayed correct and no re-run was needed. That was luck, not design, and the column is
+  // what lets the next person check rather than assume.
+  if (prospect.variant_id) {
+    const reassigned = assignVariantDeterministically(prospect.id, availableVariants)
+    logger.warn('compose-sequence: prospect reassigned off a variant the document no longer has', {
+      prospect_id: prospect.id,
+      client_id,
+      from: prospect.variant_id,
+      to: reassigned,
+      available: availableVariants,
+    })
+
+    const { error: moveError } = await supabase
+      .from('prospects')
+      .update({
+        variant_id: reassigned,
+        variant_reassigned_from: prospect.variant_id,
+        variant_reassigned_at: new Date().toISOString(),
+        messaging_doc_id: messagingDocId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', prospect.id)
+      .eq('organisation_id', client_id) // explicit isolation filter
+
+    if (moveError) {
+      throw new Error(
+        `compose-sequence: failed to reassign prospect ${prospect.id} off missing variant ` +
+        `"${prospect.variant_id}": ${moveError.message}`
+      )
+    }
+
+    return reassigned
   }
 
   // Deterministic assignment, shared with the research writer so both target the same
