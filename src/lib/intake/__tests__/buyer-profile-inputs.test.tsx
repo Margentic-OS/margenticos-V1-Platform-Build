@@ -123,6 +123,11 @@ describe('the countries control stores one country per entry', () => {
     fireEvent.click(screen.getByRole('button', { name: SECOND.name }))
 
     const stored = lastSavedRow().target_countries as string[]
+    // ANTI-VACUITY, and it was needed: the loop below passes over an empty array, and the
+    // joining mutation this test claims to catch produces exactly an empty array, because the
+    // write path drops the unresolvable entry. Without this line the test was green in the
+    // broken world and the mutation proof said so.
+    expect(stored, 'nothing was stored, so the loop below proves nothing').toHaveLength(2)
     for (const entry of stored) {
       expect(toIso2CountryCode(entry), `"${entry}" resolves to no country`).toMatch(
         /^[A-Z]{2}$/,
@@ -194,6 +199,32 @@ describe('a comma-separated string cannot be stored as one entry', () => {
     expect(saved).toHaveLength(0)
   })
 
+  it('pressing enter on a combined string stores nothing', () => {
+    // MUTATION-PROVED, AND THIS TEST EXISTS BECAUSE THE PROOF FAILED FIRST. The version of
+    // this file that shipped first asserted only that no option MATCHED the combined string,
+    // and never pressed a key. So a search box given an onKeyDown that pushes the raw query
+    // as an entry on Enter, which is the obvious well-meaning "let them type it" addition,
+    // left every test green. The assertion has to exercise the key, not the absence of a
+    // button.
+    renderSection()
+    const search = screen.getByLabelText('Search for a country to add')
+    fireEvent.change(search, { target: { value: `${FIRST.name}, ${SECOND.name}` } })
+    fireEvent.keyDown(search, { key: 'Enter', code: 'Enter' })
+    fireEvent.blur(search)
+    expect(saved).toHaveLength(0)
+  })
+
+  it('even an exactly correct country name stores nothing until it is picked', () => {
+    // The general form, and the stronger one: the text in the search box is never an answer,
+    // whether or not it happens to name a real country. Picking is the only way in.
+    renderSection()
+    const search = screen.getByLabelText('Search for a country to add')
+    fireEvent.change(search, { target: { value: FIRST.name } })
+    fireEvent.keyDown(search, { key: 'Enter', code: 'Enter' })
+    fireEvent.blur(search)
+    expect(saved).toHaveLength(0)
+  })
+
   it('the write path refuses a combined string even when the control is bypassed', () => {
     // A server action is a public entry point. The control is one layer and this is the other,
     // so a request that never went through a browser cannot store what the browser cannot.
@@ -234,9 +265,23 @@ describe('a comma-separated string cannot be stored as one entry', () => {
 
 // ─── 3. The sign-off field shows only when it is needed ──────────────────────
 
+// THE LABELS, NAMED LITERALLY, AND THAT IS THE WHOLE POINT OF THIS BLOCK.
+//
+// The first version of these tests derived them with
+//   SIGNOFF_ANSWERS.find(a => !a.signoffRequired)
+// which reads the very pairing it is meant to assert. Swapping the two booleans swapped the
+// expectation with them and EVERY TEST STAYED GREEN. The mutation proof caught it; reading
+// the file did not, twice.
+//
+// So the words a client actually reads are written out here, and the boolean each one stores
+// is asserted against that word. This is the one place in these tests where naming a string
+// rather than importing it is the correct choice: the claim IS about the string.
+const CAN_APPROVE_ALONE = 'Yes'
+const NEEDS_SIGNOFF = "They need someone else's sign-off"
+
 describe('the sign-off follow-up appears only when someone else has to sign off', () => {
-  const canApproveAlone = SIGNOFF_ANSWERS.find(a => !a.signoffRequired)!
-  const needsSignoff = SIGNOFF_ANSWERS.find(a => a.signoffRequired)!
+  const canApproveAlone = { label: CAN_APPROVE_ALONE }
+  const needsSignoff = { label: NEEDS_SIGNOFF }
 
   it('is absent before the question is answered', () => {
     renderSection()
@@ -260,29 +305,28 @@ describe('the sign-off follow-up appears only when someone else has to sign off'
       .toBeInTheDocument()
   })
 
-  it('THE POLARITY: answering yes stores that sign-off is NOT required', () => {
+  it('THE POLARITY: the answer a client reads as yes stores sign-off NOT required', () => {
     // The question was inverted by this change and the storage was not. Getting this backwards
     // is invisible on screen and tells the ICP prompt the opposite of what the client said.
     //
-    // MUTATION-PROVED: swapping the two booleans in SIGNOFF_ANSWERS fails this and the next
-    // test, and fails nothing else in the suite, which is exactly why both directions are
-    // asserted here rather than one.
+    // MUTATION-PROVED: swapping the two booleans in SIGNOFF_ANSWERS fails this and the next.
     renderSection()
-    fireEvent.click(screen.getByRole('button', { name: canApproveAlone.label }))
+    fireEvent.click(screen.getByRole('button', { name: CAN_APPROVE_ALONE }))
     expect(lastSavedRow().signoff_required).toBe(false)
   })
 
   it('THE POLARITY, the other way: needing sign-off stores true', () => {
     renderSection()
-    fireEvent.click(screen.getByRole('button', { name: needsSignoff.label }))
+    fireEvent.click(screen.getByRole('button', { name: NEEDS_SIGNOFF }))
     expect(lastSavedRow().signoff_required).toBe(true)
   })
 
-  it('the two answers are a yes and a no, so the pair above is not one answer twice', () => {
-    // Anti-vacuity: both tests above use `.find()`, and a SIGNOFF_ANSWERS holding two entries
-    // with the same boolean would make one of them silently assert on undefined.
+  it('those two labels are the ones the control actually offers', () => {
+    // Ties the literal strings above back to the module, so a REWORDED answer fails here
+    // rather than silently making both polarity tests unreachable by label.
+    expect(SIGNOFF_ANSWERS.map(a => a.label)).toEqual([CAN_APPROVE_ALONE, NEEDS_SIGNOFF])
     expect(SIGNOFF_ANSWERS).toHaveLength(2)
-    expect(SIGNOFF_ANSWERS.map(a => a.signoffRequired).sort()).toEqual([false, true])
+    expect([...SIGNOFF_ANSWERS].map(a => a.signoffRequired).sort()).toEqual([false, true])
   })
 })
 
