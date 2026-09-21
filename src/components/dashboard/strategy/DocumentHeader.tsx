@@ -40,13 +40,8 @@ export function DocumentHeader({ version, updatedAt, updateTrigger }: DocumentHe
           </span>
         </div>
 
-        {/* Living status */}
-        <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-green-success shrink-0" />
-          <span className="text-[11px] text-text-secondary">
-            Strategy is learning from campaign data
-          </span>
-        </div>
+        {/* No living-status line. It claimed the document learns from campaign data, and
+            nothing does. See StrategyPanelCard for the detail. */}
       </div>
     </div>
   )

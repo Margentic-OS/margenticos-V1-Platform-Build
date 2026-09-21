@@ -35,10 +35,12 @@ export function StrategyPanelCard({ documents, clientParam }: StrategyPanelCardP
   return (
     <div className="bg-surface-card border border-border-card rounded-[10px] p-5">
       <p className="text-[13px] font-medium text-text-primary mb-1">Strategy</p>
-      <div className="flex items-center gap-1.5 mb-5">
-        <span className="w-1.5 h-1.5 rounded-full bg-brand-green-success" />
-        <p className="text-[11px] text-text-secondary">Strategy is learning from campaign data</p>
-      </div>
+      {/* No "learning from campaign data" line. Nothing reads campaign signals back into
+          these documents: all four generation agents write signal_count: 0 with the note
+          "phase one — not yet populated", and the threshold logic that would consume them
+          is schema-only by decision (CLAUDE.md, feedback loop). The green dot said the
+          system was doing something it does not do. */}
+      <div className="mb-5" />
 
       <ul className="space-y-4">
         {DOCUMENT_ORDER.map((type) => {

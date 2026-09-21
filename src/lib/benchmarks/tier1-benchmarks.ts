@@ -205,10 +205,42 @@ export const TIER1_BENCHMARKS = {
 
   // A share OF replies, so its denominator is replies and always was. Unaffected by the
   // people-versus-emails question entirely.
+  //
+  // THE RANGE IS REMOVED, 2026-09-21, for the reason already applied twice in this file:
+  // "Aggregated B2B research" names no study. It cites itself.
+  //
+  //   WHERE 40 CAME FROM. Not research. prd/sections/11-warnings.md states our own alert
+  //   threshold, "flag if positive replies drop below 40% of total replies", and CLAUDE.md
+  //   repeats it. The lower bound of the "industry range" is our own operator threshold
+  //   reflected back at the client as though somebody had measured it. 65 has no trace
+  //   anywhere in this repository or its history.
+  //
+  //   SEARCHED 2026-09-21, and the candidates disagree with each other by 3x on the same
+  //   nominal quantity, which is the clearest evidence that no settled figure exists:
+  //
+  //     thedigitalbloom (2026)   48.30% positive, but for ONE hook type in their own test,
+  //                              not a population benchmark.
+  //     a 2M-email analysis      ~14% of replies positive. A third of the range's floor.
+  //     aggregator restatements  "40 to 60% of total replies", unattributed, which is the
+  //                              same self-citation wearing a different name.
+  //
+  //   None states a denominator definition we can match, and none is a primary source. So
+  //   the honest page shows the client's own share and says there is no published range,
+  //   exactly as meetingBookingRate and optOutRate already do.
+  //
+  // DO NOT re-add a range here without a primary source that defines what counts as a
+  // positive reply. Ours is POSITIVE_REPLY_INTENTS, a classification we make; a study that
+  // means something else by "positive" is not comparable even when the number looks close.
   positiveReplyRate: {
-    industryRange: { min: 40, max: 65 },
-    unit:           'replies',
-    sourceLabel:    'Aggregated B2B research',
-    sourceCitation: 'Aggregated B2B research',
+    industryRange: null,
+    unit:          'replies',
+    rangeAbsentNote:
+      'No published range. Published figures disagree by several times over, and each ' +
+      'counts a different thing as a positive reply.',
+    sourceLabel:    'No verified source',
+    sourceCitation:
+      'Removed 2026-09-21. The prior 40 to 65% range cited "Aggregated B2B research", ' +
+      'which names no study. The 40 traces to our own operator alert threshold in ' +
+      'prd/sections/11-warnings.md, not to a measurement.',
   } satisfies MetricBenchmark,
 } as const

@@ -363,15 +363,11 @@ export function DocumentsActiveState({
                   </a>
                 </p>
               </div>
-              {warmupStartedAt && (
-                <div className="flex items-center gap-1.5 mb-5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-brand-green-success" />
-                  <p className="text-[11px] text-text-secondary">
-                    Strategy is learning from campaign data
-                  </p>
-                </div>
-              )}
-              {!warmupStartedAt && <div className="mb-3" />}
+              {/* The "learning from campaign data" line was removed: no code reads campaign
+                  signals back into these documents. See StrategyPanelCard for the detail.
+                  The spacer is now unconditional, because the warmup branch existed only to
+                  decide whether to show that claim. */}
+              <div className="mb-3" />
 
               <ul className="space-y-4">
                 {DOCUMENT_ORDER.map((type) => {
