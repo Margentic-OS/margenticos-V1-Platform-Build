@@ -218,7 +218,7 @@ describe('a reply whose thread matches a sent email reaches the drafter', () => 
     expect(String(captured)).toContain('\n')
 
     // ── CONSUMER: the real orchestrator, handed the value the real poller produced ──
-    const draftReply = vi.fn(async () => ({
+    const draftReply = vi.fn(async (_input: { originalOutboundBody: string }) => ({
       draft_body: 'A drafted reply.',
       faq_ids_used: [],
       confidence: 0.8,
@@ -290,8 +290,8 @@ describe('a reply whose thread matches a sent email reaches the drafter', () => 
     expect(draftInserts[0]?.ai_draft_body).toBe('A drafted reply.')
 
     // And the drafter saw the real outbound copy, not an empty string.
-    const passed = draftReply.mock.calls[0][0] as unknown as { originalOutboundBody: string }
-    expect(passed.originalOutboundBody).toContain('We run outbound continuously')
+    const passed = draftReply.mock.calls[0]?.[0]
+    expect(passed?.originalOutboundBody).toContain('We run outbound continuously')
   })
 
   it('still records null, and does not invent a body, when no sent email matches the thread', async () => {
