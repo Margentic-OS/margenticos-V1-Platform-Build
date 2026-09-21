@@ -26,15 +26,22 @@
  *
  * DRY BY DEFAULT. Without --write it reports what it found and what it would do, and
  * makes no model call and no write, so the target can be checked before money is spent.
+ * The dry run performs every check the real run performs, the source-document provenance
+ * guard included, so a clean dry run means the repair would actually proceed.
+ *
+ * REFUSES IF THE SOURCE DOCUMENTS HAVE MOVED. A repair fills a slot alongside copy written
+ * from a known ICP, Positioning and TOV. If any of the three has been approved anew since,
+ * filling the slot is a partial regeneration rather than a repair, and the run stops.
  */
 
 import { createClient } from '@supabase/supabase-js'
 import {
   MAX_REPAIR_API_CALLS,
-  readSurvivingVariants,
+  loadRepairTarget,
   runMessagingVariantRepair,
+  verifyRepairContext,
 } from '@/agents/messaging-variant-repair-agent'
-import { variantFingerprints } from '@/lib/messaging/variant-payload'
+import { formatSourceVersions } from '@/lib/messaging/source-provenance'
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`)
@@ -53,28 +60,26 @@ async function main() {
 
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
-  const { data: row, error } = await supabase
-    .from('document_suggestions')
-    .select('id, organisation_id, document_type, field_path, status, suggested_value, created_at')
-    .eq('id', suggestionId)
-    .single()
+  // The SAME preflight the real run performs, not a second copy of it. Throws if the row
+  // is the wrong kind or not pending, if the target slot is already present, or if a
+  // survivor is malformed. All of it before any spend.
+  const target = await loadRepairTarget(supabase, suggestionId, variantKey)
 
-  if (error || !row) throw new Error(`could not read suggestion ${suggestionId}: ${error?.message ?? 'no row'}`)
-
-  console.log(`\nSuggestion ${row.id}`)
-  console.log(`  organisation  ${row.organisation_id}`)
-  console.log(`  type          ${row.document_type} / ${row.field_path}`)
-  console.log(`  status        ${row.status}`)
-  console.log(`  created       ${row.created_at}`)
-
-  // Throws if the target is already present or a survivor is malformed, before any spend.
-  const survivors = readSurvivingVariants(row.suggested_value as string | null, variantKey)
-  const before = variantFingerprints(row.suggested_value as string | null)
-
-  console.log(`\n  surviving variants: ${Object.keys(survivors).sort().join(', ')}`)
-  for (const key of [...before.keys()].sort()) {
-    console.log(`    ${key}  sha256 ${before.get(key)}`)
+  console.log(`\nSuggestion ${suggestionId}`)
+  console.log(`  organisation  ${target.organisation_id}`)
+  console.log(`\n  surviving variants: ${Object.keys(target.survivors).sort().join(', ')}`)
+  for (const key of [...target.fingerprintsBefore.keys()].sort()) {
+    console.log(`    ${key}  sha256 ${target.fingerprintsBefore.get(key)}`)
   }
+
+  // THE PROVENANCE GUARD RUNS IN THE DRY RUN TOO. Six database reads, no model call, so
+  // it costs nothing and proves the guard against live data rather than a fixture. A dry
+  // run that skipped it would report a repair as safe using a check the real run performs
+  // and it does not, which is worse than not checking at all.
+  const { sourceVersions } = await verifyRepairContext(supabase, target, variantKey)
+  console.log(`\n  source documents VERIFIED UNCHANGED since the survivors were written:`)
+  console.log(`    ${formatSourceVersions(sourceVersions)}`)
+
   console.log(`\n  would generate: ${variantKey}, budget ${MAX_REPAIR_API_CALLS} call(s)`)
 
   if (!write) {
@@ -87,10 +92,11 @@ async function main() {
   console.log(`\n  WROTE variant ${result.variant_key} (shipped angle: ${result.shipped_angle})`)
   console.log(`  api calls: ${result.api_calls_used}, duration ${Math.round(result.duration_ms / 1000)}s`)
   console.log(`  variants now: ${result.variants_after.join(', ')}`)
+  console.log(`  written against: ${formatSourceVersions(result.source_versions)}`)
   console.log('\n  POSITIVE CONTROL — surviving variants, read back from the database:')
   let allHeld = true
-  for (const key of [...before.keys()].sort()) {
-    const held = result.preserved_fingerprints[key] === before.get(key)
+  for (const key of [...target.fingerprintsBefore.keys()].sort()) {
+    const held = result.preserved_fingerprints[key] === target.fingerprintsBefore.get(key)
     if (!held) allHeld = false
     console.log(`    ${key}  ${held ? 'UNCHANGED' : 'CHANGED'}  ${result.preserved_fingerprints[key]}`)
   }

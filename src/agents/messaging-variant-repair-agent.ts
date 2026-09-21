@@ -46,6 +46,12 @@ import {
   variantFingerprints,
   VariantPayloadWriteError,
 } from '@/lib/messaging/variant-payload'
+import {
+  assertSourceVersionsUnchanged,
+  formatSourceVersions,
+  SourceProvenanceError,
+  type SourceVersions,
+} from '@/lib/messaging/source-provenance'
 
 /**
  * How many model calls one repair may spend.
@@ -80,6 +86,8 @@ export interface MessagingVariantRepairResult {
   api_calls_used: number
   shipped_angle: string
   duration_ms: number
+  /** The source document versions BOTH the survivors and this variant were written against. */
+  source_versions: SourceVersions
 }
 
 export class VariantRepairError extends Error {
@@ -183,17 +191,30 @@ export function seedFromSurvivingVariants(
 /**
  * Generates one missing variant into an existing pending messaging suggestion.
  */
-export async function runMessagingVariantRepair(input: {
-  suggestion_id: string
-  variant_key: string
-  supabase: SupabaseClient
-}): Promise<MessagingVariantRepairResult> {
-  const { suggestion_id, variant_key, supabase } = input
-  const startedAt = Date.now()
+/** What the preflight established, before any model call is made. */
+export interface RepairTarget {
+  organisation_id: string
+  /** The row's suggested_value exactly as the database holds it. */
+  before: string | null
+  suggestion_reason: string | null
+  survivors: Record<string, EmailRecord[]>
+  fingerprintsBefore: Map<string, string>
+}
 
-  logger.info('Variant repair: starting', { suggestion_id, variant_key })
-
-  // ── 1. Load the row and refuse anything this path is not for ───────────────
+/**
+ * Every check that can be made without spending a model call: the row is the right kind
+ * and still pending, the target slot is missing, the survivors are intact, and they are
+ * fingerprinted.
+ *
+ * SHARED WITH THE DRY RUN, deliberately. A dry run that re-implemented these checks would
+ * be a second list to keep in step by hand, and the failure mode is the worst kind: the
+ * dry run reports a repair is safe using checks the real run no longer performs.
+ */
+export async function loadRepairTarget(
+  supabase: SupabaseClient,
+  suggestion_id: string,
+  variant_key: string,
+): Promise<RepairTarget> {
   const { data: row, error: readError } = await supabase
     .from('document_suggestions')
     .select('id, organisation_id, document_type, field_path, status, suggested_value, suggestion_reason')
@@ -217,7 +238,7 @@ export async function runMessagingVariantRepair(input: {
     )
   }
   // A repair edits copy an operator is currently deciding on. Editing a row that has
-  // already been approved or rejected would change the record of what was decided.
+  // already been approved, rejected or superseded would change the record of what was decided.
   if (row.status !== 'pending') {
     throw new VariantRepairError(
       `Suggestion ${suggestion_id} is ${row.status}, not pending. A repair only ever edits ` +
@@ -231,12 +252,65 @@ export async function runMessagingVariantRepair(input: {
     )
   }
 
-  const organisation_id = row.organisation_id as string
   const before = row.suggested_value as string | null
 
-  // ── 2. The positive control's BEFORE reading, taken from the database bytes ─
-  const survivors = readSurvivingVariants(before, variant_key)
-  const fingerprintsBefore = variantFingerprints(before)
+  return {
+    organisation_id: row.organisation_id as string,
+    before,
+    suggestion_reason: row.suggestion_reason as string | null,
+    survivors: readSurvivingVariants(before, variant_key),
+    fingerprintsBefore: variantFingerprints(before),
+  }
+}
+
+/**
+ * Builds the generation context and refuses unless the source documents still match the
+ * ones the surviving variants were written against.
+ *
+ * SHARED WITH THE DRY RUN for the same reason as loadRepairTarget. It makes six database
+ * reads and no model call, so running it in a dry run costs nothing and proves the guard
+ * on real data rather than on a fixture.
+ */
+export async function verifyRepairContext(
+  supabase: SupabaseClient,
+  target: RepairTarget,
+  variant_key: string,
+): Promise<{ context: Awaited<ReturnType<typeof buildVariantGenerationContext>>; sourceVersions: SourceVersions }> {
+  // regeneration_notes is undefined deliberately. Those notes are an instruction about a
+  // REJECTED suggestion a run replaces (ADR-038). This run replaces nothing: it adds a
+  // slot to a suggestion that is still pending, so there is no rejection note that applies
+  // and passing one would tell the model to act on an instruction never given about it.
+  const context = await buildVariantGenerationContext(supabase, target.organisation_id, undefined)
+
+  const current: SourceVersions = {
+    icp: context.requiredDocs.icp.version,
+    positioning: context.requiredDocs.positioning.version,
+    tov: context.requiredDocs.tov.version,
+  }
+  const sourceVersions = assertSourceVersionsUnchanged({
+    suggestionReason: target.suggestion_reason,
+    current,
+    variantKey: variant_key,
+  })
+
+  return { context, sourceVersions }
+}
+
+export async function runMessagingVariantRepair(input: {
+  suggestion_id: string
+  variant_key: string
+  supabase: SupabaseClient
+}): Promise<MessagingVariantRepairResult> {
+  const { suggestion_id, variant_key, supabase } = input
+  const startedAt = Date.now()
+
+  logger.info('Variant repair: starting', { suggestion_id, variant_key })
+
+  // ── 1 and 2. Load the row, refuse what this path is not for, and take the ──
+  //            positive control's BEFORE reading from the database bytes.
+  const target = await loadRepairTarget(supabase, suggestion_id, variant_key)
+  const { organisation_id, before, survivors, fingerprintsBefore } = target
+
   logger.info('Variant repair: surviving variants fingerprinted before any work', {
     suggestion_id,
     organisation_id,
@@ -263,14 +337,21 @@ export async function runMessagingVariantRepair(input: {
       void agentRun.fail(msg)
     }, AGENT_TIMEOUT_MS)
 
-    // ── 3. The same context assembly the full run uses ───────────────────────
+    // ── 3. Build the context, and REFUSE if the documents have moved under ───
+    //      the surviving variants. Before any call is spent, and before the
+    //      registry is seeded, because a repair written from different source
+    //      documents is worthless however well it validates.
     //
-    // regeneration_notes is undefined deliberately. Those notes are an instruction about
-    // a REJECTED suggestion this run replaces (ADR-038). This run replaces nothing: it
-    // adds a slot to a suggestion that is still pending, so there is no rejection note
-    // that applies and passing one would tell the model to act on an instruction that was
-    // never given about this document.
-    const context = await buildVariantGenerationContext(supabase, organisation_id, undefined)
+    // Measured 2026-09-21: this exact case reached production. Variants A, C and D were
+    // written against ICP v5; another session approved ICP v6 eleven minutes before the
+    // repair ran; the repair read the ACTIVE ICP, which was v6, and wrote a fourth variant
+    // derived from a different buyer profile into the same document. Every existing guard
+    // passed, because every existing guard was checking something else.
+    const { context, sourceVersions } = await verifyRepairContext(supabase, target, variant_key)
+
+    logger.info('Variant repair: source documents unchanged since the survivors were written', {
+      suggestion_id, variant_key, sources: formatSourceVersions(sourceVersions),
+    })
 
     const senderFirstName = context.preflight.sender_first_name
     const senderCompanyName = context.preflight.org_name
@@ -330,10 +411,14 @@ export async function runMessagingVariantRepair(input: {
     // while its reason still reads "Variants dropped after retries: B" is a document
     // asserting something about itself that is no longer true, which is the exact class
     // of error the rest of this codebase keeps paying for.
+    // Names the source versions this variant was ACTUALLY written against, verified equal
+    // to the survivors' above. The old note recorded the angle and the call count and said
+    // nothing about provenance, which is precisely the fact that turned out to matter.
     const repairNote =
       ` Variant ${variant_key} was repaired separately on ${new Date().toISOString().slice(0, 10)} ` +
       `by messaging-variant-repair (shipped angle: ${produced.shippedAngle}, ` +
-      `${runStats.totalApiCalls} call(s)); the other variants were left byte-identical.`
+      `${runStats.totalApiCalls} call(s), source documents verified unchanged: ` +
+      `${formatSourceVersions(sourceVersions)}); the other variants were left byte-identical.`
 
     // ── 7. Write, scoped to this exact row AND still-pending ─────────────────
     //
@@ -344,7 +429,7 @@ export async function runMessagingVariantRepair(input: {
       .from('document_suggestions')
       .update({
         suggested_value: after,
-        suggestion_reason: (row.suggestion_reason ?? '') + repairNote,
+        suggestion_reason: (target.suggestion_reason ?? '') + repairNote,
       })
       .eq('id', suggestion_id)
       .eq('status', 'pending')
@@ -407,8 +492,16 @@ export async function runMessagingVariantRepair(input: {
       api_calls_used: runStats.totalApiCalls,
       shipped_angle: produced.shippedAngle,
       duration_ms: durationMs,
+      source_versions: sourceVersions,
     }
   } catch (err) {
+    if (err instanceof SourceProvenanceError) {
+      logger.error('Variant repair: refused by the source-provenance guard', {
+        suggestion_id, organisation_id, variant_key, error: err.message,
+      })
+      await agentRun.fail(err.message)
+      throw err
+    }
     if (err instanceof VariantPayloadWriteError) {
       logger.error('Variant repair: refused by the payload guard', {
         suggestion_id, organisation_id, variant_key, error: err.message,
