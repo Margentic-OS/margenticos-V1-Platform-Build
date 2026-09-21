@@ -276,11 +276,93 @@ the small old number: verification resumes on the next sweep, an overrun does no
 line names its source, so a run that fell back and a run that read real config do not look
 the same.
 
-Two things worth knowing about the number that is in there now. It is 10,500, which is the
+Two things worth knowing about the number that is in there now. Read live on 2026-09-21 it
+is **10,000** (the doc said 10,500 until then, which was the figure at purchase). It is a
 purchased BALANCE and not a per-day allowance, because a pay-as-you-go account has no daily
-grant for it to mirror. That makes the daily cap effectively non-binding: the real governor
-is `DEFAULT_VERIFY_BATCH_SIZE`, 40 per invocation, every 10 minutes, so 5,760 a day at most.
-If a tighter daily ceiling is wanted, that is a commercial decision and it is now one UPDATE.
+grant for it to mirror. If a tighter daily ceiling is wanted, that is a commercial decision
+and it is one UPDATE.
+
+---
+
+## How fast it goes, and why that changed on 2026-09-21
+
+**The provider's limit was never the constraint. Our own batch size was.**
+
+Until 2026-09-21 a sweep took a fixed 40 addresses, slept a flat two seconds between them,
+and stopped. Against the clock that is roughly eighty seconds of work inside a ten-minute
+period: about **240 addresses an hour** against a documented allowance of 30 a minute, or
+**1,800**. Two separate causes, and fixing either alone leaves most of the gap:
+
+| | What it was | Why it cost throughput |
+|---|---|---|
+| Batch size | fixed 40 | Sized so 40 two-second sleeps fit a 300s route with room to spare. Everything after the eightieth second was idle. |
+| Spacing | `sleep(2000)` after each probe | The real cycle was 2,000ms **plus the probe**. At a 600ms probe that is 23 a minute, not 30. The slower the provider, the further under the limit it drifted. |
+
+Both are fixed. A run now **paces against slots at fixed absolute moments** and keeps going
+until a **deadline** rather than until a fixed count.
+
+### The three numbers that bound a run
+
+A run probes the smallest of:
+
+- **the caller's ceiling** (`DEFAULT_VERIFY_BATCH_SIZE`, now *derived* from the default
+  window and the fallback pace rather than written down, so it cannot disagree with them),
+- **the daily budget** still remaining, and
+- **what fits before the deadline** at the paced interval.
+
+The third is the new one and it is what makes a run use its window.
+
+### The pace is config, and it already was
+
+`config.rate_limit_per_minute` was seeded onto the `can_validate_email` registry row on
+2026-09-04, and the seeding migration says so in as many words: *"seeded and read by nothing
+today"*. It sat unread for seventeen days while `const RATE_LIMIT_PER_MINUTE = 30` in the
+trigger governed the real pace. **A config value nothing reads is worse than no config value:
+it reads as a knob, and turning it does nothing.** `getVerificationRateLimit` now reads it,
+beside the daily limit, off the same row through the same shared read.
+
+The sweep aims for `PACING_SAFETY_FRACTION` (0.9) of whatever that says: 27 a minute against
+a limit of 30. A fraction rather than `limit - 1` because the headroom has to survive the
+limit being raised, which is the reason it is configuration at all.
+
+**MyEmailVerifier's single-validation limit is customisable on request.** Raising it is
+therefore an `UPDATE` on that row and takes effect on the very next sweep, with no deploy.
+
+### No catch-up burst
+
+When a probe overruns its slot, the pacer resumes at the correct pace rather than firing the
+missed slots back to back. An average of 27 a minute made of a quiet stretch and then nine
+calls in one second is a rate-limit breach however good the average looks, because a
+per-minute limit measures a window and not a mean. `Math.max(now, earliestNext)` in
+`createPacer` is the line that guarantees it, and there is a test that walks a sliding
+60-second window across an erratic run to prove it.
+
+### The deadline comes from the cron period, not from a guess
+
+Two overlapping sweeps would each pace at just under the limit and together spend it twice
+over, with neither doing anything wrong on its own. So `runBudgetMs` takes the smaller of the
+request cap (240s, leaving room for a 20s probe and the tail inside `maxDuration = 300`) and
+**the gap to the next firing**, read from `cron_schedule_registry`.
+
+That is what makes the pacing true *across* runs and not only within one, and it means moving
+this job from every ten minutes to every five is a registry edit with **no code change**: the
+budget shrinks to fit automatically.
+
+### What it does now
+
+At the live configuration on 2026-09-21 (`4-59/10`, 30 a minute):
+
+| | Before | After |
+|---|---|---|
+| Per run | 40 | **108** |
+| Per hour | ~240 | **~648** |
+| In-run rate | ~23-30/min, dropping with provider latency | **~27/min, flat** |
+
+**The residual gap to 1,800 an hour is DUTY CYCLE, not pace.** A run works for 240 seconds of
+a 600-second period. Closing that needs a shorter cron period, which the code now supports
+unchanged, and it is a deliberate decision rather than an oversight: at ~648 an hour the
+**daily budget of 10,000 binds first** for any sustained load, so a shorter period only
+changes how fast a *burst* clears, not how much gets done in a day.
 
 The status string `free_tier_exhausted` is a historical name kept because the cron route and
 its tests branch on the literal. It means the daily budget is used up, whatever tier the
@@ -297,7 +379,11 @@ vendor to answer a question that is about to answer itself would be waste.
 | File | Job |
 |---|---|
 | `src/lib/sourcing/verification-trigger.ts` | Pass one, the first sweep |
-| `src/lib/sourcing/verification-limits.ts` | **The daily budget, read from config with the constant as fallback** |
+| `src/lib/sourcing/verification-limits.ts` | **The daily budget AND the per-minute pace, both read from config with constants as fallbacks** |
+| `src/lib/sourcing/verification-pacing.ts` | **The pacer, the safety fraction, and the run budget** |
+| `src/lib/sourcing/cron-interval.ts` | Parses a crontab minute interval, and refuses anything else |
+| `src/lib/sourcing/cron-schedule.ts` | Reads a job's declared schedule from `cron_schedule_registry` |
+| `src/lib/operator/stage-estimates.ts` | Finish estimates and the enrichment press plan for the operator screen |
 | `src/lib/sourcing/tier-verdict.ts` | **The tier gate both passes apply, picker and selector** |
 | `src/lib/sourcing/second-pass-trigger.ts` | Pass two, the paid sweep |
 | `src/lib/sourcing/handlers/adapter-myemailverifier.ts` | Pass one vendor, owns its own words |

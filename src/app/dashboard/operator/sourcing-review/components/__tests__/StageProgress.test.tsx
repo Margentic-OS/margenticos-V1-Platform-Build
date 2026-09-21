@@ -11,7 +11,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
-import { StageProgress, timeAgo } from '../StageProgress'
+import { StageProgress, timeAgo, timeUntil } from '../StageProgress'
 import type { PipelineProgress } from '@/lib/operator/pipeline-progress'
 import type { VerificationFailureMetrics } from '@/lib/operator/sourcing-metrics'
 
@@ -238,5 +238,176 @@ describe('timeAgo', () => {
   it('returns null rather than rendering an invalid date', () => {
     expect(timeAgo(null, NOW)).toBeNull()
     expect(timeAgo('not a date', NOW)).toBeNull()
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PROGRESS AN OPERATOR CAN ACT ON (2026-09-21)
+//
+// A backlog count on its own cannot separate "drains in ten minutes" from "drains tomorrow",
+// and enrichment's per-press ceiling was enforced by the route and mentioned nowhere.
+
+describe('timeUntil', () => {
+  const now = Date.parse('2026-09-21T12:00:00Z')
+
+  it('reads forward the way timeAgo reads back', () => {
+    expect(timeUntil('2026-09-21T12:04:00Z', now)).toBe('in about 4 minutes')
+    expect(timeUntil('2026-09-21T13:00:00Z', now)).toBe('in about 1 hour')
+    expect(timeUntil('2026-09-21T14:00:00Z', now)).toBe('in about 2 hours')
+  })
+
+  it('says a minute rather than sixty seconds', () => {
+    expect(timeUntil('2026-09-21T12:01:00Z', now)).toBe('in about a minute')
+  })
+
+  // pg_cron and the browser do not share a clock, and a firing a few seconds overdue by our
+  // reckoning is not late in any sense an operator cares about. "in -3 seconds" looks broken.
+  it('reads a moment already past as imminent, never as negative', () => {
+    expect(timeUntil('2026-09-21T11:59:30Z', now)).toBe('any moment now')
+    expect(timeUntil('2026-09-21T11:55:00Z', now)).toBe('any moment now')
+  })
+
+  it('is null for a missing or unparseable time', () => {
+    expect(timeUntil(null, now)).toBeNull()
+    expect(timeUntil('not a date', now)).toBeNull()
+  })
+})
+
+describe('verification says when the next run is and when it will finish', () => {
+  it('shows both, with the one-client-per-run assumption stated', () => {
+    renderProgress({
+      verification: {
+        waiting: 38,
+        inFlight: 0,
+        lastCompletedAt: null,
+        sweepLastRanAt: new Date(Date.now() - 60_000).toISOString(),
+        nextRunAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+        estimatedMinutesRemaining: 14,
+      },
+    })
+
+    expect(screen.getByText('Next check runs')).toBeInTheDocument()
+    expect(screen.getByText('in about 4 minutes')).toBeInTheDocument()
+    expect(screen.getByText('Estimated to finish')).toBeInTheDocument()
+    expect(screen.getByText('about 14 minutes')).toBeInTheDocument()
+    // The caveat travels with the number it qualifies.
+    expect(screen.getByText(/one client per run/i)).toBeInTheDocument()
+  })
+
+  // A CONFIDENT TIME BUILT ON A DEFAULT NOBODY CHOSE IS WORSE THAN A BLANK LINE. Both of
+  // these are null when the schedule or the provider pace could not be read.
+  it('says nothing about a next run when the schedule could not be read', () => {
+    renderProgress({
+      verification: {
+        waiting: 38,
+        inFlight: 0,
+        lastCompletedAt: null,
+        sweepLastRanAt: null,
+        nextRunAt: null,
+        estimatedMinutesRemaining: null,
+      },
+    })
+
+    expect(screen.queryByText('Next check runs')).not.toBeInTheDocument()
+    expect(screen.queryByText('Estimated to finish')).not.toBeInTheDocument()
+    expect(screen.queryByText(/one client per run/i)).not.toBeInTheDocument()
+    // The counts it could read are still there.
+    expect(screen.getByText('Waiting to be checked')).toBeInTheDocument()
+    expect(screen.getByText('38')).toBeInTheDocument()
+  })
+
+  // A finish time beside an empty queue would read as work still to come.
+  it('shows no finish estimate when nothing is waiting', () => {
+    renderProgress({
+      verification: {
+        waiting: 0,
+        inFlight: 0,
+        lastCompletedAt: new Date(Date.now() - 60_000).toISOString(),
+        sweepLastRanAt: new Date(Date.now() - 60_000).toISOString(),
+        nextRunAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+        estimatedMinutesRemaining: 0,
+      },
+    })
+
+    expect(screen.getByText('Next check runs')).toBeInTheDocument()
+    expect(screen.queryByText('Estimated to finish')).not.toBeInTheDocument()
+  })
+})
+
+describe('enrichment says another press is needed', () => {
+  it('names what this press does and what it leaves', () => {
+    renderProgress({
+      enrichment: {
+        done: 60,
+        waiting: 240,
+        inFlight: 0,
+        pressPlan: { thisPress: 100, remainingAfter: 140, pressesNeeded: 3 },
+        queueNextRunAt: null,
+      },
+    })
+
+    expect(screen.getByText('Presses needed')).toBeInTheDocument()
+    expect(screen.getByText(/Enriching runs 100 at a time/)).toBeInTheDocument()
+    expect(screen.getByText(/leave 140 waiting/)).toBeInTheDocument()
+    expect(screen.getByText(/press it again/)).toBeInTheDocument()
+    expect(screen.getByText(/3 presses in total/)).toBeInTheDocument()
+  })
+
+  // A client whose whole backlog fits in one press gains no warning, because for them there
+  // is nothing to warn about.
+  it('gives no warning when one press clears the backlog', () => {
+    renderProgress({
+      enrichment: {
+        done: 10,
+        waiting: 40,
+        inFlight: 0,
+        pressPlan: { thisPress: 40, remainingAfter: 0, pressesNeeded: 1 },
+        queueNextRunAt: null,
+      },
+    })
+
+    expect(screen.getByText('Presses needed')).toBeInTheDocument()
+    expect(screen.queryByText(/press it again/)).not.toBeInTheDocument()
+  })
+
+  it('drops the total when exactly two presses are needed, because "again" already says it', () => {
+    renderProgress({
+      enrichment: {
+        done: 0,
+        waiting: 150,
+        inFlight: 0,
+        pressPlan: { thisPress: 100, remainingAfter: 50, pressesNeeded: 2 },
+        queueNextRunAt: null,
+      },
+    })
+
+    expect(screen.getByText(/press it again/)).toBeInTheDocument()
+    expect(screen.queryByText(/presses in total/)).not.toBeInTheDocument()
+  })
+
+  // ON THE INLINE PATH THERE IS NO SCHEDULED RUN TO NAME. The answer to "when does it next
+  // run" is "when you press it", and printing a queue time would be wrong.
+  it('names a queue run only while the queue actually holds work', () => {
+    const soon = new Date(Date.now() + 45_000).toISOString()
+
+    renderProgress({
+      enrichment: {
+        done: 0, waiting: 120, inFlight: 0,
+        pressPlan: { thisPress: 100, remainingAfter: 20, pressesNeeded: 2 },
+        queueNextRunAt: null,
+      },
+    })
+    expect(screen.queryByText('Next queue run')).not.toBeInTheDocument()
+
+    cleanup()
+
+    renderProgress({
+      enrichment: {
+        done: 0, waiting: 120, inFlight: 12,
+        pressPlan: { thisPress: 100, remainingAfter: 20, pressesNeeded: 2 },
+        queueNextRunAt: soon,
+      },
+    })
+    expect(screen.getByText('Next queue run')).toBeInTheDocument()
   })
 })
