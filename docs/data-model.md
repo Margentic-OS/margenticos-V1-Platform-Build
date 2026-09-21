@@ -959,6 +959,33 @@ failing intermittently at the cost of a lagging green.
    showing state `OK` beside a failure message from the previous day. Resolve one latest
    heartbeat and derive all three output columns from it.
 
+### A new monitor needs a monitor_checks row, or it is born dark (2026-09-21)
+
+`monitor_events.check_code` is `NOT NULL REFERENCES monitor_checks(code)`. So a monitor
+needs BOTH halves before it works:
+
+| half | what it is | what fails without it |
+|---|---|---|
+| the view | `mon_NNN`, one row, `check_code` / `state` / `detail` | the sweep's READ, counted as a failed check |
+| the registry row | a `monitor_checks` row whose `code` matches | the sweep's WRITE, on the foreign key |
+
+**MON-033 shipped with the first and not the second**, and the failure is worth recognising
+because it does not look like the monitor's own failure. `results.checked++` runs after both
+reads succeed, and only `results.errors` sees the rejected insert, so the sweep read all 30
+views, failed one write, and set its own heartbeat `ok=false`. The board showed **MON-005**
+PROBLEM, "Checked 30 monitors, 1 error(s)", while MON-033 sat silently at zero events. The
+check that was supposed to report a problem was the one being reported ON.
+
+Reading the view in isolation cannot catch this, and that is why it shipped: `mon_033`
+returned one correct row throughout. The read half was never broken. Every MON-033 test
+scanned the migration FILE for the view, the columns and the grants, so both ends had tests
+and the join between them had none.
+
+Guarded by `src/__tests__/api/monitor/monitor_sweep_contract.live.test.ts`, which reads the
+LIVE catalog rather than the migrations. A migration scan would assert something false here:
+the files only ever INSERT `'MON-010-UNSCHEDULED'`, while the live registry holds `'MON-010'`,
+renamed by a statement in no migration file.
+
 ### What a monitor cannot tell you
 
 `state` reflects the last time the sweep RAN, not this instant. The dashboard reads the
