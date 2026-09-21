@@ -89,8 +89,11 @@ describe('no targets anywhere', () => {
     // The unit is printed WITH the range now. A bare "3–6%" is what let a per-email
     // range sit under a per-person rate without anything on screen saying so.
     expect(screen.getByText('0.7–3% of people contacted')).toBeInTheDocument()
-    expect(screen.getByText('40–65% of replies')).toBeInTheDocument()
     expect(screen.getByText('0–2% of emails sent')).toBeInTheDocument()
+    // The positive-reply range is GONE as of 2026-09-21. It was cited to "Aggregated B2B
+    // research", which names no study, and its lower bound was our own operator alert
+    // threshold printed back as research. Asserted absent so it cannot quietly return.
+    expect(screen.queryByText('40–65% of replies')).toBeNull()
   })
 
   it('says where a rate sits without saying whether it is good', () => {
@@ -400,8 +403,10 @@ describe('the meeting card shows no industry range, and says why', () => {
     // number would have been the easy version of this change and the wrong one.
     render(<BenchmarksView metrics={largeSample()} />)
 
-    // Two cards now have no range: meetings and opt-out.
-    expect(screen.getAllByText(/No published range/)).toHaveLength(2)
+    // THREE cards now have no range: meetings, opt-out and the positive reply share. The
+    // third joined them on 2026-09-21 for the same reason as the other two, a citation
+    // that named no study.
+    expect(screen.getAllByText(/No published range/)).toHaveLength(3)
     expect(screen.getByText(/measures meetings booked per person contacted/)).toBeInTheDocument()
   })
 
@@ -442,10 +447,11 @@ describe('every card states the unit it was measured in', () => {
     render(<BenchmarksView metrics={largeSample()} />)
 
     expect(screen.getByText('0.7–3% of people contacted')).toBeInTheDocument()
-    expect(screen.getByText('40–65% of replies')).toBeInTheDocument()
     expect(screen.getByText('0–2% of emails sent')).toBeInTheDocument()
-    // The opt-out range is gone entirely, so there is no unit to name beside it. See the
-    // opt-out block at the end of this file.
+    // The opt-out and positive-reply ranges are gone entirely, so there is no unit to name
+    // beside either. See the opt-out block at the end of this file, and the 2026-09-21
+    // note in tier1-benchmarks.ts for why the positive-reply range went the same way.
+    expect(screen.queryByText('40–65% of replies')).toBeNull()
   })
 })
 
@@ -608,9 +614,12 @@ describe('no changelog copy reaches the client', () => {
     // loading failure.
     render(<BenchmarksView metrics={largeSample()} />)
 
-    expect(screen.getAllByText(/No published range/)).toHaveLength(2)
+    expect(screen.getAllByText(/No published range/)).toHaveLength(3)
     expect(screen.getByText(/measures meetings booked per person contacted/)).toBeInTheDocument()
     expect(screen.getByText(/not measuring the same thing/)).toBeInTheDocument()
+    // The third, added 2026-09-21. Its note says what the reader is looking at without
+    // mentioning the range that used to be there, which is what the sweep above checks.
+    expect(screen.getByText(/counts a different thing as a positive reply/)).toBeInTheDocument()
   })
 
   it('proves the search can find something that IS on the page', () => {
