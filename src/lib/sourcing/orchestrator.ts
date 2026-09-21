@@ -11,6 +11,7 @@ import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { HANDLER_DISPATCH } from '@/lib/sourcing/handler-registry'
 import { checkCandidates, type ProspectCandidate } from '@/lib/sourcing/dedupe'
+import { removeInBatchDuplicates } from '@/lib/sourcing/in-batch-dedupe'
 import { readCursor, advanceCursor } from '@/lib/sourcing/sourcing-cursor'
 import { isAtCeiling, RECORD_CEILING } from '@/lib/sourcing/record-position'
 import { startSourcingRun, type SourcingRunHandle } from '@/lib/sourcing/sourcing-run-record'
@@ -439,16 +440,50 @@ export async function runSourcing(
       candidate_count: candidates.length,
     })
 
+    // ── Step 5.5: Collapse duplicates WITHIN this batch ─────────────────────
+    //
+    // Before step 6, deliberately. Step 6 asks the database whether each candidate already
+    // exists, and every candidate in this batch is asked before any of them are written, so
+    // two copies of a person nobody has yet are both told they are new. The write loop then
+    // inserts the first and the unique index rejects the second, killing the run
+    // part-written with the provider call already paid for. See in-batch-dedupe.ts for the
+    // 2026-09-21 measurement.
+    //
+    // Doing it here rather than inside the write loop also saves the six dedupe queries a
+    // redundant candidate would otherwise cost.
+    //
+    // candidates_returned above keeps the PROVIDER's count and is not reduced by this. The
+    // drops are reported as their own reason instead, so a batch that arrived with
+    // duplicates is visible in the run record rather than looking like a short page.
+    const inBatch = removeInBatchDuplicates(candidates)
+    const distinctCandidates = inBatch.unique
+    if (inBatch.duplicates.length > 0) {
+      for (const { reason } of inBatch.duplicates) {
+        progress.dropped_by_reason[reason] = (progress.dropped_by_reason[reason] ?? 0) + 1
+      }
+      logger.warn('Sourcing orchestrator: batch contained repeated people', {
+        operation_id: operationId,
+        client_id,
+        candidates_returned: candidates.length,
+        in_batch_duplicates: inBatch.duplicates.length,
+        distinct_people: inBatch.unique.length,
+        by_reason: { ...progress.dropped_by_reason },
+        cause:
+          'The provider returned the same person on more than one page. Page ordering is ' +
+          'not stable between calls, so this is expected on any multi-page run.',
+      })
+    }
+
     // ── Step 6: Dedupe candidates ───────────────────────────────────────────
     logger.info('Sourcing orchestrator: running dedupe check', {
       operation_id: operationId,
       client_id,
-      candidates_to_check: candidates.length,
+      candidates_to_check: distinctCandidates.length,
     })
 
     let verdicts: Map<string, string>
     try {
-      verdicts = await checkCandidates(supabase, client_id, candidates)
+      verdicts = await checkCandidates(supabase, client_id, distinctCandidates)
     } catch (err) {
       const errorMsg = serializeError(err)
       logger.error('Sourcing orchestrator: dedupe check failed', {
@@ -514,7 +549,7 @@ export async function runSourcing(
     let writtenCount = 0
     const now = new Date().toISOString()
 
-    for (const candidate of candidates) {
+    for (const candidate of distinctCandidates) {
       const verdict = verdicts.get(candidate.source_person_key)
       if (verdict !== 'new') {
         continue
@@ -640,7 +675,12 @@ export async function runSourcing(
     }
 
     // ── Step 8: Log run with breakdown ──────────────────────────────────────
+    // Includes the in-batch collapse, so returned = written + dropped still holds. Leaving
+    // it out would make a run that received the same person twice read as "returned 200,
+    // written 199, dropped 0", and the one number that does not add up is the one nobody
+    // checks.
     const droppedCount =
+      inBatch.duplicates.length +
       verdictCounts.suppressed_match +
       verdictCounts.duplicate_person_key +
       verdictCounts.duplicate_linkedin +
@@ -650,7 +690,8 @@ export async function runSourcing(
       `candidates returned ${candidates.length}, ` +
       `written ${writtenCount}, ` +
       `dropped ${droppedCount} ` +
-      `(suppressed: ${verdictCounts.suppressed_match}, ` +
+      `(repeated in batch: ${inBatch.duplicates.length}, ` +
+      `suppressed: ${verdictCounts.suppressed_match}, ` +
       `duplicate_person_key: ${verdictCounts.duplicate_person_key}, ` +
       `duplicate_linkedin: ${verdictCounts.duplicate_linkedin}, ` +
       `duplicate_email: ${verdictCounts.duplicate_email})`
