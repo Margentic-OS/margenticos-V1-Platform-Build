@@ -34,13 +34,18 @@ import { LeadUploadPanel } from '../LeadUploadPanel'
 
 afterEach(cleanup)
 
-function renderPanel(pendingCount: number, unresearchedCount: number) {
+function renderPanel(
+  pendingCount: number,
+  unresearchedCount: number,
+  suppressionBlockedCount = 0,
+) {
   return render(
     <LeadUploadPanel
       orgId="org-under-test"
       instantlyApiActive={true}
       pendingCount={pendingCount}
       unresearchedCount={unresearchedCount}
+      suppressionBlockedCount={suppressionBlockedCount}
       primarySegmentId={null}
       campaigns={[]}
     />,

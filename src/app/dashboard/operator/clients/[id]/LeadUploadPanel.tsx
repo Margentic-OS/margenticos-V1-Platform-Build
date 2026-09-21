@@ -32,6 +32,14 @@ interface Props {
    * changes what the upload does, and the button stays pressable at any value.
    */
   unresearchedCount: number
+  /**
+   * How many of `pendingCount` the suppression chokepoint will drop at send: addresses
+   * that have bounced or opted out anywhere. Display only, for the same reason as
+   * `unresearchedCount`. The upload still claims the whole of `pendingCount`; this is the
+   * difference between what is claimed and what actually goes out, shown before the press
+   * rather than discovered after it.
+   */
+  suppressionBlockedCount: number
   primarySegmentId: string | null
   campaigns: CampaignForSync[]
 }
@@ -44,7 +52,7 @@ type UploadPanelState =
 
 type SyncState = 'idle' | 'syncing' | 'done' | 'error'
 
-export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, unresearchedCount, primarySegmentId, campaigns }: Props) {
+export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, unresearchedCount, suppressionBlockedCount, primarySegmentId, campaigns }: Props) {
   const router = useRouter()
   const [uploadState, setUploadState] = useState<UploadPanelState>({ phase: 'idle' })
   const [isPending, startTransition] = useTransition()
@@ -152,6 +160,25 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, unres
                 <span className="text-[12px] text-text-secondary">Pending leads ready to upload:</span>
                 <span className="text-[12px] font-semibold text-text-primary">{pendingCount}</span>
               </div>
+              {/* The suppression list is the one gate the pending count's SQL predicate
+                  cannot see, because a bounce writes the global table and never
+                  prospects.suppressed. Stated as two numbers rather than one shrunken one,
+                  so the operator sees the gate working instead of watching a figure change
+                  for no visible reason. Silent at zero: a reassuring badge that is always
+                  present cannot be told apart from one that is broken. */}
+              {suppressionBlockedCount > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-text-secondary">
+                    Of those, blocked by the suppression list:
+                  </span>
+                  <span className="text-[12px] font-semibold text-text-primary">
+                    {suppressionBlockedCount}
+                  </span>
+                  <span className="text-[11px] text-text-muted">
+                    so {pendingCount - suppressionBlockedCount} will actually send
+                  </span>
+                </div>
+              )}
               {/* Advisory, never a blocker. Sending an unresearched prospect is sometimes the
                   right call; the operator just has to be told they are about to. */}
               {unresearchedNotice && (

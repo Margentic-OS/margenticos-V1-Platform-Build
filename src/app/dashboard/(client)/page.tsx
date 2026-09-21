@@ -216,12 +216,16 @@ export default async function DashboardPage({
     // Service client, not the session client. clients_read_own_prospects_denied is
     // USING (false), so this count came back 0 for every real client while 95 prospects
     // were in a live campaign, and deriveCampaignsStatus judged the campaign from it.
+    // eq('uploaded'), NOT neq('pending'). The column is NOT NULL and defaults to
+    // 'pending', so neq('pending') also counted 'uploading' and 'failed' as uploaded.
+    // This count decides deriveCampaignsStatus, so a failed upload was reading as a
+    // campaign that had been set up.
     adminClient
       .from('prospects')
       .select('id', { count: 'exact', head: true })
       .eq('organisation_id', org.id)
       .not('campaign_id', 'is', null)
-      .neq('outbound_upload_status', 'pending'),
+      .eq('outbound_upload_status', 'uploaded'),
     // No client is passed. The chokepoint builds its own service-role client, because
     // reply_handling_actions is operator-only under RLS and a session client reads zero
     // rows from it in silence. org.id was resolved through the session client above.

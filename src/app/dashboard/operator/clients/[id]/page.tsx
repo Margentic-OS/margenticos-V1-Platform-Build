@@ -20,7 +20,7 @@ import { requireCount } from '@/lib/operator/require-count'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
-import { sendGateCountQuery, unresearchedSendGateCountQuery } from '@/lib/operator/unresearched-send-gate'
+import { sendGateCountQuery, unresearchedSendGateCountQuery, sendGateBlockedCount } from '@/lib/operator/unresearched-send-gate'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { WaitingOnYouBlock } from './WaitingOnYouBlock'
 import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
@@ -118,12 +118,17 @@ export default async function ClientDetailPage({
       .select('id, external_id, name, shell_synced_at, shell_step_count, status, started_at, paused_at')
       .eq('organisation_id', org.id)
       .order('created_at', { ascending: true }),
+    // eq('uploaded'), NOT neq('pending'). outbound_upload_status is NOT NULL with default
+    // 'pending' (verified against the live catalog 2026-09-21), and it has five values:
+    // pending, uploading, uploaded, failed. So neq('pending') counted the claimed and the
+    // FAILED as uploaded. A failed upload is the one case an operator most needs to see
+    // as not-uploaded, and it was being reported as done.
     serviceRole
       .from('prospects')
       .select('id', { count: 'exact', head: true })
       .eq('organisation_id', org.id)
       .not('campaign_id', 'is', null)
-      .neq('outbound_upload_status', 'pending'),
+      .eq('outbound_upload_status', 'uploaded'),
     supabase
       .from('segments')
       .select('id')
@@ -179,6 +184,13 @@ export default async function ClientDetailPage({
 
   // Prospects receiving the approved opening because the writer was stopped. Read-only.
   const writerStopped = await listWriterStoppedProspects(serviceRole, org.id)
+
+  // How many of the ready-to-send count the suppression chokepoint will drop at send.
+  // Not folded into pendingCount: that number is what the upload will CLAIM, and it drives
+  // the upload button. Subtracting into it would make the button attempt a different
+  // population than the one it names. Shown beside it instead, so the gap is visible
+  // before the operator presses send rather than discovered after.
+  const suppressionBlockedCount = await sendGateBlockedCount(serviceRole, org.id)
 
   const instantlyApiActive = flagResult.data?.is_active ?? false
   // FAIL LOUD, both of these. They are the operator's "how much is left" numbers, and a
@@ -326,6 +338,7 @@ export default async function ClientDetailPage({
                 instantlyApiActive={instantlyApiActive}
                 pendingCount={pendingCount}
                 unresearchedCount={unresearchedCount}
+                suppressionBlockedCount={suppressionBlockedCount}
                 primarySegmentId={primarySegmentId}
                 campaigns={campaigns}
               />
