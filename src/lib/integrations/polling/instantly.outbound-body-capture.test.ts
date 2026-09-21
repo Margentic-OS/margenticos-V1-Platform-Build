@@ -32,13 +32,18 @@
 // original_outbound_body it actually wrote, hands that value to the REAL orchestrator, and
 // asserts the drafter was reached. Nothing in between is stubbed.
 //
-// MUTATION-PROVED, each half independently:
-//   Half one (selection) — make selectOutboundEmailForReply skip the thread filter and
-//     return sentEmails[0]: 'refuses a sent email from a different thread' goes red while
-//     the body-extraction tests stay green.
-//   Half two (extraction) — restore the old extractor body (body_text, then string body):
-//     'reads the html body object' and the joined test go red while the selection tests
-//     stay green.
+// MUTATION-PROVED, each half independently, both runs measured 2026-09-21:
+//   Half one (selection) — replace the thread filter with `filter(() => true)`:
+//     3 red of 15. 'refuses a sent email from a different thread', 'ignores other threads
+//     while still finding the matching one', and the joined 'still records null' case.
+//     All 7 extraction tests stayed GREEN.
+//   Half two (extraction) — restore the old extractor (body_text, then string body):
+//     6 red of 15. The joined test plus 'reads the html body object', 'turns block elements
+//     into line breaks', 'turns br into a line break', 'prefers body.text', 'decodes
+//     entities'. All 6 selection tests stayed GREEN.
+//   Neither mutation is detected by 'does NOT read body_text' or 'returns null rather than
+//   empty string' — see the note on the former. A test's comment claiming coverage it does
+//   not have is the failure mode this file exists to close, so they say so.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
@@ -401,7 +406,11 @@ describe('extractOutboundBodyText', () => {
   })
 
   it('does NOT read body_text, the field the old extractor wanted and the endpoint lacks', () => {
-    // Guards the regression directly: a shape-faithful mock must not resurrect the old path.
+    // NOT A MUTATION GUARD, and the comment here used to claim it was. Restoring the old
+    // extractor leaves this test GREEN, measured: the `typeof body !== 'object'` guard above
+    // returns null before any body_text read is reached, so this passes in both worlds. The
+    // tests that actually go red on that mutation are the four html/text ones and the joined
+    // test. Kept only as a statement of the shape contract: body_text is not an input.
     expect(extractOutboundBodyText({ body_text: 'nope' } as never)).toBeNull()
   })
 
