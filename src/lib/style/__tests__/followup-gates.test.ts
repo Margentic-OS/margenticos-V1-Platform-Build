@@ -16,6 +16,7 @@ import {
   normaliseForEcho,
   ECHO_NEEDLE_WORDS,
   FOLLOWUP_MAX_SENTENCE_WORDS,
+  companyShortForm,
 } from '../followup-gates'
 
 /** A reference block, already stripped of its opening paragraph. */
@@ -202,5 +203,95 @@ describe('the pair gates', () => {
   it('ignores very short shared fragments', () => {
     expect(checkFollowupPairGates('You did. Worth a look?', 'You did. Worth a look?', 50, 40))
       .toEqual([])
+  })
+})
+
+describe('the company short form: the measured false positive, both directions', () => {
+  // SIX of the TWELVE hits on the callback gate in the 2026-09-21 run were emails that DID
+  // name the company and were rejected anyway, because the gate matched the registered
+  // name in full while the copy used the short form. Each pair below is a real one from
+  // that run, and each must now pass.
+  it.each([
+    ['Abacus Business Consulting, Inc.', 'Abacus'],
+    ['Cavalry Consulting LLC', 'Cavalry'],
+    ['Interra Consulting', "Interra's"],
+    ['BCR Business Consulting Resources, Inc.', 'BCR'],
+    ['Matrix Restaurant Consulting', 'Matrix'],
+    ['CANDOR Management Consulting', 'CANDOR'],
+  ])('stored %j is addressed by %j', (stored, written) => {
+    const f = checkFollowupGates({
+      ...base,
+      companyName: stored,
+      prose: `${written} has been running a while now. The bench is bigger. Worth a look?`,
+    })
+    expect(f.filter(x => x.includes('opens without addressing the reader'))).toEqual([])
+  })
+
+  it('extracts the distinguishing token, dropping legal and descriptive suffixes', () => {
+    expect(companyShortForm('Abacus Business Consulting, Inc.')).toBe('Abacus')
+    expect(companyShortForm('Cavalry Consulting LLC')).toBe('Cavalry')
+    expect(companyShortForm('BCR Business Consulting Resources, Inc.')).toBe('BCR')
+    expect(companyShortForm(null)).toBeNull()
+    // A name that is ENTIRELY suffixes has no distinguishing token, and the gate then
+    // requires second person, which is the stricter branch and the safe failure direction.
+    expect(companyShortForm('Consulting Group Ltd')).toBeNull()
+  })
+
+  it('THE OTHER DIRECTION: a non-leading token does NOT count as naming them', () => {
+    // "Matrix Restaurant Consulting" must not be credited with a callback because the
+    // email happened to say "restaurant". Anything looser starts accepting ordinary nouns
+    // as company references, which would make the gate pass on copy it should reject.
+    const f = checkFollowupGates({
+      ...base,
+      companyName: 'Matrix Restaurant Consulting',
+      prose: 'The restaurant sector has been slow. Things are hard. Worth a look?',
+    })
+    expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)
+  })
+})
+
+describe('the offer-line echo gate', () => {
+  const OFFER = 'We find the work and book it in, so the bench stays full without you chasing it.'
+
+  it('rejects the offer line coming back word for word', () => {
+    const f = checkFollowupGates({
+      ...base,
+      offerLine: OFFER,
+      prose: 'You took the unit on. We find the work and book it in, so the bench stays full. Worth a look?',
+    })
+    expect(f.some(x => x.includes('reproduces') && x.includes('offer line'))).toBe(true)
+  })
+
+  it('DOES NOT reject describing the same mechanism in different words', () => {
+    // Email 2's job IS to explain the mechanism, so substantive overlap with the offer
+    // line is correct. Only a verbatim repeat is the fault.
+    const f = checkFollowupGates({
+      ...base,
+      offerLine: OFFER,
+      prose: 'You took the unit on. We build the list, run the sending, and hand you the replies. Worth a look?',
+    })
+    expect(f).toEqual([])
+  })
+
+  it('is inert when no offer line is supplied', () => {
+    expect(checkFollowupGates({ ...base, prose: 'You took the unit on. It is bigger now. Worth a look?' }))
+      .toEqual([])
+  })
+})
+
+describe('the firmographic gate applies here too', () => {
+  it('rejects a figure from the prospect record', () => {
+    const f = checkFollowupGates({
+      ...base,
+      prose: 'You crossed £5M last year. The bench is bigger now. Worth a look?',
+    })
+    expect(f.some(x => x.includes("from the prospect's record"))).toBe(true)
+  })
+
+  it('DOES NOT reject an ordinary number', () => {
+    expect(checkFollowupGates({
+      ...base,
+      prose: 'You took the second unit on 13 months ago. The bench is bigger. Worth a look?',
+    })).toEqual([])
   })
 })

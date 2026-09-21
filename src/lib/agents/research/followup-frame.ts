@@ -31,6 +31,65 @@
 // stops a runtime read becoming a hardcoded assumption by way of imitation.
 
 /**
+ * What the follow-up writer is shown, and what the gates measure against afterwards.
+ *
+ * THESE TYPES LIVE HERE AND NOT IN write-opening.ts, ON PURPOSE. write-opening.ts is the
+ * Email 1 writer and it is BYTE-IDENTICAL TO MAIN in this branch, which is what makes the
+ * positive control a `diff` returning nothing rather than an argument about which changes
+ * were safe. Putting a type there, even an unused one, would end that.
+ *
+ * THE REFERENCE IS ALREADY STRIPPED when it arrives: buildFollowupReference removes the
+ * template's opening paragraph, because that paragraph is a population opener in every
+ * case measured and it is the most copyable position in the reference.
+ *
+ * `templateBody2` and `templateBody3` are the UNSTRIPPED bodies, for a different job:
+ * composing written prose back into a real frame so the gates can count the words of a
+ * complete email rather than of a fragment. They are never shown to the writer.
+ */
+export interface FollowupReference {
+  /** Template Email 2 with its opening paragraph removed. Shown to the writer. */
+  reference2: string
+  /** Template Email 3 with its opening paragraph removed. Shown to the writer. */
+  reference3: string
+  /** Template Email 2's full body. The frame for word counting. Never shown. */
+  templateBody2: string
+  /** Template Email 3's full body. The frame for word counting. Never shown. */
+  templateBody3: string
+  /** The prospect's company name, which counts as addressing them in the callback gate. */
+  companyName?: string | null
+}
+
+/**
+ * A written follow-up that survived its gates, or the reason it did not.
+ *
+ * BOTH HALVES ARE KEPT. An empty result has two causes that mean different things, and a
+ * reader of the empty string alone cannot tell "the writer returned nothing" from "it
+ * returned something the gate threw away". On this feature that distinction is the
+ * measurement.
+ */
+export interface FollowupOutcome {
+  /** The middle prose that would ship, or null when the template follow-up ships instead. */
+  prose: string | null
+  /** The complete composed body, greeting and sign-off included. Null whenever prose is. */
+  body: string | null
+  /** The prose the gates rejected, else null. */
+  discarded: string | null
+  /** Why it was rejected. Empty when nothing was. */
+  failures: string[]
+}
+
+/**
+ * Nothing written and nothing rejected.
+ *
+ * THE VALUE THE COHERENCE RULE RETURNS. Every path on which the approved template Email 1
+ * ships resolves to this, so a consumer reading `.prose` with no condition of its own
+ * still gets null.
+ */
+export const EMPTY_FOLLOWUP: FollowupOutcome = {
+  prose: null, body: null, discarded: null, failures: [],
+}
+
+/**
  * The paragraphs that always sit at the END of a follow-up email body. One: the sign-off
  * block, which is two lines (sender first name, sender company name) in a single
  * paragraph, with nothing after it.

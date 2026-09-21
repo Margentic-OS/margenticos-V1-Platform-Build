@@ -105,7 +105,8 @@ import {
   type MessagingContent,
   type ProduceOpeningInput,
 } from '@/lib/agents/research/produce-opening'
-import type { AttemptObservation, JudgeComparison, FollowupOutcome } from '@/lib/agents/research/write-opening'
+import type { AttemptObservation, JudgeComparison } from '@/lib/agents/research/write-opening'
+import type { FollowupOutcome } from '@/lib/agents/research/followup-frame'
 import { buildFindingsBlock } from '@/lib/agents/research/write-opening'
 import { writerInputFromSynthesis } from '@/lib/agents/research/writer-input'
 import { loadClientContext } from '@/lib/agents/research/synthesize'
@@ -301,6 +302,10 @@ interface ProspectRecord {
    */
   followups: {
     mode: 'generated' | 'template'
+    attempts: { attempt: number; email2: string; email3: string; failures2: string[]; failures3: string[] }[]
+    usage: TokenUsage | null
+    usd: number
+    retries_used: number
     email2: FollowupOutcome
     email3: FollowupOutcome
     sequence: { position: number; subject: string | null; body: string; source: 'generated' | 'template' }[]
@@ -490,7 +495,7 @@ async function runOne(
     icpBuyerTitle: clientCtx.buyerTitle,
     uniqueness,
     onAttempt: o => attempts.push(o),
-    writeFollowups,
+    writeFollowupEmails: writeFollowups,
   })
 
   return {
@@ -512,6 +517,22 @@ async function runOne(
     gate_failures:    opening.gate_failures,
     attempts,
     followups: {
+      /**
+       * Every follow-up attempt, kept so a rejection can be READ and not just counted.
+       * The whole question this feature turns on is whether the gates catch real faults
+       * or throw away good copy, and a count cannot answer it.
+       */
+      attempts: opening.followup_attempts,
+      /**
+       * The follow-up call's OWN tokens, separate from Email 1's.
+       *
+       * SEPARATE, NOT FOLDED IN, because the two arms differ by exactly this and folding
+       * them would hide which half moved. `usd` below is the total of both, which is what
+       * cost-per-prospect means; this is the part that is new.
+       */
+      usage: opening.followup_usage,
+      usd: opening.followup_usage ? usdForUsage(opening.followup_usage) : 0,
+      retries_used: opening.followup_attempts.length > 0 ? opening.followup_attempts.length - 1 : 0,
       // THE MODE THIS PROSPECT WOULD HAVE RECEIVED, recorded as an OUTCOME rather than as
       // an intent. 'generated' requires the flag AND a won Email 1 AND both follow-ups
       // surviving their gates. A prospect that fell back at any of those three points
@@ -535,7 +556,10 @@ async function runOne(
     comparisons:      opening.comparisons,
     comparison_count: opening.comparisons.length,
     usage:            opening.usage,
-    usd:              usdForUsage(opening.usage),
+    // BOTH CALLS. Email 1's writer/floor/judge plus the follow-up call, because
+    // cost-per-prospect is what a prospect costs and the follow-up call is part of that.
+    usd:              usdForUsage(opening.usage)
+                        + (opening.followup_usage ? usdForUsage(opening.followup_usage) : 0),
     stored_before: {
       trigger:  (p.personalisation_trigger  ?? null) as string | null,
       question: (p.personalisation_question ?? null) as string | null,

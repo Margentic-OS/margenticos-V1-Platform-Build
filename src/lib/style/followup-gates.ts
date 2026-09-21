@@ -18,6 +18,8 @@
 // runtime, and it is only ever used as a HAYSTACK to reject against, never as a source of
 // anything.
 
+import { findFirmographicFigures } from './firmographic'
+
 /** Lowercased, punctuation-stripped, single-spaced. For comparing prose to prose. */
 export function normaliseForEcho(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim()
@@ -119,6 +121,60 @@ const POPULATION_OPENERS: readonly RegExp[] = [
 const SECOND_PERSON = /\byou(?:'re|r|rs|rself)?\b/i
 
 /**
+ * Legal and descriptive suffixes that are part of a registered name and never part of how
+ * anybody refers to a company in a sentence.
+ */
+const COMPANY_SUFFIXES = new Set([
+  'inc', 'llc', 'ltd', 'limited', 'plc', 'llp', 'lp', 'corp', 'corporation', 'co',
+  'company', 'group', 'holdings', 'partners', 'partnership', 'associates', 'consulting',
+  'consultancy', 'consultants', 'advisors', 'advisers', 'advisory', 'services', 'solutions',
+  'international', 'global', 'gmbh', 'bv', 'sa', 'srl', 'pty', 'pte', 'ag', 'nv', 'oy', 'ab',
+])
+
+/**
+ * The shortest form of a company name that a person would actually write.
+ *
+ * ═══ THIS FIXES A MEASURED FALSE POSITIVE, AND THE DIRECTION MATTERS ═══
+ *
+ * The first version matched `companyName` IN FULL against the opening sentence. Real copy
+ * uses the short form, so on the 2026-09-21 run SIX of the TWELVE hits on the callback
+ * gate were emails that did name the company and were rejected anyway:
+ *
+ *     written      stored
+ *     "Abacus"     "Abacus Business Consulting, Inc."
+ *     "Cavalry"    "Cavalry Consulting LLC"
+ *     "Interra's"  "Interra Consulting"
+ *     "BCR"        "BCR Business Consulting Resources, Inc."
+ *     "Matrix"     "Matrix Restaurant Consulting"
+ *     "CANDOR"     "CANDOR Management Consulting"
+ *
+ * Half the gate's output was wrong, and wrong in the expensive direction: it threw away
+ * correct copy and spent a retry doing it.
+ *
+ * SO THIS TAKES THE FIRST SIGNIFICANT TOKEN, suffixes dropped. It deliberately does NOT
+ * try to match any token: a company called "Matrix Restaurant Consulting" should not be
+ * credited with a callback because the email happened to contain the word "restaurant".
+ * The leading token is the distinguishing part of a name in every case measured, and
+ * anything looser starts accepting ordinary nouns as company references.
+ *
+ * Returns null when nothing usable survives, and the caller then requires second person,
+ * which is the stricter branch and the safe direction to fail in.
+ */
+export function companyShortForm(companyName: string | null | undefined): string | null {
+  if (!companyName) return null
+  const tokens = companyName
+    .split(/[\s,./&-]+/)
+    .map(t => t.replace(/[^\p{L}\p{N}]/gu, ''))
+    .filter(Boolean)
+  for (const token of tokens) {
+    if (token.length < 2) continue
+    if (COMPANY_SUFFIXES.has(token.toLowerCase())) continue
+    return token
+  }
+  return null
+}
+
+/**
  * Longest sentence permitted, in words. Under 25, per the sequence rule, so 24 is the
  * largest that passes.
  */
@@ -143,12 +199,32 @@ function quote(text: string, max = 90): string {
 }
 
 export interface FollowupGateInput {
+  /**
+   * The evidence corpus the traceability and firmographic checks read. Same string the
+   * Email 1 gates read, so a figure legal there is legal here.
+   */
+  findingsEvidence?: string
   /** The written middle prose for this email. */
   prose: string
   /** Which email this is, for the message. */
   position: 2 | 3
   /** The stripped template reference this email was written against. */
   reference: string
+  /**
+   * The approved offer line from Email 1, which this writer is shown as part of the
+   * Email 1 body.
+   *
+   * A SECOND ECHO CORPUS, AND A NARROW ONE ON PURPOSE. Email 2's job is to explain the
+   * mechanism, so it SHOULD overlap with the offer line in substance, and its callback
+   * SHOULD reference Email 1's observation. Echo-gating the whole of Email 1 would
+   * therefore reject the thing the email is for. What must not happen is the offer line
+   * coming back word for word, because the reader already read it in Email 1 and a
+   * verbatim repeat reads as a template with the paragraphs shuffled.
+   *
+   * This mirrors the offer-line echo gate the Email 1 writer already has, which exists
+   * for the same reason one position earlier.
+   */
+  offerLine?: string | null
   /** The prospect's company name, which counts as addressing them by name. */
   companyName?: string | null
   /** The composed body's word count, measured the way composition measures it. */
@@ -168,6 +244,7 @@ export interface FollowupGateInput {
 export function checkFollowupGates(input: FollowupGateInput): string[] {
   const failures: string[] = []
   const { prose, position, reference, companyName, bodyWordCount, minWords, maxWords } = input
+  const offerLine = input.offerLine ?? null
   const label = `email ${position}`
 
   const text = prose.trim()
@@ -188,8 +265,11 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
     )
   }
 
-  const namesCompany = companyName && companyName.trim().length > 2
-    ? new RegExp(`\\b${companyName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(first)
+  // The SHORT form, not the registered name. See companyShortForm: matching the full name
+  // rejected six correct emails on the 2026-09-21 run.
+  const shortForm = companyShortForm(companyName)
+  const namesCompany = shortForm !== null
+    ? new RegExp(`\\b${shortForm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(first)
     : false
   if (!SECOND_PERSON.test(first) && !namesCompany) {
     failures.push(
@@ -223,6 +303,14 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
     )
   }
 
+  const offerEcho = offerLine ? findEcho(text, offerLine) : null
+  if (offerEcho) {
+    failures.push(
+      `${label} reproduces ${ECHO_NEEDLE_WORDS} consecutive words of the offer line the ` +
+      `prospect already read in email 1: ${quote(offerEcho)}`,
+    )
+  }
+
   // ── House rules that apply to every email we send ──────────────────────────
   const questionMarks = (text.match(/\?/g) ?? []).length
   if (questionMarks > 1) {
@@ -237,6 +325,18 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
     failures.push(
       `${label} has a ${longest.words}-word sentence against a cap of ` +
       `${FOLLOWUP_MAX_SENTENCE_WORDS}: ${quote(longest.text)}`,
+    )
+  }
+
+  // A FIGURE FROM THE PROSPECT'S RECORD IS BANNED HERE EXACTLY AS IT IS IN EMAIL 1.
+  // CLAUDE.md states this as a hard fail for email content generally, not for one position:
+  // "it reads as a database lookup, it may be wrong, and a wrong number in the opening line
+  // is worse than a generic one". A follow-up is no safer a place for it.
+  const figures = findFirmographicFigures(text)
+  if (figures.length > 0) {
+    failures.push(
+      `${label} quotes ${figures.join(' and ')} from the prospect's record: ` +
+      'qualify by role, stage or situation instead',
     )
   }
 

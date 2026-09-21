@@ -26,16 +26,7 @@ import { readabilityScore } from '@/lib/style/readability'
 // The subject character cap lives with the messaging agent's other limits and is
 // imported rather than restated: a second copy of a number is a second thing to keep
 // in step by hand, and CLAUDE.md names that constant as the source of truth.
-// EMAIL_WORD_LIMITS joins it for the follow-up bands: a written Email 2 is measured
-// against exactly the band an authored Email 2 is measured against, from one constant.
-import { EMAIL_SUBJECT_LIMITS, EMAIL_WORD_LIMITS } from '@/agents/messaging-generation-agent'
-import { countWords } from '@/lib/composition/personalization'
-import {
-  checkFollowupGates,
-  checkFollowupPairGates,
-  normaliseForEcho,
-} from '@/lib/style/followup-gates'
-import { composeFollowupBody } from './followup-frame'
+import { EMAIL_SUBJECT_LIMITS } from '@/agents/messaging-generation-agent'
 import { BatchUniquenessRegistry, uniquenessFeedback } from './batch-uniqueness'
 import type { ObservationCandidate, TokenUsage } from './types'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
@@ -97,79 +88,6 @@ export const OPENING_BUDGET = {
 export const OPENING_TARGET_WORDS =
   OPENING_BUDGET.observation + OPENING_BUDGET.bridge + OPENING_BUDGET.question
 
-// ─── Written follow-ups: emails 2 and 3 ──────────────────────────────────────
-//
-// PHASE 1. READ-ONLY, AND THE FLAG IS THE ABSENCE OF A PARAMETER.
-//
-// There is no module-level boolean here and no environment variable. The feature is
-// reachable only by passing `followups` to writeAndJudgeOpening, and the two production
-// callers (the inline agent and phase 2 of the batch path, both through produceOpening) do
-// not pass it. So "off in production" is not a default someone can flip by editing a
-// constant, and it is not an assertion in a comment: it is the call sites, and turning it
-// on in production would mean editing one of them.
-//
-// That matters more than a flag would, because the failure this guards against is not
-// "somebody sets the flag". It is a change to a shared string or a shared cap silently
-// reaching Email 1 on every prospect. Every such change below is conditioned on this
-// parameter being present, and the positive control asserts byte-identical writer input
-// and byte-identical parse behaviour when it is absent.
-//
-// WHY ONE WRITER CALL AND NOT THREE. Cost is the binding constraint and it is measured:
-// the writer is the call that carries a ~9,300-token cached system prefix and runs up to
-// three times per prospect already. Three separate calls would pay that prefix three times
-// over and would also lose the one property this shape gets for free, which is that emails
-// 2 and 3 are written by something that can see the exact Email 1 they are following.
-
-/**
- * What the writer is shown so it can write emails 2 and 3, and what the gates measure
- * against afterwards.
- *
- * THE REFERENCE IS ALREADY STRIPPED WHEN IT ARRIVES. buildFollowupReference removes the
- * template's opening paragraph before this object is built, because that paragraph is a
- * population opener in every case measured and it is the single most copyable position in
- * the reference. See followup-frame.ts for the measurement and for why the removal is
- * structural rather than an instruction.
- *
- * `templateBody2` and `templateBody3` are the UNSTRIPPED bodies, and they are here for a
- * different job: composing the written prose back into a real frame so the gates can count
- * the words of a complete, sendable email rather than of a fragment. They are never shown
- * to the writer.
- */
-export interface FollowupReference {
-  /** Template Email 2 with its opening paragraph removed. Shown to the writer. */
-  reference2: string
-  /** Template Email 3 with its opening paragraph removed. Shown to the writer. */
-  reference3: string
-  /** Template Email 2's full body. Used as the frame for word counting. Never shown. */
-  templateBody2: string
-  /** Template Email 3's full body. Used as the frame for word counting. Never shown. */
-  templateBody3: string
-  /** The prospect's company name, which counts as addressing them in the callback gate. */
-  companyName?: string | null
-}
-
-/**
- * A written follow-up that survived its gates, or the reason it did not.
- *
- * BOTH HALVES ARE KEPT, for the reason subject_discarded is kept beside subject: an empty
- * result has two causes that mean different things, and a reader of the empty string alone
- * cannot tell "the writer returned nothing" from "it returned something the gate threw
- * away". On this feature that distinction is the whole measurement.
- */
-export interface FollowupOutcome {
-  /** The middle prose that would ship, or null when the template follow-up ships instead. */
-  prose: string | null
-  /** The complete composed body, greeting and sign-off included. Null whenever prose is. */
-  body: string | null
-  /** The prose the gates rejected, else null. */
-  discarded: string | null
-  /** Why it was rejected. Empty when nothing was. */
-  failures: string[]
-}
-
-/** Nothing written and nothing rejected. The shape a flag-off run never even constructs. */
-export const EMPTY_FOLLOWUP: FollowupOutcome = { prose: null, body: null, discarded: null, failures: [] }
-
 /**
  * Why the writer was NOT run, as a code. The only value today is the no-usable-candidate stop.
  * A code rather than prose, so anything that lists these prospects does not depend on the
@@ -227,32 +145,6 @@ export interface OpeningResult {
   /** Deterministic gate failures on the attempt that was finally used, if any. */
   gate_failures: string[]
   /**
-   * The written follow-ups, emails 2 and 3.
-   *
-   * ═══ THE COHERENCE RULE LIVES HERE, AT THE PRODUCER, NOT AT THE CONSUMER ═══
-   *
-   * `prose` and `body` on these two are non-null IF AND ONLY IF `written_won` is true.
-   * That is enforced in the same expression that sets `opening`, `question` and `subject`
-   * on the way out of writeAndJudgeOpening, so the four move together or not at all.
-   *
-   * WHY AT THE PRODUCER. The rule is that a callback must never reference an email the
-   * prospect did not get, and the tempting place to enforce it is the consumer: a check in
-   * storage, or a condition in composition. Both are the shape CLAUDE.md keeps recording,
-   * two lists kept in step by hand, and both fail the same way. A prospect with a null
-   * trigger and a non-null follow-up would ship a TEMPLATE Email 1 under a GENERATED Email
-   * 2 that calls back to an observation nobody read. No error, no log, correct word count,
-   * and the only person who notices is the recipient.
-   *
-   * Enforced here, that state cannot be constructed. Every consumer that ever reads these
-   * fields, including one written carelessly a year from now that reads `email2.prose`
-   * directly without checking anything, gets null on every path where the template Email 1
-   * ships. There are five such paths and they all return through the same two expressions.
-   *
-   * Both are EMPTY_FOLLOWUP on every flag-off run, because the writer is never asked for them.
-   */
-  email2: FollowupOutcome
-  email3: FollowupOutcome
-  /**
    * Set ONLY when the writer was not run, saying why. Absent on every opening the writer
    * produced, including ones that lost to the template. Stored with the rest of this record in
    * prospects.trigger_data.judge, which is what the operator's client page reads to list the
@@ -294,32 +186,7 @@ export function buildWriterAssignment(params: {
   buyer: string
   p3: string
   cta: string
-  /**
-   * The stripped tone-and-length reference for emails 2 and 3, when they are being
-   * written. Absent otherwise, and the assignment is then byte-identical to what it was
-   * before this parameter existed.
-   *
-   * IN THE ASSIGNMENT AND NOT THE SYSTEM PROMPT, for the same reason the offer line is:
-   * it varies by variant and by client, and one interpolation in the cached prefix would
-   * miss the cache on every writer call in the system.
-   */
-  followups?: FollowupReference | null
 }): string {
-  // Appended, so that with no follow-up reference this function returns exactly the string
-  // it returned before the parameter existed. Asserted in the tests, not assumed.
-  const followupBlock = params.followups
-    ? `
-
-THE CLIENT'S APPROVED FOLLOW-UPS, FOR TONE AND LENGTH ONLY. Their opening paragraphs have
-been removed: those open on a population and you must not. Do not reuse their wording.
-
-  Their email 2 reads:
-${indentBlock(params.followups.reference2)}
-
-  Their email 3 reads:
-${indentBlock(params.followups.reference3)}`
-    : ''
-
   return `## Assignment
 
 You are writing for: ${params.clientName}
@@ -332,37 +199,10 @@ the client's approved positioning. Reproduce it exactly, do not alter or paraphr
   ${params.p3}
 
 The approved closing question for this particular variant is "${params.cta}", and it shows
-register and length. It is not an instruction to reuse it.${followupBlock}`
+register and length. It is not an instruction to reuse it.`
 }
 
-/** Indents a block so a multi-paragraph quotation reads as quoted material. */
-function indentBlock(text: string): string {
-  return text
-    .split('\n')
-    .map(line => (line.trim() ? `    ${line.trim()}` : ''))
-    .join('\n')
-}
-
-/**
- * The writer's system prompt.
- *
- * ═══ CONSTANT WHEN `withFollowups` IS FALSE, AND THAT IS LOAD-BEARING ═══
- *
- * This prompt is ~9,300 tokens and is sent with a cache breakpoint, up to three times per
- * prospect. Caching is a prefix match, so the string has to be identical for every
- * prospect, every variant and every client or nothing is cached at all. It was moved to a
- * no-argument constant for exactly that reason, and the per-run parts live in
- * buildWriterAssignment instead.
- *
- * Adding a parameter re-opens that risk, so the shape here is the one that cannot cost
- * anything when the feature is off: the follow-up section is APPENDED, and the base string
- * above it is untouched. `buildWriterPrompt()` and `buildWriterPrompt(false)` return the
- * same bytes the no-argument version returned before this parameter existed, which is
- * asserted directly in the tests rather than reasoned about. Flag-on is a different prompt
- * and therefore a different cache entry, which costs one cache write on the first call of
- * a run and is the expected price of the arm.
- */
-export function buildWriterPrompt(withFollowups = false): string {
+export function buildWriterPrompt(): string {
   return `You are a senior BDR with fifteen years behind you, writing for the client named in
 the ASSIGNMENT block at the top of the user message.
 
@@ -1150,94 +990,8 @@ SCRATCH: <your thinking, at most 120 words. Nobody reads this block and it is di
 OBSERVATION: <the thing you noticed, its own paragraph>
 BRIDGE: <the pattern, in one sentence, its own paragraph>
 QUESTION: <the closing question, ending in a question mark>
-SUBJECT: <the subject line, on one line>${withFollowups ? FOLLOWUP_PROMPT_SECTION : ''}`
+SUBJECT: <the subject line, on one line>`
 }
-
-/**
- * Appended to the writer prompt only when follow-ups are asked for.
- *
- * NO WORKED EXAMPLE, AND THE ABSENCE IS THE POINT. The prompt above already records seven
- * separate occasions on which one of its own examples came back almost word for word, and
- * it twice chooses to name a shape rather than show one for precisely this reason: "a
- * worked example here would be a ready-made sentence to copy". Follow-ups are the worst
- * possible place to break that rule, because unlike the bridge shapes there is no
- * different-industry example available. Any example of an Email 2 is an example of THIS
- * client's Email 2, and every word in it would be usable, which is what makes it
- * dangerous.
- *
- * So the standard is set by the client's own approved copy, passed at runtime in the
- * assignment block with its opening paragraph removed, and the rules here are stated
- * rather than demonstrated. Rule Zero holds: nothing industry-specific is in this file.
- */
-const FOLLOWUP_PROMPT_SECTION = `
-
-═══════════════════════════════════════════════════════════════════════════════
-EMAILS 2 AND 3
-
-You are also writing the middle of emails 2 and 3 of this sequence. Same prospect, same
-finding, same thread. They are sent after this one, days apart, with no reply in between.
-
-WRITE THE MIDDLE ONLY. The greeting line and the two sign-off lines are added afterwards
-and are not yours to write. Do not write a greeting, do not write a sign-off, do not sign a
-name. Start at the first sentence of real copy and stop after the closing question.
-
-ONE FINDING, DEVELOPED. Email 1 named something you noticed. Emails 2 and 3 stay on it.
-They do not introduce a second research finding and they do not restate the first one.
-
-THE OPENING SENTENCE OF EACH IS A CALLBACK, AND IT IS ABOUT THEM.
-
-It points at the specific thing your observation named, in a few words, and it says "you"
-or names their company. That is what makes it a callback rather than a fresh start.
-
-  It must not open on a population. Not "most", not "many", not "a lot of", not
-  "everyone", not "firms that", not "people who", not "the pattern", not "the cost".
-  A sentence that would read identically in an email to a different person is not a
-  callback, it is a template opener, and it is rejected before anyone reads it.
-
-  It must not say when the last email went out, or how long ago, or that there was no
-  reply. You do not know any of that. The gap between sends is set elsewhere and varies
-  per prospect, so every one of those sentences is a guess that is wrong for somebody.
-
-  These are banned outright, in any wording: "just following up", "I never heard back",
-  "hope this finds you well", and every close relative of them. They say you are writing
-  again and have nothing to add, which is the one thing a follow-up must not say.
-
-EMAIL 2 GIVES SOMETHING NEW, TIED TO THE PROBLEM EMAIL 1 NAMED.
-
-It says HOW THE WORK ACTUALLY RUNS. Not proof, not a result, not a client story: there are
-none, and inventing one is the worst thing you could do here. Describe the mechanism, in
-plain terms, as it bears on the thing you observed.
-
-Four or more real sentences. This is not a nudge and it is not a reminder. If it could be
-deleted without losing anything, it should be.
-
-EMAIL 3 TAKES A DIFFERENT ANGLE ON THE SAME FINDING.
-
-If the findings hold a second usable fact, use it. If they do not, stay on the first one
-and come at it from a different consequence: what it costs somewhere else, what it makes
-harder later, what it looks like from another seat. A different angle, never a second
-topic and never the same point restated.
-
-EACH IS SHORTER THAN THE ONE BEFORE IT. Email 3 is no longer than email 2.
-
-Every sentence in both stays under 25 words. One question mark per email, and it is the
-closing question. Every rule from the sections above applies here unchanged: no em dashes,
-no figures from their record, nothing that is not in the findings, never tell them what
-people like them think, never assert what they do not have.
-
-THE CLIENT'S OWN APPROVED FOLLOW-UPS ARE IN THE ASSIGNMENT BLOCK, AND THEY ARE THERE FOR
-TONE AND LENGTH ONLY.
-
-Read them for how this client sounds, how long their sentences run, how they describe
-their own work and how they ask. They are NOT an opening model: their first paragraphs
-have been removed before you saw them, because those paragraphs open on a population and
-that is the one move you may not make. Do not reproduce a phrase from them. Six consecutive
-words in common is treated as copying and the email is thrown away.
-
-Return two further labelled blocks, after SUBJECT and in this order:
-
-EMAIL2: <the middle of email 2, paragraphs separated by a blank line>
-EMAIL3: <the middle of email 3, paragraphs separated by a blank line>`
 
 // ─── The judge prompt ────────────────────────────────────────────────────────
 //
@@ -1528,12 +1282,10 @@ function lengthFailureByPart(
   return `the whole block is ${total} words against a hard cap of ${OPENING_MAX_WORDS} and a target of ${OPENING_TARGET_WORDS}: ${detail}. ${instruction}`
 }
 
-// normaliseForEcho MOVED to src/lib/style/followup-gates.ts and imported above, rather
-// than copied. The follow-up echo gate needs the same normalisation as the offer-line echo
-// gate below, and two definitions of "the same prose" kept in step by hand is the shape
-// CLAUDE.md names in the parallel-arrays note. The import direction is one-way
-// (write-opening -> followup-gates) so there is no cycle: a cycle here passes tsc and the
-// whole vitest suite and fails only `npm run build`.
+/** Lowercased, punctuation-stripped, single-spaced. For comparing prose to prose. */
+function normaliseForEcho(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim()
+}
 
 export function checkOpeningGates(
   opening: string,
@@ -2087,18 +1839,6 @@ export interface AttemptObservation {
    * design: an unusable subject must not consume one of the two or three attempts.
    */
   subject_discarded: string | null
-  /**
-   * The written follow-ups for THIS attempt, gated and either kept or discarded.
-   *
-   * ON EVERY ATTEMPT, INCLUDING REJECTED ONES, for the same reason the opening text is:
-   * the whole question this feature is being measured on is whether the two new gates
-   * catch real faults or throw away good copy, and that cannot be answered from a count.
-   * It needs the rejected prose and the reason, side by side, for every attempt.
-   *
-   * EMPTY_FOLLOWUP on every flag-off attempt, where the writer was never asked for them.
-   */
-  email2: FollowupOutcome
-  email3: FollowupOutcome
 
   // ─── THE JUDGE'S VERDICT, ON EVERY COMPARISON RATHER THAN THE LAST ─────────
   //
@@ -2119,7 +1859,7 @@ export interface AttemptObservation {
  */
 export type AttemptText = Pick<
   AttemptObservation,
-  'observation' | 'bridge' | 'question' | 'subject' | 'subject_discarded' | 'email2' | 'email3'
+  'observation' | 'bridge' | 'question' | 'subject' | 'subject_discarded'
 > & {
   /** The observation and the bridge joined, which is what composition ships. */
   opening: string
@@ -2168,16 +1908,6 @@ export interface WriteAndJudgeParams {
    * See AttemptObservation for why the returned gate_failures cannot serve this purpose.
    */
   onAttempt?: (observation: AttemptObservation) => void
-  /**
-   * THE FLAG. Present means write emails 2 and 3; absent means do not.
-   *
-   * Absent is the production state and it is not a default that can be flipped from a
-   * config file: the two production callers do not pass this, so turning it on means
-   * editing a call site. Every behavioural difference in this function is conditioned on
-   * it, including the token ceiling and the prompt, so an absent value reproduces today's
-   * writer exactly.
-   */
-  followups?: FollowupReference | null
 }
 
 /**
@@ -2189,35 +1919,7 @@ export interface WriteAndJudgeParams {
  * Anchored to a line start rather than matched anywhere, so a prospect's own prose
  * containing the word cannot truncate the reply.
  */
-/*
- * BOUNDED AT EMAIL2, WHICH TURNS THIS FILE'S LAST INCIDENTAL BOUNDARY INTO AN EXPLICIT ONE.
- *
- * This ran to end-of-string, which was correct while SUBJECT was the final block. It is no
- * longer final when the writer is asked for follow-ups, and left alone it would strip
- * EMAIL2 and EMAIL3 along with the subject on the unlabelled fallback path: the whole
- * reply would collapse into the observation and a literal "EMAIL2: ..." would ship as the
- * first line of a real email.
- *
- * The comment above parseWriterOutput already names this class against QUESTION, which
- * "survived only because the next line took its first line via split. That is incidental
- * correctness: it would have broken silently the moment anything multi-line followed it."
- * SUBJECT was the remaining field relying on that, and something multi-line now follows it.
- *
- * WITH NO EMAIL2 IN THE REPLY THE LOOKAHEAD FALLS THROUGH TO `$` AND THIS IS THE SAME
- * REGEX IT WAS. That is what makes the flag-off control provable rather than argued: every
- * reply the writer produces today contains no line-initial EMAIL2, so every strip is
- * byte-identical to the one that ran before this edit.
- */
-const SUBJECT_BLOCK = /(?:^|\n)[ \t]*SUBJECT:[\s\S]*?(?=\n[ \t]*EMAIL2:|$)/i
-
-/**
- * The trailing follow-up blocks, for removal on the unlabelled fallback path only.
- *
- * Same job as SUBJECT_BLOCK and same anchoring: a line start, so a prospect's own prose
- * containing the word cannot truncate the reply. Absent from the output, which is every
- * flag-off reply, the strip is a no-op.
- */
-const FOLLOWUP_BLOCK = /(?:^|\n)[ \t]*EMAIL2:[\s\S]*$/i
+const SUBJECT_BLOCK = /(?:^|\n)[ \t]*SUBJECT:[\s\S]*$/i
 
 /**
  * The writer's scratch block, removed before a single field is read.
@@ -2276,15 +1978,6 @@ export function parseWriterOutput(rawWithScratch: string): {
   question: string
   subject: string
   opening: string
-  /**
-   * The written follow-up prose, empty string when the writer returned none.
-   *
-   * EMPTY IS THE NORMAL CASE, not an error: every flag-off reply has no EMAIL2 block, and
-   * a caller that never asked for follow-ups never reads these. Empty rather than
-   * undefined, so no caller has to tell the two apart, matching `subject`.
-   */
-  email2: string
-  email3: string
 } {
   // Before anything is read, so no path below can see the scratch block: the four labelled
   // captures, the unlabelled `raw` fallback and the subject all read this string.
@@ -2294,25 +1987,17 @@ export function parseWriterOutput(rawWithScratch: string): {
   const bridgeMatch = raw.match(/BRIDGE:\s*([\s\S]*?)(?=\n\s*(?:QUESTION|SUBJECT):|$)/i)
   const legacyMatch = raw.match(/OPENING:\s*([\s\S]*?)(?=\n\s*(?:QUESTION|SUBJECT):|$)/i)
   const qMatch = raw.match(/QUESTION:\s*([\s\S]*?)(?=\n\s*SUBJECT:|$)/i)
-  // Bounded at EMAIL2 for the same reason SUBJECT_BLOCK is, and identical to the old
-  // end-of-string capture whenever no EMAIL2 block is present.
-  const subjectMatch = raw.match(/SUBJECT:\s*([\s\S]*?)(?=\n\s*EMAIL2:|$)/i)
-  const email2Match = raw.match(/EMAIL2:\s*([\s\S]*?)(?=\n\s*EMAIL3:|$)/i)
-  const email3Match = raw.match(/EMAIL3:\s*([\s\S]+)/i)
+  const subjectMatch = raw.match(/SUBJECT:\s*([\s\S]+)/i)
 
   const question = cleanOpening(qMatch?.[1] ?? '').split('\n')[0].trim()
   // One line, same treatment as the question. A subject is a single line by definition.
   const subject = cleanOpening(subjectMatch?.[1] ?? '').split('\n')[0].trim()
-  // NOT collapsed to one line and NOT collapsed to one paragraph. These are multi-paragraph
-  // prose, and the paragraph breaks are what composeFollowupBody rebuilds the email from.
-  const email2 = cleanOpening(email2Match?.[1] ?? '').trim()
-  const email3 = cleanOpening(email3Match?.[1] ?? '').trim()
 
   // Preferred path: both labels present.
   if (obsMatch && bridgeMatch) {
     const observation = collapseParagraph(cleanOpening(obsMatch[1]))
     const bridge = collapseParagraph(cleanOpening(bridgeMatch[1]))
-    return { observation, bridge, question, subject, email2, email3, opening: joinOpening(observation, bridge) }
+    return { observation, bridge, question, subject, opening: joinOpening(observation, bridge) }
   }
 
   // Fallback: the old single OPENING block, or an unlabelled reply. Split on the blank
@@ -2325,21 +2010,13 @@ export function parseWriterOutput(rawWithScratch: string): {
   // the resolved string rather than to that one branch: it costs nothing and it cannot
   // then be missed if the branches are ever reordered. `subject` above was read from the
   // untouched `raw`, so stripping here loses nothing.
-  //
-  // FOLLOWUP_BLOCK IS STRIPPED HERE TOO, AND FOR EXACTLY THE REASON SUBJECT_BLOCK IS.
-  // SUBJECT_BLOCK now stops at EMAIL2 rather than at end-of-string, so on this branch it
-  // no longer carries the follow-ups away with it. Without a second strip the literal text
-  // "EMAIL2: ..." would be treated as prose and shipped as part of the opening, which is
-  // the same failure the subject strip exists to prevent, one block further down.
   const whole = cleanOpening(
-    (legacyMatch?.[1] ?? obsMatch?.[1] ?? bridgeMatch?.[1] ?? raw)
-      .replace(SUBJECT_BLOCK, '')
-      .replace(FOLLOWUP_BLOCK, ''),
+    (legacyMatch?.[1] ?? obsMatch?.[1] ?? bridgeMatch?.[1] ?? raw).replace(SUBJECT_BLOCK, ''),
   )
   const parts = whole.split(/\n{2,}/).map(x => x.trim()).filter(Boolean)
   const observation = collapseParagraph(parts[0] ?? '')
   const bridge = collapseParagraph(parts.slice(1).join(' '))
-  return { observation, bridge, question, subject, email2, email3, opening: joinOpening(observation, bridge) }
+  return { observation, bridge, question, subject, opening: joinOpening(observation, bridge) }
 }
 
 /** One paragraph on one logical line. Soft-wraps the model inserts are not paragraphs. */
@@ -2350,117 +2027,6 @@ function collapseParagraph(text: string): string {
 /** The stored trigger: observation and bridge as two paragraphs. */
 export function joinOpening(observation: string, bridge: string): string {
   return [observation.trim(), bridge.trim()].filter(Boolean).join('\n\n')
-}
-
-/**
- * Scrub, compose, gate and keep-or-discard the two written follow-ups.
- *
- * PURE AND SYNCHRONOUS. No model call, no clock, no database. Everything it decides is a
- * function of the two prose blocks and the reference, which is what lets the gate
- * behaviour be tested on fixed strings rather than inferred from a paid run.
- *
- * TRUNCATION IS A VISIBLE FAILURE HERE, NOT A SILENT EMPTY FIELD. The writer emits EMAIL2
- * before EMAIL3, so a reply cut off by the token ceiling loses EMAIL3 first and loses both
- * only if it was cut off much earlier. Those two states are reported as different reasons,
- * because they call for different fixes: a missing EMAIL3 alongside a present EMAIL2 means
- * raise the ceiling, and both missing means the writer ignored the instruction. Reporting
- * either as a bare empty string would make a token-budget fault look like a copy fault,
- * which is precisely the confusion that cost 33 prospects their openings when the scratch
- * block was first added.
- */
-function gateFollowups(
-  rawEmail2: string,
-  rawEmail3: string,
-  reference: FollowupReference,
-  prospectId: string,
-): { email2: FollowupOutcome; email3: FollowupOutcome } {
-  const scrub = (t: string) => (t ? scrubAITells(t, `research/followup/${prospectId}`) : '')
-  const prose2 = scrub(rawEmail2)
-  const prose3 = scrub(rawEmail3)
-
-  // ── Presence, before anything that assumes there is prose to measure ───────
-  const missing: string[] = []
-  if (!prose2 && !prose3) {
-    missing.push('the writer returned neither EMAIL2 nor EMAIL3')
-  } else if (!prose3) {
-    missing.push(
-      'the writer returned EMAIL2 but no EMAIL3, which is what a reply cut off by the ' +
-      'token ceiling looks like: EMAIL3 is the last block emitted',
-    )
-  } else if (!prose2) {
-    missing.push('the writer returned EMAIL3 but no EMAIL2')
-  }
-  if (missing.length > 0) {
-    logger.warn('research/write-opening: written follow-ups incomplete, template follow-ups will ship', {
-      prospect_id: prospectId,
-      email2_present: Boolean(prose2),
-      email3_present: Boolean(prose3),
-      reasons: missing,
-    })
-    return {
-      email2: { prose: null, body: null, discarded: prose2 || null, failures: missing },
-      email3: { prose: null, body: null, discarded: prose3 || null, failures: missing },
-    }
-  }
-
-  // Composed into the template's own frame, so the word count measured is a COMPLETE
-  // email's, counted by the same countWords composition uses. A count taken on the middle
-  // prose alone would be short by the greeting and the two sign-off lines and would read
-  // as inside a band the real email is outside of.
-  const body2 = composeFollowupBody(reference.templateBody2, prose2)
-  const body3 = composeFollowupBody(reference.templateBody3, prose3)
-  if (body2 === null || body3 === null) {
-    const why = [
-      'the template follow-up has no recognisable greeting/middle/sign-off frame, so the ' +
-      'written prose cannot be composed into a sendable email',
-    ]
-    return {
-      email2: { prose: null, body: null, discarded: prose2, failures: why },
-      email3: { prose: null, body: null, discarded: prose3, failures: why },
-    }
-  }
-
-  const words2 = countWords(body2)
-  const words3 = countWords(body3)
-
-  const failures2 = checkFollowupGates({
-    prose: prose2, position: 2, reference: reference.reference2,
-    companyName: reference.companyName, bodyWordCount: words2,
-    minWords: EMAIL_WORD_LIMITS.email2MinWords, maxWords: EMAIL_WORD_LIMITS.email2MaxWords,
-  })
-  const failures3 = checkFollowupGates({
-    prose: prose3, position: 3, reference: reference.reference3,
-    companyName: reference.companyName, bodyWordCount: words3,
-    minWords: EMAIL_WORD_LIMITS.email3MinWords, maxWords: EMAIL_WORD_LIMITS.email3MaxWords,
-  })
-
-  // THE PAIR GATES FAIL BOTH EMAILS, NOT ONE. "Email 3 is longer than email 2" and "email
-  // 3 repeats a sentence from email 2" are facts about the pair, and there is no principled
-  // way to say which of the two is the wrong one. Shipping one generated follow-up beside
-  // one template follow-up would also break the thread: the callback in the survivor would
-  // point at copy the other email no longer sets up. So the pair ships together or not at
-  // all, which is the same all-or-nothing rule the coherence condition applies one level up.
-  const pair = checkFollowupPairGates(prose2, prose3, words2, words3)
-  const all2 = [...failures2, ...pair]
-  const all3 = [...failures3, ...pair]
-  const rejected = all2.length > 0 || all3.length > 0
-
-  if (rejected) {
-    logger.warn('research/write-opening: written follow-ups discarded, template follow-ups will ship', {
-      prospect_id: prospectId,
-      email2_reasons: all2,
-      email3_reasons: all3,
-    })
-    return {
-      email2: { prose: null, body: null, discarded: prose2, failures: all2 },
-      email3: { prose: null, body: null, discarded: prose3, failures: all3 },
-    }
-  }
-
-  return {
-    email2: { prose: prose2, body: body2, discarded: null, failures: [] },
-    email3: { prose: prose3, body: body3, discarded: null, failures: [] },
-  }
 }
 
 export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise<OpeningResult> {
@@ -2475,16 +2041,8 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   const findingsEvidence = buildFindingsEvidence(params.candidates)
   // Constant across every prospect, variant and client, which is what makes it cacheable.
   // The parts that used to vary are in the assignment block, prepended to the user message.
-  // Resolved ONCE, here, so every branch below reads the same boolean rather than each
-  // testing `params.followups` for itself. Four separate truthiness tests of the same
-  // field is the shape that drifts: one of them gets a `!= null` and another a `?.`, and
-  // the arms stop agreeing about which mode the run is in.
-  const wantFollowups = params.followups != null
-  const writerSystem = buildWriterPrompt(wantFollowups)
-  const assignment = buildWriterAssignment({
-    clientName: params.clientName, buyer: params.buyer, p3: params.p3, cta: params.cta,
-    followups: params.followups ?? null,
-  })
+  const writerSystem = buildWriterPrompt()
+  const assignment = buildWriterAssignment({ clientName: params.clientName, buyer: params.buyer, p3: params.p3, cta: params.cta })
 
   // Accumulated across EVERY call this prospect makes, including the ones on attempts that
   // were thrown away. A retried prospect's real cost is the point of measuring at all, so
@@ -2520,26 +2078,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // writing a single email field: 0 of 33 judge wins, against 23 of 33, with 64
     // missing observations. A scratch block placed before the email can starve it, so
     // the 120-word cap in the prompt and this ceiling are one mechanism in two places.
-    //
-    // 1600 WITH FOLLOW-UPS, AND THE RAISE IS THE SAME MECHANISM AS THE 700->1100 ONE.
-    //
-    // The scratch block sits BEFORE every email field, so whatever it consumes the fields
-    // do not get. That is what produced 0 of 33 judge wins and 64 missing observations
-    // when a think-block was added under a 700 ceiling. Asking for two more fields puts
-    // MORE behind the scratch block, not less, so the ceiling has to move with it or the
-    // same starvation returns one field further down.
-    //
-    // Measured on the pinned 33-prospect cohort at 2026-09-14: output across all calls was
-    // a median of 74 tokens per call and a peak of 216, so today's 1100 carries roughly 5x
-    // headroom. Emails 2 and 3 at their word bands add roughly 180 output tokens. 1600
-    // keeps the same proportion of headroom rather than spending it, because the number
-    // that matters is not the mean, it is what is left when the scratch block runs long.
-    //
-    // The 120-word scratch cap in the prompt is UNCHANGED and must stay that way: this
-    // ceiling and that cap are one mechanism in two places, and raising the ceiling alone
-    // just buys the deliberation more room to expand into.
-    const writerMaxTokens = wantFollowups ? 1600 : 1100
-    const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, writerMaxTokens, `writer for prospect ${params.prospectId}`, true)
+    const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, 1100, `writer for prospect ${params.prospectId}`, true)
     record(writerCall.usage)
     const raw = writerCall.text
     const parsed = parseWriterOutput(raw)
@@ -2585,27 +2124,8 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // an observation with no bridge names a fact and then asks for a meeting.
     if (!observation) gates.push('writer returned no observation')
     if (!bridge) gates.push('writer returned no bridge')
-    // ── THE FOLLOW-UPS FAIL SOFT, EXACTLY AS THE SUBJECT ABOVE DOES ──────────
-    //
-    // Their failures go into their own arrays and are NEVER added to `gates`. `gates` is
-    // what ends an attempt, so a bad email 2 cannot consume one of the two or three
-    // attempts this prospect gets for Email 1.
-    //
-    // THAT IS THE WHOLE POINT AND IT IS WORTH SAYING PLAINLY. Email 1 is the email that
-    // decides whether anything else is read. Letting a follow-up gate end an attempt would
-    // spend Email 1's budget on a problem that is not Email 1's, and would mean this
-    // feature could degrade Email 1 even on prospects whose Email 1 was fine. A rejected
-    // follow-up falls back to the client's approved follow-up, which is the copy that
-    // ships today, so the worst case here is the current state.
-    const followups = wantFollowups
-      ? gateFollowups(parsed.email2, parsed.email3, params.followups!, params.prospectId)
-      : { email2: EMPTY_FOLLOWUP, email3: EMPTY_FOLLOWUP }
-
     // Deliberately NOT gated: a missing subject is the fallback working, not a failure.
-    return {
-      observation, bridge, opening, question, subject, subject_discarded,
-      email2: followups.email2, email3: followups.email3, gates,
-    }
+    return { observation, bridge, opening, question, subject, subject_discarded, gates }
   }
 
   // THE FLOOR. Runs on the personalised email alone, before any comparison, and can only
@@ -2685,7 +2205,6 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     const text: AttemptText = {
       observation: w.observation, bridge: w.bridge, opening: w.opening,
       question: w.question, subject: w.subject, subject_discarded: w.subject_discarded,
-      email2: w.email2, email3: w.email3,
     }
     if (w.gates.length > 0) return { ...text, kind: 'gated', gates: w.gates }
 
@@ -2751,11 +2270,6 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       question: a.question,
       subject: a.subject,
       subject_discarded: a.subject_discarded,
-      // Reported per attempt, kept or discarded, because the measurement this feature is
-      // being judged on is whether the follow-up gates catch faults or eat good copy, and
-      // only the rejected text answers that.
-      email2: a.email2,
-      email3: a.email3,
       // Null for every kind but 'compared', because no other kind reached the judge. An
       // absent verdict and a verdict of "no reasoning returned" are different facts.
       judge_reasoning: a.kind === 'compared' ? a.c.reason : null,
@@ -2765,15 +2279,10 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     if (a.kind === 'compared') {
       comparisons.push(a.c)
       if (a.c.written_won) {
-        // THE ONLY RETURN WHERE written_won IS TRUE, so it is the only one where a
-        // follow-up may be non-null. The pair is carried straight through from the
-        // attempt that won, in the same expression as the opening, the question and the
-        // subject: all five move together because they are written in one place.
         return {
           usage,
           opening: a.c.opening, observation: a.c.observation, bridge: a.c.bridge,
           question: a.c.question, subject: a.subject || null, written_won: true,
-          email2: a.email2, email3: a.email3,
           retry_used: i > 0, retries_used: i, strong_material: strongMaterial,
           comparisons, judge_reasoning: a.c.reason, gate_failures: [],
         }
@@ -2798,30 +2307,10 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // Nothing from this prospect ships, so it must not be holding any batch reservation.
   params.uniqueness?.release(params.prospectId)
 
-  // ═══ THE COHERENCE RULE, AT THE ONE PLACE EVERY FALLBACK PASSES THROUGH ═══
-  //
-  // Five paths reach here and every one of them means THE APPROVED TEMPLATE EMAIL 1 SHIPS:
-  // gates exhausted, bridge or question collided on every attempt, the floor disqualified
-  // it, the judge preferred the template, or no attempt completed. The sixth path, no
-  // usable candidate, never enters this function at all and returns the same shape from
-  // produceOpening.
-  //
-  // So the follow-ups are nulled HERE, unconditionally, in the same object literal that
-  // nulls the opening, the question and the subject. Not in an `if`, not in the caller,
-  // and not in composition. A generated email 2 opens by calling back to a specific
-  // observation; beneath a template Email 1 that observation was never sent, and the
-  // callback points at nothing. Writing the null in the same expression as the other four
-  // is what makes that state unconstructible rather than merely unlikely.
-  //
-  // `discarded` and `failures` are deliberately NOT carried over from the last attempt.
-  // They would be the only fields on this object describing work that did not ship, and a
-  // reader counting rejected follow-ups would then count prospects whose Email 1 fell back
-  // for an unrelated reason. The per-attempt record carries that text already.
   return {
     usage,
     opening: null, observation: null, bridge: null, question: null, subject: null,
     written_won: false,
-    email2: EMPTY_FOLLOWUP, email3: EMPTY_FOLLOWUP,
     retry_used: retries > 0, retries_used: retries, strong_material: strongMaterial,
     comparisons, judge_reasoning: reason,
     gate_failures: last?.kind === 'gated' ? last.gates : [],

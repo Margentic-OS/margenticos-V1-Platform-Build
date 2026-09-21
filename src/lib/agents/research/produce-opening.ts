@@ -13,15 +13,14 @@ import {
   getVariantEmail1Frame,
 } from '@/lib/composition/compose-sequence'
 import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
+import { writeAndJudgeOpening, buildFindingsBlock, buildFindingsEvidence, type OpeningResult, type AttemptObservation, type NotWrittenReason } from './write-opening'
+import { writeFollowups, type FollowupResult } from './write-followups'
 import {
-  writeAndJudgeOpening,
+  buildFollowupReference,
   EMPTY_FOLLOWUP,
-  type OpeningResult,
-  type AttemptObservation,
-  type NotWrittenReason,
   type FollowupReference,
-} from './write-opening'
-import { buildFollowupReference } from './followup-frame'
+  type FollowupOutcome,
+} from './followup-frame'
 import { resolveBuyer } from './resolve-buyer'
 import { logger } from '@/lib/logger'
 import type { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
@@ -82,17 +81,33 @@ export interface ProduceOpeningInput {
    */
   onAttempt?: (observation: AttemptObservation) => void
   /**
-   * THE FOLLOW-UP FLAG. True means also write emails 2 and 3.
+   * THE FLAG. True also writes emails 2 and 3, in their OWN model call with their own
+   * prompt, AFTER Email 1 is finished and only if the personalised Email 1 won.
    *
-   * DEFAULTS TO FALSE AND IS NOT PASSED BY EITHER PRODUCTION CALLER. The inline agent and
-   * phase 2 of the batch path both call this function without it, so the feature is off in
+   * DEFAULTS TO FALSE AND NEITHER PRODUCTION CALLER PASSES IT. The inline agent and phase
+   * 2 of the batch path both call produceOpening without it, so the feature is off in
    * production by virtue of the call sites rather than by a constant someone could edit.
    * The export script is the only caller that passes true.
    *
-   * Phase 1 is read-only: nothing in composition, upload or storage reads what this
-   * produces. See the coherence note on OpeningResult.email2.
+   * WITH IT FALSE, EMAIL 1 IS NOT MERELY UNAFFECTED, IT IS UNAWARE. writeAndJudgeOpening
+   * takes no follow-up parameter and write-opening.ts is byte-identical to main. The flag
+   * is read here, after that function has already returned.
    */
-  writeFollowups?: boolean
+  writeFollowupEmails?: boolean
+}
+
+/**
+ * What produceOpening adds to the writer's result: the two follow-ups, and how they were
+ * produced. Separate from OpeningResult because OpeningResult belongs to the Email 1
+ * writer, and that file is deliberately untouched.
+ */
+export interface OpeningWithFollowups extends OpeningResult {
+  email2: FollowupOutcome
+  email3: FollowupOutcome
+  /** Usage of the follow-up call only. ZERO when it did not run. */
+  followup_usage: FollowupResult['usage'] | null
+  /** Every follow-up attempt, kept so a rejection can be read rather than counted. */
+  followup_attempts: FollowupResult['attempts']
 }
 
 /**
@@ -142,7 +157,7 @@ export const NO_USABLE_CANDIDATE_REASON =
  * path's EMPTY_OPENING uses for a prospect that stopped being mailable, and callers already
  * store it: personalisation_trigger stays null and composition ships the approved opener.
  */
-function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningResult {
+function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningWithFollowups {
   return {
     not_written_reason: code,
     opening: null,
@@ -151,12 +166,6 @@ function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningResul
     bridge: null,
     observation: null,
     written_won: false,
-    // The sixth fallback path, and the only one that never enters writeAndJudgeOpening.
-    // Nulled here for the same reason the other five are nulled there: the approved
-    // template Email 1 ships, so a follow-up calling back to an observation would be
-    // calling back to one the prospect never received.
-    email2: EMPTY_FOLLOWUP,
-    email3: EMPTY_FOLLOWUP,
     retry_used: false,
     retries_used: 0,
     strong_material: false,
@@ -164,7 +173,13 @@ function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningResul
     usage: ZERO_TOKEN_USAGE,
     comparisons: [],
     gate_failures: [],
-  } satisfies OpeningResult
+    // The sixth fallback path, and the only one that never enters writeAndJudgeOpening.
+    // The approved template Email 1 ships, so no follow-up may reference it.
+    email2: EMPTY_FOLLOWUP,
+    email3: EMPTY_FOLLOWUP,
+    followup_usage: null,
+    followup_attempts: [],
+  } satisfies OpeningWithFollowups
 }
 
 /**
@@ -208,8 +223,8 @@ export async function produceOpening({
   icpBuyerTitle,
   uniqueness,
   onAttempt,
-  writeFollowups = false,
-}: ProduceOpeningInput): Promise<OpeningResult> {
+  writeFollowupEmails = false,
+}: ProduceOpeningInput): Promise<OpeningWithFollowups> {
   // THE DO-NOT-WRITE VERDICT HAS A READER, AND THIS IS IT. Added 2026-09-11.
   //
   // When synthesis's selection rule finds nothing that clears even SPECIFIC + VERIFIABLE +
@@ -255,7 +270,7 @@ export async function produceOpening({
     buyer_description: buyer.description,
   })
 
-  return writeAndJudgeOpening({
+  const opening = await writeAndJudgeOpening({
     apiKey,
     clientName,
     buyer: buyer.description,
@@ -285,12 +300,75 @@ export async function produceOpening({
     prospectId: ctx.id,
     uniqueness,
     onAttempt,
-    // NULL UNLESS THE CALLER ASKED. Resolved here rather than inside the writer so the
-    // writer takes data and makes no document decisions, matching how messagingContent and
-    // icpBuyerTitle already reach it. A variant whose follow-ups cannot be referenced
-    // resolves to null and the run proceeds exactly as a flag-off run does.
-    followups: writeFollowups
-      ? buildFollowupsFor(messagingContent, variantId, ctx.company_name ?? null)
-      : null,
   })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EMAILS 2 AND 3, IN THEIR OWN CALL, AFTER EMAIL 1 IS FINISHED
+  //
+  // EVERYTHING ABOVE THIS LINE IS UNCHANGED FROM MAIN. writeAndJudgeOpening has already
+  // returned; it was given no follow-up parameter and write-opening.ts is byte-identical
+  // to main in this branch. So Email 1's prompt, parser, gates, attempts, token ceiling
+  // and judge cannot be affected by anything below, and the positive control for that is
+  // a `diff` of one file returning nothing rather than an argument about which changes
+  // were safe.
+  //
+  // THE FIRST VERSION OF THIS FEATURE DID NOT HAVE THAT PROPERTY. It asked the Email 1
+  // writer for the follow-ups in the same response, and Email 1's gate failures went from
+  // 23 to 66 with offer_line_echo appearing 19 times from a control of 0, because Email
+  // 2's job (explain the mechanism) contradicts Email 1's rules (never name the service)
+  // and the framing bled upward. See the header of write-followups.ts.
+  //
+  // ═══ THE COHERENCE RULE: ONE CONDITION, READ ONCE ═══
+  //
+  // `opening.written_won` is false on all five fallback paths inside the writer and on the
+  // sixth above, and every one of them means THE APPROVED TEMPLATE EMAIL 1 SHIPS. So the
+  // follow-up call is not made at all in those cases, and the fields are EMPTY_FOLLOWUP.
+  //
+  // This is stronger than gating the STORAGE of a follow-up, because there is no generated
+  // follow-up in existence to mis-store: a callback pointing at an observation the
+  // prospect never received cannot be written, let alone shipped. The condition is also
+  // the same expression that decides whether the call is worth paying for, so the correct
+  // behaviour and the cheap behaviour are the same branch and cannot drift apart.
+  if (!writeFollowupEmails || !opening.written_won || opening.opening === null) {
+    return { ...opening, email2: EMPTY_FOLLOWUP, email3: EMPTY_FOLLOWUP, followup_usage: null, followup_attempts: [] }
+  }
+
+  const reference = buildFollowupsFor(messagingContent, variantId, ctx.company_name ?? null)
+  if (reference === null) {
+    logger.info('research/produce-opening: no usable follow-up reference, template follow-ups ship', {
+      prospect_id: ctx.id, variant_id: variantId,
+    })
+    return { ...opening, email2: EMPTY_FOLLOWUP, email3: EMPTY_FOLLOWUP, followup_usage: null, followup_attempts: [] }
+  }
+
+  // THE EMAIL 1 THAT ACTUALLY SHIPS, rendered by the production composer with the written
+  // opening, the written question and the written subject all applied. The callback has to
+  // point at what was really sent, and this is the only place those three exist together
+  // in their final wording.
+  const email1Body = composeEmail1WithOpening(
+    messagingContent, variantId, opening.opening, opening.question, ctx.first_name, opening.subject,
+  ).body
+
+  const followups = await writeFollowups({
+    apiKey,
+    clientName,
+    buyer: buyer.description,
+    email1Body,
+    offerLine: frame.p3,
+    findings: buildFindingsBlock(candidates, {
+      selectedCandidateId: selectedCandidateId ?? null,
+      relevanceReason: relevanceReason ?? null,
+    }),
+    findingsEvidence: buildFindingsEvidence(candidates),
+    reference,
+    prospectId: ctx.id,
+  })
+
+  return {
+    ...opening,
+    email2: followups.email2,
+    email3: followups.email3,
+    followup_usage: followups.usage,
+    followup_attempts: followups.attempts,
+  }
 }
