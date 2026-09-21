@@ -346,7 +346,10 @@ async function callModelWithRetries(args: {
       return textBlock.text.trim()
     } catch (err) {
       lastError = err
-      if (attempt >= MAX_ATTEMPTS || !isRetryableModelError(err)) break
+      // The loop bound already stops us after MAX_ATTEMPTS. This exists so the final
+      // failure is not announced as a retry that never happens.
+      const isFinalAttempt = attempt === MAX_ATTEMPTS
+      if (isFinalAttempt || !isRetryableModelError(err)) break
       logger.warn('faq-seed-agent: retrying Opus call after a transient failure', {
         attempt,
         error: err instanceof Error ? err.message : String(err),
