@@ -47,7 +47,7 @@ const metrics = {
 }
 
 function renderState(overrides: Record<string, unknown> = {}) {
-  const { metrics: metricsOverride, approvedProspectsCount, ...rest } = overrides
+  const { metrics: metricsOverride, approvedProspectsCount, eligibleToSendCount, ...rest } = overrides
   return render(
     <DocumentsActiveState
       orgName="Acme"
@@ -58,6 +58,9 @@ function renderState(overrides: Record<string, unknown> = {}) {
       setupStatus={{ campaigns: 'in_progress', linkedin: 'pending' }}
       pendingProspectsCount={0}
       approvedProspectsCount={(approvedProspectsCount as number) ?? 103}
+      // Defaults to "every approved contact is deliverable", which is the case these
+      // existing assertions were written against: the card then reads exactly as before.
+      eligibleToSendCount={(eligibleToSendCount as number) ?? (approvedProspectsCount as number) ?? 103}
       metrics={(metricsOverride as typeof metrics) ?? metrics}
       liveness={{ verdict: 'sending', label: 'Sending', detail: 'Mail is going out.' }}
       {...rest}
@@ -104,5 +107,25 @@ describe('the contacts approved line', () => {
   it('does not render the all-tier figure', () => {
     renderState()
     expect(screen.queryByText(/108 contacts approved/)).not.toBeInTheDocument()
+  })
+})
+
+// ─── The eligible-to-send figure ──────────────────────────────────────────────
+//
+// email_send_eligible is a frozen verdict meaning THE ADDRESS IS DELIVERABLE and nothing
+// else (see the clause list in src/lib/sourcing/send-gate.ts). The card must say that and
+// not imply a wider promise about who will be contacted.
+
+describe('DocumentsActiveState, the eligible-to-send figure', () => {
+  it('names the deliverable count when it is smaller than the approved count', () => {
+    renderState({ pendingProspectsCount: 0, approvedProspectsCount: 40, eligibleToSendCount: 28 })
+    expect(screen.getByText(/40 contacts approved, 28 with a confirmed deliverable address/i)).toBeDefined()
+  })
+
+  it('says nothing extra when every approved contact is deliverable', () => {
+    renderState({ pendingProspectsCount: 0, approvedProspectsCount: 40, eligibleToSendCount: 40 })
+    expect(screen.getByText(/40 contacts approved\. Outreach is being prepared\./i)).toBeDefined()
+    // A clause that always appears stops being read, so it is absent rather than 40 of 40.
+    expect(screen.queryByText(/deliverable address/i)).toBeNull()
   })
 })

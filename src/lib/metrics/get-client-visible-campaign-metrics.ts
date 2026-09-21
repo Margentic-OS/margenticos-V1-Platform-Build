@@ -201,10 +201,20 @@ export async function getClientVisibleCampaignMetrics(
     // meeting_status, not status. Both columns exist and both default to 'booked', but
     // meeting_status is the one the booking webhook and the confirm route actually
     // write ('booked', 'held', 'no_show', 'canceled', 'rescheduled').
+    // prospect_id NOT NULL, for exactly the reason the reply count below excludes it. A
+    // booking the webhook could not match to a prospect is recorded and never auto-billed
+    // (ADR-056), and it cannot be attributed to this client's outreach: it may be an
+    // inbound booking, a colleague testing the link, or someone who found the page
+    // directly. Counting it answers "how many meetings appeared in the calendar", and the
+    // question this card asks is "did outreach produce meetings".
+    //
+    // They are not hidden by this. The operator meetings page reads the same table and
+    // flags each one as unmatched.
     supabase
       .from('meetings')
       .select('meeting_status')
-      .eq('organisation_id', clientOrgId),
+      .eq('organisation_id', clientOrgId)
+      .not('prospect_id', 'is', null),
 
     // Distinct PEOPLE who actually replied. Read from reply_handling_actions rather than
     // from signals, because the intent is what decides whether a message is a reply at
@@ -406,10 +416,14 @@ export async function getAllCampaignMetricsForOrg(
       .eq('organisation_id', orgId)
       .in('classified_intent', POSITIVE_REPLY_INTENTS),
 
+    // Same exclusion as the client-facing function above, and kept in step for the same
+    // stated reason as the reply query: two functions answering one question must not be
+    // able to disagree. An unmatched booking stays visible on the operator meetings page.
     supabase
       .from('meetings')
       .select('*', { count: 'exact', head: true })
-      .eq('organisation_id', orgId),
+      .eq('organisation_id', orgId)
+      .not('prospect_id', 'is', null),
 
     // Distinct people who replied. Same query shape and same exclusion list as the
     // client-facing function, so the two cannot drift.

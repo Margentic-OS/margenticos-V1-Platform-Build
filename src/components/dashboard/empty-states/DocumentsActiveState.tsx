@@ -29,6 +29,11 @@ interface DocumentsActiveStateProps {
   clientParam?: string
   pendingProspectsCount: number
   approvedProspectsCount: number
+  /**
+   * How many of `approvedProspectsCount` carry a deliverable address. Strictly a subset:
+   * both are counted from one read of one population.
+   */
+  eligibleToSendCount: number
   // Real outreach numbers. metrics.hasData is true from the first email sent, and it is
   // what decides whether this page talks about a launch date or about results.
   metrics: ClientVisibleCampaignMetrics
@@ -104,6 +109,7 @@ export function DocumentsActiveState({
   clientParam,
   pendingProspectsCount,
   approvedProspectsCount,
+  eligibleToSendCount,
   metrics,
   liveness,
 }: DocumentsActiveStateProps) {
@@ -132,7 +138,14 @@ export function DocumentsActiveState({
       done: prospectState === 'approved',
       detail: prospectState === 'pending'
         ? `Your first list is ready, ${pendingProspectsCount} to review`
-        : `${approvedProspectsCount} contacts approved. Outreach is being prepared.`,
+        // The eligible figure is stated only when it differs, and never as a bare number.
+        // "N approved, M eligible" invites the question the card cannot answer; naming
+        // deliverability says what the gap IS. When every approved contact is reachable
+        // the sentence stays as it was, because a clause that always appears stops being
+        // read.
+        : eligibleToSendCount < approvedProspectsCount
+          ? `${approvedProspectsCount} contacts approved, ${eligibleToSendCount} with a confirmed deliverable address. Outreach is being prepared.`
+          : `${approvedProspectsCount} contacts approved. Outreach is being prepared.`,
       isPending: prospectState === 'pending',
       clientParam,
     }] : []),

@@ -188,7 +188,11 @@ export default async function DashboardPage({
   // promise of 108 that the next screen contradicts by 5 is worse than either number alone.
   const { data: prospectCounts } = await adminClient
     .from('prospects')
-    .select('sourced_tier, client_review_status', { count: 'exact' })
+    // email_send_eligible comes along so the "eligible to send" figure below is derived
+    // from THIS population rather than from a second query. Two client-facing numbers on
+    // one card that were drawn from different reads would agree only until somebody edited
+    // one of them, and the disagreement would be silent: both would still render.
+    .select('sourced_tier, client_review_status, email_send_eligible', { count: 'exact' })
     .eq('organisation_id', org.id)
     .not('tier_published_at', 'is', null)
     .in('sourced_tier', ['tier_1', 'tier_2'])
@@ -200,6 +204,18 @@ export default async function DashboardPage({
   ).length
   const approvedProspectsCount = prospectData.filter(p =>
     p.client_review_status === 'approved'
+  ).length
+  // Of the approved, how many carry a deliverable address. `=== true` rather than
+  // truthiness: the column is nullable and NULL means "not verified yet", which is a
+  // different statement from "not deliverable" and must not be counted as either.
+  //
+  // This is deliberately NOT the operator's send-gate count. That one also requires the
+  // prospect to be still pending upload, so it empties out as an upload succeeds, and a
+  // client-facing number that falls to zero on success would be read as something going
+  // wrong. Deliverability is a frozen verdict on the row (ADR-034), so this figure is
+  // stable across the upload.
+  const eligibleToSendCount = prospectData.filter(p =>
+    p.client_review_status === 'approved' && p.email_send_eligible === true
   ).length
 
   // Derive campaign setup status from real signals (registered campaigns + lead uploads).
@@ -376,6 +392,7 @@ export default async function DashboardPage({
               clientParam={clientParam}
               pendingProspectsCount={pendingProspectsCount}
               approvedProspectsCount={approvedProspectsCount}
+              eligibleToSendCount={eligibleToSendCount}
             />
           </div>
         </div>
