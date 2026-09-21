@@ -15,6 +15,7 @@ import {
   getComposeServiceClient,
 } from '@/lib/composition/compose-sequence'
 import { composedToVariables, assertCompleteVariables } from '@/lib/composition/custom-variables'
+import { recordSentSequence } from '@/lib/composition/record-sent-sequence'
 import { logger } from '@/lib/logger'
 import { applySendGate } from '@/lib/sourcing/send-gate'
 import { claimNotification } from '@/lib/notifications/claim-notification'
@@ -659,6 +660,31 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
         const vars = composedToVariables(composed.emails, row.first_name ?? null)
         assertCompleteVariables(vars, docStepCount)
+
+        // ═══ WHAT WE ACTUALLY SENT, WRITTEN DOWN ═══
+        //
+        // Until now the composed sequence was built, converted to custom variables, POSTed
+        // to the sending tool and never stored. "What did we send this person" was
+        // answerable only from the provider, and with generated follow-ups it stops being
+        // reconstructible from our own data at all: a body rebuilt from a trigger plus a
+        // document version needs that version to still exist and composition to be
+        // unchanged, and the messaging document moved twice on 2026-09-21 alone.
+        //
+        // AFTER assertCompleteVariables AND BEFORE THE POST. After, because a sequence that
+        // fails that assertion is never sent and must not be recorded as though it were.
+        // Before, because the record is of what we COMPOSED AND HANDED OVER; whether the
+        // provider accepted it is a different fact, carried by outbound_upload_status, and
+        // conflating the two would make this table a delivery claim it cannot support.
+        //
+        // Failure to record does NOT stop the send. A prospect held back because a
+        // diagnostic table was unavailable would be a worse outcome than a missing row,
+        // and the row is recoverable from the provider while a missed send window is not.
+        recordSentSequence(supabase, orgId, row.id, composed).catch(err => {
+          logger.warn('handleUploadLeads: could not record the sent sequence', {
+            prospect_id: row.id,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        })
 
         const lead: ProspectForUpload = {
           email: row.email,

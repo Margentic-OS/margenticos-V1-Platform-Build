@@ -287,6 +287,12 @@ beforeEach(() => {
     retries_used: 0, strong_material: false, judge_reasoning: 'placeholder',
     usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, calls: 0 },
     comparisons: [], gate_failures: [],
+  // The follow-up fields the real produceOpening always returns. A mock that omits
+    // them is the fake-that-silently-accepts shape: it passes while the real object
+    // would not, and the caller then crashes only in production.
+    email2: { prose: null, body: null, discarded: null, failures: [] },
+    email3: { prose: null, body: null, discarded: null, failures: [] },
+    followup_usage: null, followup_attempts: [], followup_email1_fingerprint: null,
   })
   // BEHAVIOURAL stand-ins: they do to the database what the real ones do, because the
   // re-spend assertion has to read a realistic prospect row.

@@ -167,6 +167,12 @@ beforeEach(() => {
     opening: 'An opening.', question: 'A question?', bridge: null, observation: 'x',
     written_won: true, retry_used: false, retries_used: 0, strong_material: true,
     judge_reasoning: 'ok', usage: { calls: 3 },
+  // The follow-up fields the real produceOpening always returns. A mock that omits
+    // them is the fake-that-silently-accepts shape: it passes while the real object
+    // would not, and the caller then crashes only in production.
+    email2: { prose: null, body: null, discarded: null, failures: [] },
+    email3: { prose: null, body: null, discarded: null, failures: [] },
+    followup_usage: null, followup_attempts: [], followup_email1_fingerprint: null,
   })
   storeResearchResult.mockResolvedValue('result-1')
   updateProspect.mockResolvedValue(undefined)

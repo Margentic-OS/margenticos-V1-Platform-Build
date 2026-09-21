@@ -15,6 +15,7 @@ import {
 import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
 import { writeAndJudgeOpening, buildFindingsBlock, buildFindingsEvidence, type OpeningResult, type AttemptObservation, type NotWrittenReason } from './write-opening'
 import { writeFollowups, type FollowupResult } from './write-followups'
+import { fingerprintEmail1 } from '@/lib/composition/followup-assignment'
 import {
   buildFollowupReference,
   EMPTY_FOLLOWUP,
@@ -108,6 +109,17 @@ export interface OpeningWithFollowups extends OpeningResult {
   followup_usage: FollowupResult['usage'] | null
   /** Every follow-up attempt, kept so a rejection can be read rather than counted. */
   followup_attempts: FollowupResult['attempts']
+  /**
+   * The fingerprint of the Email 1 the follow-ups were written against, or null when none
+   * were written.
+   *
+   * RETURNED RATHER THAN RECOMPUTED BY THE CALLER, because the string that was hashed is
+   * the exact Email 1 this function handed the follow-up writer, and nothing outside this
+   * function can reproduce it without composing the email a second time. A second
+   * composition is a second chance to pass a different argument, which is how a fingerprint
+   * ends up describing a body nobody sent.
+   */
+  followup_email1_fingerprint: string | null
 }
 
 /**
@@ -179,6 +191,7 @@ function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningWithF
     email3: EMPTY_FOLLOWUP,
     followup_usage: null,
     followup_attempts: [],
+    followup_email1_fingerprint: null,
   } satisfies OpeningWithFollowups
 }
 
@@ -330,7 +343,7 @@ export async function produceOpening({
   // the same expression that decides whether the call is worth paying for, so the correct
   // behaviour and the cheap behaviour are the same branch and cannot drift apart.
   if (!writeFollowupEmails || !opening.written_won || opening.opening === null) {
-    return { ...opening, email2: EMPTY_FOLLOWUP, email3: EMPTY_FOLLOWUP, followup_usage: null, followup_attempts: [] }
+    return { ...opening, email2: EMPTY_FOLLOWUP, email3: EMPTY_FOLLOWUP, followup_usage: null, followup_attempts: [], followup_email1_fingerprint: null }
   }
 
   const reference = buildFollowupsFor(messagingContent, variantId, ctx.company_name ?? null)
@@ -338,7 +351,7 @@ export async function produceOpening({
     logger.info('research/produce-opening: no usable follow-up reference, template follow-ups ship', {
       prospect_id: ctx.id, variant_id: variantId,
     })
-    return { ...opening, email2: EMPTY_FOLLOWUP, email3: EMPTY_FOLLOWUP, followup_usage: null, followup_attempts: [] }
+    return { ...opening, email2: EMPTY_FOLLOWUP, email3: EMPTY_FOLLOWUP, followup_usage: null, followup_attempts: [], followup_email1_fingerprint: null }
   }
 
   // THE EMAIL 1 THAT ACTUALLY SHIPS, rendered by the production composer with the written
@@ -347,6 +360,25 @@ export async function produceOpening({
   // in their final wording.
   const email1Body = composeEmail1WithOpening(
     messagingContent, variantId, opening.opening, opening.question, ctx.first_name, opening.subject,
+  ).body
+
+  // ═══ THE FINGERPRINT IS TAKEN WITH THE MERGE TAG UNRESOLVED, AND IT MATTERS ═══
+  //
+  // The writer above is given the body with {{first_name}} already replaced, because it is
+  // being asked to read the email as the prospect will. Composition does NOT resolve the
+  // tag: composedToVariables does that at upload, after composeSequence has finished.
+  //
+  // So the two strings differ by exactly the prospect's first name, and fingerprinting the
+  // resolved one would mismatch on EVERY prospect at composition. The follow-ups would be
+  // discarded 100% of the time, the template would ship, and nothing would look broken:
+  // the feature would simply never fire, and the fingerprint would be blamed for working.
+  //
+  // A prospect's first name is also not what this guard is about. The question is whether
+  // EMAIL 1 CHANGED, and the tag is the one part of the body that is identical in both
+  // versions of it. Composing a second time costs nothing: it is a pure function of values
+  // already in hand.
+  const email1BodyForFingerprint = composeEmail1WithOpening(
+    messagingContent, variantId, opening.opening, opening.question, undefined, opening.subject,
   ).body
 
   const followups = await writeFollowups({
@@ -370,5 +402,9 @@ export async function produceOpening({
     email3: followups.email3,
     followup_usage: followups.usage,
     followup_attempts: followups.attempts,
+    // Hashed from the SAME string the writer was given, above. Null when nothing shipped,
+    // so a fingerprint never outlives the copy it describes.
+    followup_email1_fingerprint:
+      followups.email2.prose !== null ? fingerprintEmail1(email1BodyForFingerprint) : null,
   }
 }

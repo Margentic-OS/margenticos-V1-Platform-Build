@@ -184,6 +184,12 @@ export async function updateProspect(
    * with now would make an untouched classification look freshly confirmed on every rerun.
    */
   classifiedAt: string | null = null,
+  /**
+   * The generated follow-ups and the fingerprint of the Email 1 they were written
+   * against. Omitted by every caller that did not ask for them, and omitted means the
+   * three columns are written NULL, which ships the approved template follow-ups.
+   */
+  followups?: { email2: string | null; email3: string | null; email1Fingerprint: string | null } | null,
 ): Promise<void> {
   const supabase = getServiceClient()
 
@@ -215,6 +221,25 @@ export async function updateProspect(
     // a verdict record may still move.
     trigger_data:               { ...synthesis, judge: opening },
     research_ran_at:            new Date().toISOString(),
+    // ═══ THE FOLLOW-UPS TRAVEL WITH THE COLUMNS THEY DEPEND ON ═══
+    //
+    // Written in the SAME object literal as personalisation_trigger and from the SAME
+    // boolean, so the five fields move together or not at all. A prospect cannot end up
+    // holding a generated Email 2 beside a NULL trigger, because there is no second write
+    // that could put it there.
+    //
+    // `followups` is absent on every caller that does not ask for them, and absent
+    // resolves to NULL here, which is the state that ships the approved template
+    // follow-ups. So a caller that knows nothing about this feature clears the columns
+    // rather than leaving a previous run's follow-ups stranded on a re-run.
+    followup_email2:            opening.written_won ? (followups?.email2 ?? null) : null,
+    followup_email3:            opening.written_won ? (followups?.email3 ?? null) : null,
+    // The fingerprint of the Email 1 those follow-ups were written against. Composition
+    // re-computes it and discards the follow-ups on any mismatch, which is what stops a
+    // callback referencing an Email 1 the prospect will not receive. NULL whenever the
+    // follow-ups are NULL, so a stale fingerprint can never outlive its copy.
+    followup_email1_fingerprint:
+      opening.written_won ? (followups?.email1Fingerprint ?? null) : null,
   }
 
   // Auto-suppress on disqualification.

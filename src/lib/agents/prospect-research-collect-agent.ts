@@ -62,6 +62,7 @@ import {
   type RawSourceData,
 } from './research/types'
 import type { OpeningResult } from './research/write-opening'
+import { assignFollowupArm } from '@/lib/composition/followup-assignment'
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -329,6 +330,25 @@ export async function runProspectResearchCollect({
       icpBuyerTitle: entry.client_context?.buyerTitle ?? null,
       // No batch-uniqueness registry: it is scoped to one in-process batch run and this
       // phase processes one prospect per job.
+      //
+      // ═══ THE FOLLOW-UP CALL RUNS HERE, AND ONLY HERE ═══
+      //
+      // The batch path, not the inline one, and that is enforced by arithmetic rather than
+      // chosen by preference. QUEUE_CONFIG declares a worst case per job type and asserts
+      // at module load that it fits the worker budget:
+      //
+      //     research          worstCase 240 + margin 30 = 270 against a 280s budget
+      //     research_collect  worstCase 170 + margin 30 = 200 against a 280s budget
+      //
+      // The follow-up call adds up to two model calls. On 'research' that pushes the worst
+      // case past the budget and assertQueueConfig would take the process down on import.
+      // On 'research_collect' it fits, which is why research_collect.worstCaseSeconds moved
+      // from 120 to 170 in the same change rather than being left as a number that no
+      // longer describes the job.
+      //
+      // Gated on the ASSIGNED ARM. At GENERATED_ARM_PERCENT = 100 that is every prospect;
+      // the parameter exists so a comparison is a setting change rather than a rebuild.
+      writeFollowupEmails: assignFollowupArm(ctx.id) === 'generated',
     })
 
     logger.info('prospect-research-collect: judge verdict', {
@@ -360,7 +380,21 @@ export async function runProspectResearchCollect({
     const resultId = await storeResearchResult(
       ctx, entry.raw_sources, synthesis, agentRun.run_id, opening, synthesizedAt,
     )
-    await updateProspect(ctx, synthesis, resultId, opening, synthesizedAt)
+    await updateProspect(ctx, synthesis, resultId, opening, synthesizedAt, {
+      // Non-null only where the follow-ups actually survived their gates. produceOpening
+      // already nulls them on every path where the template Email 1 ships, so this passes
+      // through a decision already made rather than repeating it.
+      // OPTIONAL ACCESS ON A REQUIRED FIELD, DELIBERATELY. The type guarantees these are
+      // present and all three return sites in produceOpening set them, so this cannot be
+      // undefined in production. It is written this way because of what the failure would
+      // COST if that ever stopped being true: a throw here happens AFTER the writer, the
+      // floor and the judge have all been paid for, and would lose an entire prospect's
+      // research over the least important part of the email. Degrading to "no follow-ups"
+      // ships the approved template ones, which is the correct outcome anyway.
+      email2: opening.email2?.prose ?? null,
+      email3: opening.email3?.prose ?? null,
+      email1Fingerprint: opening.followup_email1_fingerprint ?? null,
+    })
 
     // Reported, never acted on. The snapshot is used regardless: that decision is made,
     // not deferred. This column is how often the decision mattered, and MON-021 surfaces
