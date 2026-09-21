@@ -2,6 +2,10 @@
 //
 //   npx tsx --env-file=.env.local scripts/export-writer-run.ts <prospect_id> [<prospect_id> ...]
 //   npx tsx --env-file=.env.local scripts/export-writer-run.ts --with-question
+//   npx tsx --env-file=.env.local scripts/export-writer-run.ts --followups <prospect_id>...
+//
+// --followups also writes emails 2 and 3 with the writer, in the SAME model call. Off by
+// default, and off is byte-identical to the run before the feature existed.
 //
 // ═════════════════════════════════════════════════════════════════════════════
 // WHY THIS EXISTS
@@ -101,11 +105,16 @@ import {
   type MessagingContent,
   type ProduceOpeningInput,
 } from '@/lib/agents/research/produce-opening'
-import type { AttemptObservation, JudgeComparison } from '@/lib/agents/research/write-opening'
+import type { AttemptObservation, JudgeComparison, FollowupOutcome } from '@/lib/agents/research/write-opening'
 import { buildFindingsBlock } from '@/lib/agents/research/write-opening'
 import { writerInputFromSynthesis } from '@/lib/agents/research/writer-input'
 import { loadClientContext } from '@/lib/agents/research/synthesize'
-import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
+import {
+  fetchApprovedMessagingDoc,
+  composeEmail1WithOpening,
+  getVariantEmail1Frame,
+} from '@/lib/composition/compose-sequence'
+import { OPT_OUT_FOOTER } from '@/lib/composition/opt-out-footer'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
 import type { ProspectContext, TokenUsage } from '@/lib/agents/research/types'
 import { companyFactsFromRow } from '@/lib/agents/research/company-facts'
@@ -282,6 +291,20 @@ interface ProspectRecord {
    * attempts that reached one.
    */
   attempts: AttemptObservation[]
+  /**
+   * The follow-up arm's result: which mode this prospect would receive, both outcomes
+   * with their rejected prose and reasons, and the complete sequence as it would send.
+   *
+   * PRESENT ON BOTH ARMS. On a flag-off run `mode` is always 'template' and both outcomes
+   * are empty, which is what makes the two exports directly comparable rather than
+   * differently shaped.
+   */
+  followups: {
+    mode: 'generated' | 'template'
+    email2: FollowupOutcome
+    email3: FollowupOutcome
+    sequence: { position: number; subject: string | null; body: string; source: 'generated' | 'template' }[]
+  }
   retries_used: number
   /**
    * EVERY COMPARISON IN FULL, not the length of the array.
@@ -406,6 +429,12 @@ async function runOne(
   prospectId: string,
   uniqueness: BatchUniquenessRegistry,
   pinnedDocId: string | null,
+  /**
+   * THE FLAG, threaded from the command line rather than read from a constant. Both arms
+   * of a comparison run from the SAME binary at the SAME commit; the only difference
+   * between them is this boolean, which is what makes the comparison attributable.
+   */
+  writeFollowups: boolean,
 ): Promise<ProspectRecord | null> {
   // A PLAIN SELECT, NOT loadProspectContext. That helper stamps prospects.segment_id when
   // it finds it null, which is correct for the agents and is a WRITE. The proxy would
@@ -461,6 +490,7 @@ async function runOne(
     icpBuyerTitle: clientCtx.buyerTitle,
     uniqueness,
     onAttempt: o => attempts.push(o),
+    writeFollowups,
   })
 
   return {
@@ -481,6 +511,26 @@ async function runOne(
     judge_reasoning:  opening.judge_reasoning,
     gate_failures:    opening.gate_failures,
     attempts,
+    followups: {
+      // THE MODE THIS PROSPECT WOULD HAVE RECEIVED, recorded as an OUTCOME rather than as
+      // an intent. 'generated' requires the flag AND a won Email 1 AND both follow-ups
+      // surviving their gates. A prospect that fell back at any of those three points
+      // receives the template follow-ups and is recorded as receiving them, because a
+      // comparison built on intent would count prospects that never got the thing being
+      // compared. This is the read-only preview of the followup_mode column, which is
+      // deferred to the Notion Backlog and must exist before this reaches the sending path.
+      mode: (writeFollowups && opening.written_won && opening.email2.prose !== null)
+        ? 'generated' as const
+        : 'template' as const,
+      email2: opening.email2,
+      email3: opening.email3,
+      /**
+       * The complete four-email sequence exactly as it would send, whichever mode applies.
+       * Built here rather than in the renderer so the JSON and the reading file cannot
+       * disagree about what would ship.
+       */
+      sequence: renderSequence(messaging.content, variantId, ctx.first_name, opening, writeFollowups),
+    },
     retries_used:     opening.retries_used,
     comparisons:      opening.comparisons,
     comparison_count: opening.comparisons.length,
@@ -492,6 +542,109 @@ async function runOne(
       subject:  (p.personalisation_subject  ?? null) as string | null,
     },
   }
+}
+
+/**
+ * The four emails exactly as they would send, in order.
+ *
+ * COMPOSED THROUGH THE PRODUCTION FUNCTIONS, not reassembled here. Email 1 goes through
+ * composeEmail1WithOpening, which is the same call the judge reads, so the subject, the
+ * written question, the resolved first name and the opt-out footer are all applied by the
+ * code that applies them at send time. Emails 2 to 4 come from the variant's own stored
+ * bodies with the same footer appended and the same merge tag resolved.
+ *
+ * A GENERATED FOLLOW-UP IS SUBSTITUTED ONLY WHERE THE RECORD SAYS IT SHIPS. The condition
+ * is `email2.body !== null`, and that field is already null on every path where the
+ * template Email 1 ships, because the coherence rule is enforced at the producer. So this
+ * renderer applies no coherence logic of its own: there is nothing here to keep in step
+ * with the rule, which is the point of enforcing it upstream.
+ */
+function renderSequence(
+  messagingContent: MessagingContent,
+  variantId: string,
+  firstName: string | null,
+  opening: Awaited<ReturnType<typeof produceOpening>>,
+  writeFollowups: boolean,
+): { position: number; subject: string | null; body: string; source: 'generated' | 'template' }[] {
+  const resolve = (body: string) => body.replace(/\{\{first_name\}\}/g, firstName ?? '')
+  const withFooter = (body: string) =>
+    body.includes(OPT_OUT_FOOTER) ? body : `${body}\n\n${OPT_OUT_FOOTER}`
+
+  const out: { position: number; subject: string | null; body: string; source: 'generated' | 'template' }[] = []
+
+  // ── Email 1 ───────────────────────────────────────────────────────────────
+  const email1 = opening.written_won && opening.opening
+    ? composeEmail1WithOpening(
+        messagingContent, variantId, opening.opening, opening.question, firstName, opening.subject,
+      )
+    : composeEmail1WithOpening(
+        // The template side: the variant's own approved opener, its own CTA, its own
+        // subject. Exactly what a prospect receives when the writer does not win.
+        messagingContent, variantId,
+        getVariantEmail1Frame(messagingContent, variantId).authoredOpening,
+        null, firstName, null,
+      )
+  out.push({
+    position: 1,
+    subject: email1.subject_line,
+    body: email1.body,
+    source: opening.written_won && opening.opening ? 'generated' : 'template',
+  })
+
+  // ── Emails 2, 3 and 4 ─────────────────────────────────────────────────────
+  const variantEmails = messagingContent.variants?.[variantId]?.emails ?? messagingContent.emails ?? []
+  for (const position of [2, 3, 4]) {
+    const template = variantEmails.find(e => e.sequence_position === position)
+    if (!template) continue
+
+    const generated =
+      writeFollowups && position === 2 ? opening.email2.body
+      : writeFollowups && position === 3 ? opening.email3.body
+      : null
+
+    out.push({
+      position,
+      // Emails 2 to 4 thread under Email 1 and carry no subject of their own.
+      subject: null,
+      body: withFooter(resolve(generated ?? template.body)),
+      source: generated ? 'generated' : 'template',
+    })
+  }
+
+  return out
+}
+
+/**
+ * THE READING FILE. For each prospect, the four emails in order, and nothing else.
+ *
+ * DELIBERATELY BARE. No gate output, no judge reasoning, no token counts, no verdict, no
+ * mode label. Those all live in the other two files. The purpose of this one is to read
+ * the sequence the way the recipient reads it, and every diagnostic on the page is a cue
+ * that tells the reader what to think before they have thought it. A prospect whose
+ * follow-ups fell back to the template should be indistinguishable here from one whose did
+ * not, because whether that difference is VISIBLE IN THE COPY is exactly the question.
+ *
+ * The prospect is identified by id alone for the same reason: the export already holds
+ * real names, and a reading file that leads with one invites reading the person rather
+ * than the email.
+ */
+function renderReadingFile(records: ProspectRecord[]): string {
+  const L: string[] = []
+  for (const r of records) {
+    L.push('═'.repeat(78))
+    L.push(`prospect ${r.prospect_id}   variant ${r.variant_id}`)
+    L.push('═'.repeat(78))
+    L.push('')
+    for (const email of r.followups.sequence) {
+      L.push(`── EMAIL ${email.position} ${'─'.repeat(60)}`)
+      if (email.subject !== null) L.push(`Subject: ${email.subject}`)
+      L.push('')
+      L.push(email.body)
+      L.push('')
+    }
+    L.push('')
+  }
+  return L.join('\n')
 }
 
 /** The side-by-side rendering. Old copy on the left, this run's on the right. */
@@ -583,6 +736,8 @@ function renderText(records: ProspectRecord[], startedAt: string): string {
 async function main() {
   const argv = process.argv.slice(2)
   const withQuestion = argv.includes('--with-question')
+  // THE FLAG. Absent is the production state and the flag-off arm of a comparison.
+  const writeFollowups = argv.includes('--followups')
   const pinnedDocId = argv.find(a => a.startsWith('--messaging-doc-id='))?.split('=')[1] ?? null
   const ids = argv.filter(a => !a.startsWith('--'))
   if (!withQuestion && ids.length === 0) {
@@ -636,7 +791,7 @@ async function main() {
   try {
     for (const [i, id] of targets.entries()) {
       console.log(`[${i + 1}/${targets.length}] ${id}`)
-      const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId)
+      const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId, writeFollowups)
       if (rec) {
         records.push(rec)
         // Appended BEFORE the console line, so the file is ahead of the log rather than
@@ -711,8 +866,11 @@ async function main() {
 
   const jsonPath = path.join(outDir, `writer-run-${stamp}.json`)
   const textPath = path.join(outDir, `writer-run-${stamp}.txt`)
+  // The reading file. Sequences only, no diagnostics. See renderReadingFile.
+  const readPath = path.join(outDir, `sequences-${stamp}.txt`)
   fs.writeFileSync(jsonPath, JSON.stringify({ summary, records }, null, 2))
   fs.writeFileSync(textPath, renderText(records, startedAt))
+  fs.writeFileSync(readPath, renderReadingFile(records))
 
   console.log('\n' + '='.repeat(78))
   console.log(`judge win rate      ${won}/${records.length}` +
@@ -728,6 +886,7 @@ async function main() {
   }
   console.log(`\nwrote ${jsonPath}`)
   console.log(`wrote ${textPath}`)
+  console.log(`wrote ${readPath}`)
   console.log(`partial records   ${partialPath}`)
   console.log('NOTHING WAS WRITTEN TO THE DATABASE.')
 
