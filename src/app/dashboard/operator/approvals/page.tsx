@@ -8,6 +8,7 @@ import ApprovalsView from '@/components/approvals/ApprovalsView'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import type { PendingSuggestion } from '@/components/approvals/ApprovalCard'
 import type { QueuedSuggestion } from '@/components/approvals/ApprovalsView'
+import { compareVariantCoverage } from '@/lib/approvals/variant-coverage'
 import { findDrivingRejectionNotes } from '@/lib/approvals/driving-rejection-note'
 
 export default async function ApprovalsPage({
@@ -75,10 +76,36 @@ export default async function ApprovalsPage({
 
   const drivingNotes = findDrivingRejectionNotes(suggestions, rejectedRows ?? [])
 
+  // HOW MANY VARIANTS THIS SUGGESTION CARRIES, and which the live document has that it
+  // does not. A messaging run ships 3 of 4 when a slot cannot be repaired inside the call
+  // budget, and until now nothing on this screen said so: approving a short document
+  // silently reassigned live prospects off the missing variant at composition time.
+  //
+  // Only the messaging documents are read, and only for the organisations actually on
+  // this screen.
+  const messagingOrgIds = [...new Set(
+    suggestions.filter(s => s.document_type === 'messaging').map(s => s.organisation_id),
+  )]
+  const { data: liveMessaging } = messagingOrgIds.length > 0
+    ? await supabase
+        .from('strategy_documents')
+        .select('organisation_id, content')
+        .in('organisation_id', messagingOrgIds)
+        .eq('document_type', 'messaging')
+        .eq('status', 'active')
+    : { data: [] }
+
+  const liveByOrg = new Map((liveMessaging ?? []).map(d => [d.organisation_id, d.content]))
+
   const queued: QueuedSuggestion[] = suggestions.map(s => ({
     ...s,
     driving_rejection_note: drivingNotes.get(s.id)?.note ?? null,
     driving_rejection_at: drivingNotes.get(s.id)?.rejected_at ?? null,
+    variant_coverage: compareVariantCoverage({
+      documentType: s.document_type,
+      suggestedValue: s.suggested_value,
+      liveContent: liveByOrg.get(s.organisation_id) ?? null,
+    }),
   }))
 
   return <ApprovalsView initialSuggestions={queued} filteredClientId={organisationId && clientParam ? organisationId : null} />

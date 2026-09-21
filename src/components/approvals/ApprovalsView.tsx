@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import ApprovalCard, { type PendingSuggestion } from './ApprovalCard'
+import type { VariantCoverage } from '@/lib/approvals/variant-coverage'
 
 // A pending suggestion plus the operator note that caused it to be regenerated.
 //
@@ -12,11 +13,34 @@ import ApprovalCard, { type PendingSuggestion } from './ApprovalCard'
 export type QueuedSuggestion = PendingSuggestion & {
   driving_rejection_note: string | null
   driving_rejection_at: string | null
+  /** Null for any document type that has no variants. See variant-coverage.ts. */
+  variant_coverage: VariantCoverage | null
 }
 
 type Props = {
   initialSuggestions: QueuedSuggestion[]
   filteredClientId?: string | null
+}
+
+/**
+ * What the Variants notice says. A FUNCTION, not JSX, so both directions are testable
+ * without rendering: the complete case must still say something, and the short case must
+ * name what is dropped and what happens to the prospects on it.
+ */
+export function variantCoverageMessage(coverage: VariantCoverage): string {
+  const n = coverage.suggested.length
+  const plural = n === 1 ? '' : 's'
+  if (coverage.missing.length === 0) {
+    return `${n} variant${plural}: ${coverage.suggested.join(', ')}.`
+  }
+  const dropped = coverage.missing.join(', ')
+  const it = coverage.missing.length === 1 ? 'it' : 'them'
+  return (
+    `${n} variant${plural} (${coverage.suggested.join(', ')}), but the live document has ` +
+    `${coverage.live.length} (${coverage.live.join(', ')}). Approving this drops ${dropped}. ` +
+    `Every prospect assigned to ${it} is reassigned to another variant at send time, and ` +
+    `their researched opening was written against the offer line of the variant they leave.`
+  )
 }
 
 export default function ApprovalsView({ initialSuggestions, filteredClientId }: Props) {
@@ -96,6 +120,24 @@ export default function ApprovalsView({ initialSuggestions, filteredClientId }: 
                       )}
                     </p>
                     <p className="text-xs text-text-primary leading-relaxed">{s.driving_rejection_note}</p>
+                  </div>
+                )}
+                {/* THE VARIANT COUNT. Shown on every messaging document, not only a short
+                    one: "A, C, D" against a live "A, B, C, D" is the only way an operator
+                    can see the document is short, and a notice that appears only on
+                    failure is indistinguishable from a notice that is broken. */}
+                {s.variant_coverage && (
+                  <div className={s.variant_coverage.missing.length > 0
+                    ? 'bg-[#FEF7E6] border border-[#F0D080] rounded-[10px] px-4 py-3'
+                    : 'bg-surface-content border border-border-card rounded-[10px] px-4 py-3'}>
+                    <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1">
+                      Variants
+                    </p>
+                    <p className={s.variant_coverage.missing.length > 0
+                      ? 'text-xs text-[#7A4800] leading-relaxed'
+                      : 'text-xs text-text-primary leading-relaxed'}>
+                      {variantCoverageMessage(s.variant_coverage)}
+                    </p>
                   </div>
                 )}
                 <ApprovalCard suggestion={s} onResolved={handleResolved} />
