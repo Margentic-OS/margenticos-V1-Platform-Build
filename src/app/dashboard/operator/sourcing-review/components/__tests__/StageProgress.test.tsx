@@ -15,11 +15,21 @@ import { StageProgress, timeAgo } from '../StageProgress'
 import type { PipelineProgress } from '@/lib/operator/pipeline-progress'
 import type { VerificationFailureMetrics } from '@/lib/operator/sourcing-metrics'
 
+// ── FIXTURE DEFAULTS FOR THE PROGRESS FIELDS ADDED 2026-09-21 ────────────────
+//
+// Spread into every fixture rather than written out in each one. These are the "we could not
+// read the schedule" values, so an existing test that says nothing about the next run or the
+// press plan renders exactly what it did before: those lines are omitted when the value is
+// null. A test that wants them says so by overriding.
+const NO_SWEEP_SCHEDULE = { nextRunAt: null, estimatedMinutesRemaining: null }
+const NO_PRESS_PLAN = { pressPlan: null, queueNextRunAt: null }
+
+
 afterEach(cleanup)
 
 const QUIET: PipelineProgress = {
-  verification: { waiting: 0, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null },
-  enrichment: { done: 0, waiting: 0, inFlight: 0 },
+  verification: { ...NO_SWEEP_SCHEDULE, waiting: 0, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null },
+  enrichment: { ...NO_PRESS_PLAN, done: 0, waiting: 0, inFlight: 0 },
   research: {
     stage: 'idle',
     fetchingSources: 0,
@@ -40,7 +50,7 @@ function renderProgress(over: Partial<PipelineProgress>, failures = NO_FAILURES)
 describe('item 1 — email verification has visible state', () => {
   it('says how many are being checked, how many wait, and when one last finished', () => {
     renderProgress({
-      verification: {
+      verification: { ...NO_SWEEP_SCHEDULE,
         waiting: 12,
         inFlight: 3,
         lastCompletedAt: new Date(Date.now() - 4 * 60_000).toISOString(),
@@ -60,7 +70,7 @@ describe('item 1 — email verification has visible state', () => {
   // another client was ahead in the queue.
   it('labels the sweep time as covering every client', () => {
     renderProgress({
-      verification: {
+      verification: { ...NO_SWEEP_SCHEDULE,
         waiting: 1, inFlight: 0, lastCompletedAt: null,
         sweepLastRanAt: new Date(Date.now() - 60 * 60_000).toISOString(),
       },
@@ -70,7 +80,7 @@ describe('item 1 — email verification has visible state', () => {
 
   it('distinguishes never-verified from a verification we could not read', () => {
     renderProgress({
-      verification: { waiting: 5, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null },
+      verification: { ...NO_SWEEP_SCHEDULE, waiting: 5, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null },
     })
     expect(screen.getByText('Never')).toBeInTheDocument()
     expect(screen.getByText('Not recorded')).toBeInTheDocument()
@@ -91,7 +101,7 @@ describe('item 2 — a rate limit is not a failure and no status code appears', 
 
   it('says it is waiting to retry rather than that it failed', () => {
     renderProgress(
-      { verification: { waiting: 12, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null } },
+      { verification: { ...NO_SWEEP_SCHEDULE, waiting: 12, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null } },
       RATE_LIMITED,
     )
     expect(screen.getByText(/waiting to retry automatically/)).toBeInTheDocument()
@@ -102,7 +112,7 @@ describe('item 2 — a rate limit is not a failure and no status code appears', 
   // rendered, so the component does print numbers it is given.
   it('shows no raw status code anywhere', () => {
     const { container } = renderProgress(
-      { verification: { waiting: 12, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null } },
+      { verification: { ...NO_SWEEP_SCHEDULE, waiting: 12, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null } },
       RATE_LIMITED,
     )
     expect(container.textContent).toContain('12')          // control: numbers do render
@@ -113,7 +123,7 @@ describe('item 2 — a rate limit is not a failure and no status code appears', 
 
   it('separates what will retry from what has run out of attempts', () => {
     renderProgress(
-      { verification: { waiting: 4, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null } },
+      { verification: { ...NO_SWEEP_SCHEDULE, waiting: 4, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null } },
       {
         count: 7,
         byKind: { refused: { waiting: 4, givenUp: 3 } },
@@ -127,7 +137,7 @@ describe('item 2 — a rate limit is not a failure and no status code appears', 
 
 describe('item 4 — enrichment reports how many of how many', () => {
   it('shows a numerator and a denominator', () => {
-    renderProgress({ enrichment: { done: 18, waiting: 7, inFlight: 0 } })
+    renderProgress({ enrichment: { ...NO_PRESS_PLAN, done: 18, waiting: 7, inFlight: 0 } })
     expect(screen.getByText('Enriched so far')).toBeInTheDocument()
     expect(screen.getByText('18')).toBeInTheDocument()
     expect(screen.getByText(/of 25/)).toBeInTheDocument()
@@ -135,7 +145,7 @@ describe('item 4 — enrichment reports how many of how many', () => {
   })
 
   it('stays silent once nothing is waiting', () => {
-    const { container } = renderProgress({ enrichment: { done: 25, waiting: 0, inFlight: 0 } })
+    const { container } = renderProgress({ enrichment: { ...NO_PRESS_PLAN, done: 25, waiting: 0, inFlight: 0 } })
     expect(container.textContent).not.toContain('Enrichment')
   })
 })
@@ -202,7 +212,7 @@ describe('item 3 — the research stage that had no queue row', () => {
   })
 
   it('shows nothing for research when the stage is idle', () => {
-    const { container } = renderProgress({ enrichment: { done: 1, waiting: 1, inFlight: 0 } })
+    const { container } = renderProgress({ enrichment: { ...NO_PRESS_PLAN, done: 1, waiting: 1, inFlight: 0 } })
     expect(container.textContent).not.toContain('Stage')
   })
 })

@@ -43,10 +43,26 @@ interface LockResult {
  *
  * Returns full EnrichmentRun result from handler.
  */
+/**
+ * How many prospects one press of Enrich and tier acts on, at most.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * EXPORTED BECAUSE THE SCREEN HAS TO SAY IT
+ *
+ * This was the literal `100` twice: as this function's default parameter and again in the
+ * route that calls it. Nothing rendered it, so an operator who pressed the button with 240
+ * waiting saw the number fall to 140 with no indication that stopping was the design rather
+ * than a failure. Naming it once and passing it to the screen is what lets the screen
+ * promise exactly what the button does.
+ *
+ * The ceiling itself is unchanged. This commit moves where the number lives, not what it is.
+ */
+export const ENRICHMENT_PER_PRESS_LIMIT = 100
+
 export async function enrichApprovedBatch(
   supabase: SupabaseClient,
   organisationId: string,
-  maxBatchSize: number = 100,
+  maxBatchSize: number = ENRICHMENT_PER_PRESS_LIMIT,
 ): Promise<EnrichmentRun> {
   const operationId = `enrich-approved-${organisationId.slice(0, 8)}-${Date.now()}`
 

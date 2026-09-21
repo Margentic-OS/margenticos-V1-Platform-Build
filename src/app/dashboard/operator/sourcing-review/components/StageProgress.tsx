@@ -27,6 +27,7 @@ import {
   VERIFICATION_HOLD_LABELS,
   type VerificationHoldKind,
 } from '@/lib/operator/prospect-status'
+import { describeMinutes } from '@/lib/operator/stage-estimates'
 
 /**
  * "4 minutes ago", "2 hours ago".
@@ -57,6 +58,34 @@ export function timeAgo(iso: string | null, now: number = Date.now()): string | 
   return `${days} day${days === 1 ? '' : 's'} ago`
 }
 
+/**
+ * "in about 4 minutes", "in under a minute".
+ *
+ * THE COUNTERPART TO timeAgo ABOVE, and deliberately the same shape of answer. A reader
+ * should not have to subtract in either direction, and the same rounding applies: the sweep
+ * fires on a minute boundary, so second-level precision would imply a resolution the
+ * underlying fact does not have.
+ *
+ * A moment already past reads as "any moment now" rather than as a negative. pg_cron and the
+ * browser do not share a clock, and a firing that is a few seconds overdue by our reckoning
+ * is not late in any sense an operator cares about.
+ */
+export function timeUntil(iso: string | null, now: number = Date.now()): string | null {
+  if (!iso) return null
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return null
+
+  const seconds = Math.round((then - now) / 1000)
+  if (seconds <= 30) return 'any moment now'
+  if (seconds < 90) return 'in about a minute'
+
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `in about ${minutes} minutes`
+
+  const hours = Math.round(minutes / 60)
+  return `in about ${hours} hour${hours === 1 ? '' : 's'}`
+}
+
 /** One labelled line inside the panel. */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -81,7 +110,8 @@ function VerificationSection({
   verification: PipelineProgress['verification']
   failures: VerificationFailureMetrics
 }) {
-  const { waiting, inFlight, lastCompletedAt, sweepLastRanAt } = verification
+  const { waiting, inFlight, lastCompletedAt, sweepLastRanAt, nextRunAt, estimatedMinutesRemaining } = verification
+  const finishEstimate = waiting > 0 ? describeMinutes(estimatedMinutesRemaining) : null
   const holds = Object.entries(failures.byKind) as Array<
     [VerificationHoldKind, { waiting: number; givenUp: number }]
   >
@@ -109,6 +139,23 @@ function VerificationSection({
           : <span className="text-text-secondary">None</span>}
       </Row>
 
+      {/* ── WHEN SOMETHING WILL ACTUALLY HAPPEN ────────────────────────────
+          A backlog count on its own cannot separate "drains in ten minutes" from "drains
+          tomorrow", and those call for different decisions. Both lines are omitted rather
+          than guessed when the schedule or the provider pace could not be read: a confident
+          time built on a default nobody chose is worse than no time. */}
+      {nextRunAt && (
+        <Row label="Next check runs">
+          <span className="font-medium">{timeUntil(nextRunAt)}</span>
+        </Row>
+      )}
+
+      {finishEstimate && (
+        <Row label="Estimated to finish">
+          <span className="font-medium">{finishEstimate}</span>
+        </Row>
+      )}
+
       <Row label="Last address checked">
         {lastCompletedAt
           ? timeAgo(lastCompletedAt)
@@ -122,6 +169,20 @@ function VerificationSection({
           ? timeAgo(sweepLastRanAt)
           : <span className="text-text-secondary">Not recorded</span>}
       </Row>
+
+      {/* ── THE ESTIMATE'S ASSUMPTION, SAID OUT LOUD ───────────────────────
+          The checker takes ONE client per run, whoever has waited longest. The finish time
+          above assumes this client is the one served each time, which is exact when only
+          this client has work and optimistic when others do. Stating it is what keeps the
+          number from being read as more than it is, and the same reasoning is why the row
+          above is labelled as covering all clients. */}
+      {finishEstimate && (
+        <p className="mt-2 text-xs text-text-secondary">
+          The checker takes one client per run, whoever has waited longest. That finish time
+          assumes this client is served each run, so it is the soonest it could be rather
+          than a promise.
+        </p>
+      )}
 
       {/* ── HELD UP, NOT FAILED ──────────────────────────────────────────────
           This block used to read "N prospects failed email verification, N on HTTP 429".
@@ -159,9 +220,22 @@ function VerificationSection({
   )
 }
 
-/** Enrichment: how many of how many, rather than a spinner and then a tick. */
+/**
+ * Enrichment: how many of how many, and how many presses that takes.
+ *
+ * ── WHY THE PRESS COUNT IS THE POINT ────────────────────────────────────────
+ *
+ * Enrichment is PRESSED, not scheduled, and one press stops after a fixed number however
+ * many are waiting. Nothing on this screen has ever said so. An operator pressing with 240
+ * waiting watched the count fall to 140 and had no way to tell whether that was the design,
+ * a partial failure, or a spend cap they had hit. It is the design, and the screen now says
+ * it BEFORE the press rather than leaving it to be inferred afterwards.
+ *
+ * "When does it next run" has no answer for the inline path, because the answer is "when you
+ * press it". The queued path does have one, and only that path shows it.
+ */
 function EnrichmentSection({ enrichment }: { enrichment: PipelineProgress['enrichment'] }) {
-  const { done, waiting, inFlight } = enrichment
+  const { done, waiting, inFlight, pressPlan, queueNextRunAt } = enrichment
   if (waiting === 0 && inFlight === 0) return null
 
   const total = done + waiting
@@ -181,6 +255,32 @@ function EnrichmentSection({ enrichment }: { enrichment: PipelineProgress['enric
         <Row label="In the queue now">
           <span className="font-medium">{inFlight}</span>
         </Row>
+      )}
+
+      {/* Only on the queued path. On the inline path the work happens inside the press and
+          there is no scheduled run to wait for, so naming one would be wrong. */}
+      {inFlight > 0 && queueNextRunAt && (
+        <Row label="Next queue run">
+          <span className="font-medium">{timeUntil(queueNextRunAt)}</span>
+        </Row>
+      )}
+
+      {pressPlan && (
+        <Row label="Presses needed">
+          <span className="font-medium">{pressPlan.pressesNeeded}</span>
+        </Row>
+      )}
+
+      {/* SAID PLAINLY, and only when it actually applies. A client whose whole backlog fits
+          in one press gains no warning, because for them there is nothing to warn about. */}
+      {pressPlan && pressPlan.remainingAfter > 0 && (
+        <p className="mt-2 text-xs text-[#7A4800]">
+          Enriching runs {pressPlan.thisPress} at a time. Pressing once will enrich{' '}
+          {pressPlan.thisPress} and leave {pressPlan.remainingAfter} waiting, so you will need
+          to press it again{pressPlan.pressesNeeded > 2
+            ? ` — ${pressPlan.pressesNeeded} presses in total to clear them all.`
+            : '.'}
+        </p>
       )}
     </div>
   )
