@@ -2,7 +2,7 @@
 // Called from meeting creation webhook/endpoint
 // Backfill guard: only fires on events for orgs created on or after feature activation date
 
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import { logger } from '@/lib/logger'
 import { sendTransactionalEmailWithDedup } from './send-transactional-with-dedup'
 import { firstMeetingTemplate, firstMeetingTemplateText, firstMeetingSubject } from '@/lib/email/templates/first-meeting'
@@ -10,7 +10,8 @@ import { firstMeetingTemplate, firstMeetingTemplateText, firstMeetingSubject } f
 const FEATURE_ACTIVATION_DATE = new Date('2026-07-27').toISOString()
 
 export interface SendFirstMeetingEmailParams {
-  supabase: SupabaseClient
+  // Branded: notifications_log is service-role only. See send-transactional-with-dedup.ts.
+  supabase: ServiceRoleClient
   organisationId: string
   meetingId: string
   prospectId?: string | null

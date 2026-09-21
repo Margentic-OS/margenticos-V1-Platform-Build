@@ -981,7 +981,14 @@ async function processOneSignal(
     let orchTierAssigned: number
     let orchActionPayload: Json
     if (orchResult.kind === 'log_only') {
-      const logPayload: Record<string, unknown> = { intent, confidence }
+      // reply_draft_id is carried so the action row points at the backstop card the
+      // orchestrator wrote. Without it the two records of the same reply have no link, and
+      // the triage card is the only one a person will actually see.
+      const logPayload: Record<string, unknown> = {
+        intent,
+        confidence,
+        reply_draft_id: orchResult.reply_draft_id,
+      }
       if (intent === 'positive_direct_booking') {
         logPayload.reason = `confidence ${confidence} below threshold ${POSITIVE_BOOKING_CONFIDENCE_THRESHOLD}`
       }
