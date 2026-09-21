@@ -1045,3 +1045,151 @@ with the geography call. `loadClientContext` reads the stored list for the resea
 
 **The rule that matters most.** The prompt names no market, buyer type, money figure or company,
 and gives no worked example with real content. Two scans fail the build if one appears.
+
+---
+
+## Messaging Variant Repair Agent — entry point: src/agents/messaging-variant-repair-agent.ts
+
+### What this does
+
+Generates ONE missing variant into a messaging suggestion that is already pending, and
+leaves every other variant in that suggestion untouched.
+
+### Why it exists
+
+A messaging run is bounded by `MAX_API_CALLS_PER_RUN` (6) and drops any variant slot the
+budget does not reach. Measured on 2026-09-20: all four variants failed the first pass,
+three passed on their first retry, and the fourth was dropped reading *"Run call budget of
+6 exhausted before this slot could be repaired"*. That slot never failed on its merits.
+
+Before this existed, the only recovery was a full regeneration: a whole budget spent
+rewriting three variants that were already good, with no guarantee of filling the fourth
+either. This gives the one missing slot the whole budget. `MAX_REPAIR_API_CALLS` is 8,
+derived from the same measured cost model the full run's budget comes from, not chosen.
+
+### What it writes, and what it must never touch
+
+Writes `suggested_value.variants.<key>` on ONE pending `document_suggestions` row, plus a
+sentence appended to `suggestion_reason` recording the repair.
+
+Nothing else on that row: not `status`, `reviewed_by`, `reviewed_at`, `current_value`,
+`document_id` or `revision_note`. No other row, no other table. It does not write
+`strategy_documents`, it does not approve, and it does not reject. If any step fails it
+writes nothing at all — there is no partial state.
+
+The `suggestion_reason` sentence is deliberate, not incidental. A row that silently gains a
+variant while its reason still reads "Variants dropped after retries: B" is a document
+asserting something about itself that is no longer true.
+
+### The two things that carry the safety burden
+
+Both are structural. Neither depends on anyone being careful.
+
+**1. The reuse gate must not evaporate.** `seedFromSurvivingVariants` loads the stored
+variants into the `SentenceRegistry` AND into the prompt's avoid-block, in one function.
+
+This matters more than it looks. `SentenceRegistry` is populated only by `register()`, and
+a full run calls `register()` only for variants that PASS. A repair that carries the stored
+variants in as already-passed and skips the registration gets an EMPTY registry: `findReuse`
+compares the new variant against nothing, returns no violations, and the run reports a clean
+cross-variant result having checked nothing at all. The gate does not fail, it disappears,
+and the payload that results looks exactly like a correct one.
+
+Doing both jobs in one function means a caller cannot take one and forget the other. The
+function also refuses outright if seeding produces an empty registry, because a vacuous
+gate is worse than no gate. Email 1 only, matching `CROSS_VARIANT_UNIQUE_POSITION`, so a
+repaired variant is held to the same rule as the three it ships beside and no stricter.
+
+**2. The write is gated on a comparison, not on care.** `src/lib/messaging/variant-payload.ts`
+fingerprints every variant from the database bytes before the write and from a read-back
+after it, and refuses any difference outside the one key being added: a changed survivor, a
+dropped key, an unexpected extra key, or an overwrite of a slot that already exists.
+`spliceVariant` runs the guard on its own output, so an unchecked payload cannot leave it.
+
+The read-back is separate on purpose. Checking before the write proves what was SENT; only
+the read-back proves what LANDED, and those are different claims.
+
+The update is also filtered `.eq('status','pending')`. That is a concurrency guard, not
+decoration: an operator approving or rejecting between the read and the write would
+otherwise have their decision edited underneath them. Matching zero rows means that
+happened, and the run fails rather than retrying.
+
+### The source-provenance guard — why a repair can refuse
+
+A repair fills a slot **alongside** copy written from a particular ICP, Positioning and
+TOV. If any of those three has been approved anew since, filling the slot is not a repair,
+it is a partial regeneration, and the document ends up holding variants derived from
+different source documents while its own reason names only one set.
+
+**This reached production on 2026-09-21.** Variants A, C and D were written against ICP v5
+on 20 September. At 13:59 UTC another session approved an ICP suggestion, making v6 active
+and flagging the live messaging document stale. At 14:10 the repair ran, built its context
+from whatever was ACTIVE, and wrote variant B against **v6**. One document, four variants,
+two ICPs. v5 to v6 was 22,235 to 23,749 characters, so this was not cosmetic.
+
+Every existing guard passed, and each was right to. The payload guard proves the surviving
+variants' **bytes** do not change; it has no opinion about whether the **context** the new
+variant is written from matches theirs. Those are different claims. The worktree check at
+session start proves no other session is editing **code**; approving a document writes to
+the database and leaves no trace in git, so it reported no other session, correctly, while
+the ground had already moved.
+
+`assertSourceVersionsUnchanged` in `src/lib/messaging/source-provenance.ts` now runs in
+`verifyRepairContext`, before any call is spent, and refuses in two directions:
+
+- **A document moved.** The refusal prints a three-line comparison marking which changed,
+  names the variant, and says to regenerate the whole document instead.
+- **The provenance cannot be read.** "I cannot tell what this was written against" is not
+  "nothing changed". A guard that treats them alike is the original bug wearing a check's
+  name.
+
+It reads the `Source documents: ICP v5, Positioning v2, TOV v3.` tail the generation agent
+already writes, rather than a new column. That is deliberate: it works on rows written
+**before** the guard existed, which is every row that exists today. A new column would be
+null on all of them and the guard would pass vacuously on exactly the rows most at risk.
+
+The verified versions are then written into the repair note on the row, so the document
+records what it was actually written against.
+
+### Shared context, one copy
+
+`buildVariantGenerationContext` in the generation agent does steps 1 to 7 (intake,
+preflight, the three required documents, completeness, the live document, patterns,
+upstream assumptions) and BOTH paths call it. A second copy would be two lists to keep in
+step by hand: the day one learns to read a new document and the other does not, the repair
+writes copy from context the full run would have rejected and nothing says so.
+
+`regeneration_notes` is passed as `undefined`. Those notes are an instruction about a
+REJECTED suggestion a run replaces (ADR-038); a repair replaces nothing, so there is no
+rejection note that applies.
+
+### How to run it
+
+```
+npx tsx --env-file=.env.local scripts/repair-missing-variant.ts \
+  --suggestion <uuid> --variant <A|B|C|D> [--write]
+```
+
+Dry by default: without `--write` it reports the surviving variants and their fingerprints,
+makes no model call and writes nothing. It runs **every check the real run runs**, the
+provenance guard included (six reads, no model call), so a clean dry run means the repair
+would actually proceed. With `--write` it prints the read-back fingerprints and the verified
+source versions, so both claims can be read rather than assumed.
+
+There is no operator UI for this yet — see the Notion Backlog.
+
+### What to check if it breaks
+
+- **"pass vacuously"** — seeding produced an empty registry. The stored Email 1 bodies are
+  malformed or missing. Do not bypass this; it means the cross-variant check would be fake.
+- **"variant X changed during a repair"** — the payload guard caught a write that touched a
+  survivor. Nothing was written. This should be impossible and means a real bug.
+- **"the update matched no pending row"** — someone approved or rejected mid-run. Nothing
+  was changed. Re-read the row before doing anything else.
+- **"Variant repair refused: a source document has changed"** — an upstream document was
+  approved after the surviving variants were written. Nothing was spent and nothing written.
+  Regenerate the whole document; do not try to force the repair.
+- **"does not record which strategy documents its variants were written against"** — the
+  suggestion predates provenance recording. Regenerate rather than bypassing this.
+- **"did not pass in N call(s)"** — the slot genuinely failed its gates 8 times. Read the
+  logged violations; the variant may be asking for copy the current rules cannot produce.
