@@ -246,7 +246,7 @@ interface RequiredDocuments {
 
 // Context passed to single-variant generation calls (retry and fallback).
 // Same fields as buildUserMessage params, without organisation_id (not used in message construction).
-interface VariantGenerationContext {
+export interface VariantGenerationContext {
   intake: IntakeRow[]
   requiredDocs: RequiredDocuments
   existingDocument: ExistingMessagingDocument | null
@@ -260,7 +260,7 @@ interface VariantGenerationContext {
 }
 
 // Records the outcome for one variant slot after first pass + any retries/fallbacks.
-interface SlotOutcome {
+export interface SlotOutcome {
   variant: string
   result: 'first_pass' | 'retry' | 'fallback' | 'dropped'
   retryAttempts: number
@@ -282,7 +282,7 @@ interface SlotOutcome {
 }
 
 // Accumulated stats for the full run — written to agent_runs and suggestion_reason.
-interface RunStats {
+export interface RunStats {
   slotOutcomes: SlotOutcome[]
   totalApiCalls: number
   durationMs: number
@@ -398,67 +398,15 @@ export async function runMessagingGenerationAgent(
       void agentRun.fail(msg)
     }, AGENT_TIMEOUT_MS)
 
-    // Step 1: Fetch intake responses for this client only.
-    const intake = await fetchIntakeResponses(supabase, organisation_id)
-
-    if (intake.length === 0) {
-      throw new Error(
-        `Messaging agent: no intake responses found for organisation ${organisation_id}. ` +
-        'Intake data is required to generate a Messaging Playbook.'
-      )
-    }
-
-    // Step 2: Pre-flight checks — verify required name fields before any generation work.
-    const preflight = await runPreflightChecks(supabase, organisation_id, intake)
-
-    // Step 3: Fetch all three required strategy documents.
-    const requiredDocs = await fetchRequiredDocuments(supabase, organisation_id)
-
-    // Step 4: Check overall intake completeness.
-    const criticalFields = intake.filter(r => r.is_critical)
-    const answeredCritical = criticalFields.filter(
-      r => r.response_value && r.response_value.trim().length > 0
-    )
-    const completeness = criticalFields.length > 0
-      ? Math.round((answeredCritical.length / criticalFields.length) * 100)
-      : 0
-
-    if (completeness < 80) {
-      logger.warn(
-        `Messaging agent: intake completeness is ${completeness}% — below 80% threshold.`,
-        { organisation_id, completeness }
-      )
-    }
-
-    // Step 5: Fetch the active messaging document, if this organisation has one.
+    // Steps 1 to 7: every read this run needs, assembled once.
     //
-    // FETCHED ON DOCUMENT EXISTENCE, NEVER ON A CALLER'S FLAG. This was gated on
-    // is_refresh, which meant "a pending suggestion is being replaced" and not "a prior
-    // document exists". The operator's Regenerate control sends no suggestion_id, exactly
-    // because nothing is pending, which is the case where an ACTIVE document DOES exist.
-    // So the one path where the current version matters most was the one that never read
-    // it: the run rebuilt from intake while its own reasoning header said no prior
-    // document existed. Measured against a live v2 on 2026-09-08.
-    const existingDocument: ExistingMessagingDocument | null = await fetchExistingMessagingDocument(supabase, organisation_id)
-
-    // Step 6: Read patterns table (cross-client, read-only, may be empty in phase one).
-    const patterns = await fetchPatterns(supabase)
-
-    // Step 7: Extract upstream assumptions from strategy documents.
-    const upstreamAssumptions: UpstreamAssumption[] = [
-      ...extractAssumptionsFromDocument(requiredDocs.icp).map(a => ({
-        documentType: 'icp',
-        assumption: a,
-      })),
-      ...extractAssumptionsFromDocument(requiredDocs.positioning).map(a => ({
-        documentType: 'positioning',
-        assumption: a,
-      })),
-      ...extractAssumptionsFromDocument(requiredDocs.tov).map(a => ({
-        documentType: 'tov',
-        assumption: a,
-      })),
-    ]
+    // SHARED WITH THE SINGLE-VARIANT REPAIR PATH, deliberately. A repair has to build the
+    // same prompt context from the same six reads, and a second copy of this assembly is
+    // two lists that must agree by hand: the day one of them learns to read a new document
+    // and the other does not, the repair writes copy from context the full run would have
+    // rejected, and nothing says so.
+    const context = await buildVariantGenerationContext(supabase, organisation_id, regeneration_notes)
+    const { intake, preflight, requiredDocs, completeness, existingDocument, patterns, upstreamAssumptions } = context
 
     // Step 8: Build the user message requesting four variants.
     const userMessage = buildUserMessage({
@@ -879,6 +827,96 @@ function extractAssumptionsFromDocument(
 
 // Builds the shared context block used by both buildUserMessage and buildSingleVariantUserMessage.
 // Returns the completeness note and all context sections (intake, documents, sender, refresh, patterns).
+/**
+ * Every read a generation run needs, assembled into the one context object the prompt
+ * builders take. Intake, preflight names, the three required documents, intake
+ * completeness, the live messaging document, cross-client patterns, upstream assumptions.
+ *
+ * EXPORTED because the single-variant repair path needs exactly this and must not grow a
+ * second copy of it. See the call site in runMessagingGenerationAgent for why.
+ *
+ * Six sequential reads. MEASURED_PREFLIGHT_SECONDS is the observed ceiling for this
+ * function plus startAgentRun, and the repair budget is derived from it.
+ */
+export async function buildVariantGenerationContext(
+  supabase: SupabaseClient,
+  organisation_id: string,
+  regeneration_notes: RegenerationNotes | undefined,
+): Promise<VariantGenerationContext> {
+  // Step 1: Fetch intake responses for this client only.
+  const intake = await fetchIntakeResponses(supabase, organisation_id)
+
+  if (intake.length === 0) {
+    throw new Error(
+      `Messaging agent: no intake responses found for organisation ${organisation_id}. ` +
+      'Intake data is required to generate a Messaging Playbook.'
+    )
+  }
+
+  // Step 2: Pre-flight checks — verify required name fields before any generation work.
+  const preflight = await runPreflightChecks(supabase, organisation_id, intake)
+
+  // Step 3: Fetch all three required strategy documents.
+  const requiredDocs = await fetchRequiredDocuments(supabase, organisation_id)
+
+  // Step 4: Check overall intake completeness.
+  const criticalFields = intake.filter(r => r.is_critical)
+  const answeredCritical = criticalFields.filter(
+    r => r.response_value && r.response_value.trim().length > 0
+  )
+  const completeness = criticalFields.length > 0
+    ? Math.round((answeredCritical.length / criticalFields.length) * 100)
+    : 0
+
+  if (completeness < 80) {
+    logger.warn(
+      `Messaging agent: intake completeness is ${completeness}% — below 80% threshold.`,
+      { organisation_id, completeness }
+    )
+  }
+
+  // Step 5: Fetch the active messaging document, if this organisation has one.
+  //
+  // FETCHED ON DOCUMENT EXISTENCE, NEVER ON A CALLER'S FLAG. This was gated on
+  // is_refresh, which meant "a pending suggestion is being replaced" and not "a prior
+  // document exists". The operator's Regenerate control sends no suggestion_id, exactly
+  // because nothing is pending, which is the case where an ACTIVE document DOES exist.
+  // So the one path where the current version matters most was the one that never read
+  // it: the run rebuilt from intake while its own reasoning header said no prior
+  // document existed. Measured against a live v2 on 2026-09-08.
+  const existingDocument: ExistingMessagingDocument | null = await fetchExistingMessagingDocument(supabase, organisation_id)
+
+  // Step 6: Read patterns table (cross-client, read-only, may be empty in phase one).
+  const patterns = await fetchPatterns(supabase)
+
+  // Step 7: Extract upstream assumptions from strategy documents.
+  const upstreamAssumptions: UpstreamAssumption[] = [
+    ...extractAssumptionsFromDocument(requiredDocs.icp).map(a => ({
+      documentType: 'icp',
+      assumption: a,
+    })),
+    ...extractAssumptionsFromDocument(requiredDocs.positioning).map(a => ({
+      documentType: 'positioning',
+      assumption: a,
+    })),
+    ...extractAssumptionsFromDocument(requiredDocs.tov).map(a => ({
+      documentType: 'tov',
+      assumption: a,
+    })),
+  ]
+
+  return {
+    intake,
+    requiredDocs,
+    existingDocument,
+    patterns,
+    completeness,
+    preflight,
+    upstreamAssumptions,
+    regeneration_notes,
+  }
+}
+
 function buildBaseContext(params: VariantGenerationContext): {
   completenessNote: string
   contextBlocks: string
@@ -1258,7 +1296,7 @@ interface TakenCopy {
 
 // Collects the subjects, Email 1 openers and full sentence inventory from every variant
 // that has passed so far.
-function collectTakenCopy(
+export function collectTakenCopy(
   passed: Record<string, EmailRecord[]>,
   signOffLines: string[] = [],
 ): TakenCopy {
@@ -2496,7 +2534,7 @@ export async function scheduleRepairsBreadthFirst(params: {
 //   2. Up to MAX_RETRY_ATTEMPTS on each fallback angle, in order
 // Returns the first passing result, or null if all attempts are exhausted.
 /** Per-slot state carried ACROSS rounds, because a round only makes one attempt. */
-interface SlotRepairState {
+export interface SlotRepairState {
   variant: string
   /** Violations from the attempt that sent this slot here, then from each attempt after. */
   lastViolations: readonly ValidationViolation[]
@@ -2510,7 +2548,7 @@ interface SlotRepairState {
  * fallback angles, MAX_RETRY_ATTEMPTS each. Derived from one index so the breadth-first
  * scheduler can hold a single number per slot rather than a loop position.
  */
-function repairStepFor(variantKey: string, step: number):
+export function repairStepFor(variantKey: string, step: number):
   | { angle: string; fallbackName: string | null; attemptInAngle: number; label: string }
   | null {
   const original = VARIANT_ANGLE_INSTRUCTIONS[variantKey]
@@ -2540,7 +2578,7 @@ function repairStepFor(variantKey: string, step: number):
  * Returns the emails when the attempt passes, null when it does not. The slot's outcome is
  * recorded by the caller, which is the only place that knows whether more steps remain.
  */
-async function attemptSlotRepair(
+export async function attemptSlotRepair(
   state: SlotRepairState,
   step: number,
   context: VariantGenerationContext,
