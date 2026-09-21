@@ -20,6 +20,7 @@ import {
   OPENING_TARGET_WORDS,
 } from '../write-opening'
 import { BatchUniquenessRegistry, uniquenessFeedback } from '../batch-uniqueness'
+import { MAX_SENTENCE_WORDS } from '@/lib/style/readability'
 import { ABSTRACT_NOUNS, countAbstractNouns, countFigurativeVerbs } from '@/lib/style/abstract-nouns'
 import { shapeModels, concreteRewrites, plainRewrites, printShopBridge } from './writer-prompt-specimens'
 import type { ObservationCandidate } from '../types'
@@ -1538,10 +1539,20 @@ describe('the bridge states one true thing', () => {
     expect(flat).toContain('the bridge EXPLAINS when it should STATE')
   })
 
-  it('carries both working bridges verbatim as the standard', () => {
+  it('carries the working bridge verbatim as the standard', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('The founders who need you next are not reading your feed yet.')
-    expect(flat).toContain('The next qualified sales conversation tends to wait for the next event.')
+  })
+
+  // NOT A DELETED ASSERTION. The second WORKS example used to be pinned here and is now
+  // pinned ABSENT, because removing the check would let it return silently. It was deleted
+  // on 2026-09-21 after four of 84 prospects shipped a bridge on its exact frame and six
+  // more on a one-clause variant. The prompt carries the reasoning beside the survivor.
+  it('does NOT carry the event-deferral bridge that the batch copied', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).not.toContain('The next qualified sales conversation tends to wait for the next event.')
+    // The frame, not just the sentence: a reworded reinstatement fails this too.
+    expect(flat).not.toMatch(/next\s+\w*\s*sales conversation tends to wait/i)
   })
 
   it('carries all three causal failures verbatim', () => {
@@ -1858,5 +1869,69 @@ describe('the new failing examples do not become the next thing copied', () => {
     const idx = p.indexOf('London is full of people who have never heard of you.')
     const before = p.slice(0, idx)
     expect(before.lastIndexOf('WORKING')).toBeGreaterThan(before.lastIndexOf('FAILING'))
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX 4, 2026-09-21. The writer's own sentences are now gated at MAX_SENTENCE_WORDS,
+// LENGTH ONLY. readabilityScore has hard-failed both over-length sentences AND hedge
+// phrases since it was written, and it gated CANDIDATE SELECTION with both; on the writer
+// it ran log-only. Measured on the 84 openings of 2026-09-21: 17 carried an over-length
+// sentence, 39 carried a hedge. Length gates, hedges log, and the asymmetry is the point.
+describe('gate: writer sentence length (FIX 4)', () => {
+  // Plain lowercase words only: untraceableClaims exempts nothing capitalised mid-sentence,
+  // and a stray proper noun here would fail these for a different reason than the one
+  // under test. Also no digits, for the same reason.
+  const words = (n: number) => Array.from({ length: n }, () => 'thing').join(' ')
+  const parts = (observation: string, bridge: string) => ({
+    observation, bridge, question: 'is that something you are working on?',
+  })
+  // Findings must contain the text, or traceability fires instead of length.
+  const gate = (observation: string, bridge: string) => {
+    const opening = `${observation}\n\n${bridge}`
+    const findings = `${opening} is that something you are working on?`
+    return checkOpeningGates(opening, null, findings, undefined, parts(observation, bridge))
+  }
+  const lengthFailures = (o: string, b: string) =>
+    gate(o, b).filter(f => /\d+-word sentence/.test(f))
+
+  it('FIRES on an observation one word over the cap', () => {
+    const over = `${words(MAX_SENTENCE_WORDS + 1)}.`
+    const hits = lengthFailures(over, 'short bridge here.')
+    expect(hits.length).toBe(1)
+    expect(hits[0]).toContain(`${MAX_SENTENCE_WORDS + 1}-word sentence`)
+    expect(hits[0]).toContain('observation')
+  })
+
+  it('FIRES on the bridge too, and names the bridge', () => {
+    const hits = lengthFailures('short observation here.', `${words(MAX_SENTENCE_WORDS + 5)}.`)
+    expect(hits.length).toBe(1)
+    expect(hits[0]).toContain('bridge')
+  })
+
+  // THE OTHER DIRECTION. Exactly at the cap must pass, or the gate is off by one and
+  // rejects legal copy: readabilityScore fails sentences OVER the cap, not AT it.
+  it('does NOT fire at exactly the cap', () => {
+    expect(lengthFailures(`${words(MAX_SENTENCE_WORDS)}.`, 'short bridge here.')).toEqual([])
+  })
+
+  it('does NOT fire on two short sentences that sum over the cap', () => {
+    const two = `${words(20)}. ${words(20)}.`
+    expect(lengthFailures(two, 'short bridge here.')).toEqual([])
+  })
+
+  // HEDGES STAY LOGGED. 39 of 84 carried one; gating them would drop 46% of openings to
+  // the authored template, which is worse copy than what it rejected.
+  it('does NOT gate a hedge phrase, however many', () => {
+    const hedged = 'they often find the week fills up.'
+    const bridge = 'that tends to be what usually waits.'
+    expect(lengthFailures(hedged, bridge)).toEqual([])
+    expect(gate(hedged, bridge).some(f => /hedg/i.test(f))).toBe(false)
+  })
+
+  // MUTATION GUARD. Reverting the gate to log-only must fail this file rather than pass it.
+  it('fails if the length gate is reverted to log-only', () => {
+    const over = `${words(MAX_SENTENCE_WORDS + 9)}.`
+    expect(gate(over, 'short bridge here.').length).toBeGreaterThan(0)
   })
 })

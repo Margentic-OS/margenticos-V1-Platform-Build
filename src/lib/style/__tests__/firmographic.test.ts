@@ -195,3 +195,65 @@ describe('"solo" fires on a headcount claim and not on a category label', () => 
     expect(soloHits(exemplar)).toEqual([])      // what the narrowed one does
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADDED 2026-09-21, after a measured batch of 84 shipped EIGHT openings quoting the
+// prospect's own headcount and this list reported every one of them clean. The gate ran;
+// it simply could not spell the things the copy said.
+//
+// EVERY CASE BELOW IS A REAL SHIPPED LINE OR A REAL PERMITTED ONE. The fire cases are
+// verbatim from prospect rows; the no-fire cases are the shapes the rule text explicitly
+// protects ("Dates, counts of posts and lengths of time are fine"). Both directions on
+// each pattern, because a gate that fires on everything is an outage rather than a control
+// and the last widening of this file is what proved that.
+describe('headcount spellings the 2026-09-21 batch got past the gate', () => {
+  const fires = (t: string) => expect(findFirmographicFigures(t).length).toBeGreaterThan(0)
+  const clean = (t: string) => expect(findFirmographicFigures(t)).toEqual([])
+
+  // 'people' was present in the SPELLED-OUT pattern and absent from the NUMERAL one, so
+  // "twelve people" was caught and "24 people" was not. One word, two adjacent lines.
+  it('catches a numeral with "people", which the spelled-out pattern already covered', () => {
+    fires('Your headcount has sat at 24 people for the last twelve months.')
+    fires('Your team is 24 people.')
+    fires('a twelve-person firm')          // the spelled-out form still fires
+  })
+
+  it('catches headcount with the word FIRST, or with no numeral at all', () => {
+    fires('Your headcount has stayed at 21 people across the past 12 months.')
+    fires("ProTech's headcount has been the same for the last twelve months.")
+  })
+
+  it('catches size invariance, which is the headcount restated as a non-event', () => {
+    fires('both went up while your team stayed the same size.')
+    fires('your team at AROSE GROUP has held at roughly the same size')
+    fires('a long time for a firm to stay exactly the same size.')
+    fires('has been at the same size for at least the last twelve months.')
+  })
+
+  it('catches bare-plural and "your" size references the article-led patterns miss', () => {
+    fires('At founder-led consultancies that size, the next sales conversation waits.')
+    fires('At a staffing firm your size, the next client contract usually waits.')
+    fires('At that size, new client wins go straight into delivery.')
+  })
+
+  it('catches a percentage, which had no pattern at all', () => {
+    fires('your headcount has grown 18% in the last twelve months.')
+    fires('revenue grew 20 per cent last year.')
+  })
+
+  // THE OTHER DIRECTION, AND IT MATTERS MORE. A false positive does not cost a retry: a
+  // variant that exhausts its retries is DROPPED for a fallback angle, so over-firing
+  // ships worse copy than the sentence it rejected. See the solo narrowing above.
+  it('does NOT fire on dates, counts, durations or ordinary prose', () => {
+    clean('You founded Orbis in 2014 and have run it since.')
+    clean('Read through your last 30 reviews on Google.')
+    clean('Front desk hold times keep coming up, 4 of the most recent 10.')
+    clean('You ran both roles for thirteen months.')
+    clean('Your firm has been running under your name since 1989.')
+    clean('Your last three posts were the same length.')
+    clean('The founders who need you next are not reading your feed yet.')
+    clean('You spoke on the MN Dental Entrepreneurs panel last month.')
+    clean("this isn't just you, most firms hit it")
+    clean('You work with solo travel operators across the Midlands.')
+  })
+})

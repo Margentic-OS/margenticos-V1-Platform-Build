@@ -198,23 +198,28 @@ CANDIDATE GENERATION — do this before anything else
 
 Do NOT evaluate a single pre-selected item. Generate EVERY candidate observation
 the research supports, then score them all. A strong observation is routinely
-buried in employment history or spread across sources, not sitting in the most
-recent post.
+spread across sources rather than sitting in the most recent post.
+
+PREFER OBSERVABLE ACTIVITY: something they DID that leaves a public trace, and
+that a reader would recognise as a thing they chose to do. Posts, events, talks,
+hires and job listings, partnerships, launches, publications. These make an
+observation the reader experiences as noticed rather than looked up.
 
 Sweep all four sources exhaustively:
 
   LINKEDIN — every post in the window, not just the newest. Also the profile
   headline, the About text, and connection count if it tells you something.
 
-  EMPLOYMENT HISTORY (Apollo, and LinkedIn positions) — this is the most
-  under-used source and often the strongest. Look specifically for:
-    • Concurrent roles: running their own firm while holding a role elsewhere
+  EMPLOYMENT HISTORY (enrichment records, and LinkedIn positions) — swept, but NOT preferred,
+  and never the first place to look. A candidate drawn from here is the record
+  read back at the reader: they already know their own roles, dates and tenure,
+  and the writer is forbidden from reciting them. Use it when the reader DID
+  something with it that they would recognise as an event:
+    • Role-end announcements the prospect made themselves, which are posts
     • Recent transitions: a role that started or ended in the last 18 months
-    • Role-end announcements, including ones the prospect made themselves
-    • Long tenure with flat headcount
-    • Gaps, or a return to employment after founding
-  A concurrent or recently-ended second role is a strong inference about the
-  founder's revenue and pipeline situation. Always generate it as a candidate.
+  Headcount, tenure length and "still running both" are firmographic record, not
+  activity. Do not build a candidate on them. A headcount figure came from a data
+  provider, may be wrong, and is banned from the email outright.
 
   WEBSITE — services and positioning statements, but also anything DATED:
   blog or insights posts and their dates, case study dates, copyright year,

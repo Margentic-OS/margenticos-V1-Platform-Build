@@ -22,7 +22,7 @@ import { countSentences } from '@/lib/style/sentence-count'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
-import { readabilityScore } from '@/lib/style/readability'
+import { readabilityScore, MAX_SENTENCE_WORDS } from '@/lib/style/readability'
 // The subject character cap lives with the messaging agent's other limits and is
 // imported rather than restated: a second copy of a number is a second thing to keep
 // in step by hand, and CLAUDE.md names that constant as the source of truth.
@@ -202,6 +202,25 @@ The approved closing question for this particular variant is "${params.cta}", an
 register and length. It is not an instruction to reuse it.`
 }
 
+// THE SECOND "WORKS" BRIDGE EXAMPLE WAS DELETED HERE ON 2026-09-21, NOT REPLACED.
+//
+// It read: the next qualified sales conversation tends to wait for the next event.
+//
+// Measured on a batch of 84 shipped openings: FOUR prospects came back on that exact
+// frame, and six more on "the next sales conversation waits until the current work quiets
+// down", which is the same sentence with the clause swapped. It was the seventh example in
+// this prompt to be copied, and the first one that was copied because it FIT.
+//
+// That is the lesson and it is not about this sentence. An example naming the reader's
+// SITUATION in the generic fits every prospect in the batch, so the model reaches for it
+// every time. The print-shop example survives being read a hundred times because presses
+// and quotes belong to nobody here; "the next sales conversation" belongs to everybody.
+//
+// DO NOT ADD A REPLACEMENT IN THIS SHAPE, and do not restate the deleted sentence inside
+// the prompt string to explain its absence: the model reads the prompt, so a sentence
+// quoted in a note is a sentence still on offer. The first attempt at this fix did exactly
+// that and the guard test in write-opening.test.ts caught it. The reasoning lives out here
+// in the code, where the model never sees it.
 export function buildWriterPrompt(): string {
   return `You are a senior BDR with fifteen years behind you, writing for the client named in
 the ASSIGNMENT block at the top of the user message.
@@ -350,9 +369,8 @@ THE BRIDGE STATES ONE TRUE THING. IT NEVER EXPLAINS WHY.
 The observations are finished. Every remaining problem in these emails is in the bridge, and
 they all have one cause: the bridge EXPLAINS when it should STATE.
 
-WORKS, and both of these say one true thing and then stop:
+WORKS, and it says one true thing and then stops:
   "The founders who need you next are not reading your feed yet."
-  "The next qualified sales conversation tends to wait for the next event."
 
 FAILS, and all three are causal constructions the reader has to assemble before they can
 agree with anything:
@@ -1351,8 +1369,11 @@ export function checkOpeningGates(
   // worked examples leak straight through it. See sentence-initial-names.ts for the
   // measurement and for why the discriminator is a vocabulary rather than a denylist.
   //
-  // REPORT-ONLY until SENTENCE_INITIAL_GATE_MODE is flipped by hand, so this returns an
-  // empty array today and logs what it would have rejected.
+  // BLOCKS. SENTENCE_INITIAL_GATE_MODE has read 'block' since 88a6223 on 2026-08-31, on a
+  // replay rather than a waiting period. This comment said "REPORT-ONLY ... returns an empty
+  // array today" for three weeks after that flip, which is the same failure this file keeps
+  // documenting elsewhere: a note describing the world as it was when the note was written.
+  // Read the constant in sentence-initial-names.ts, not this line.
   failures.push(...checkSentenceInitialNames(
     opening, findingsText, { prospectId: context?.prospectId ?? 'unknown' },
   ))
@@ -1481,10 +1502,11 @@ export function checkOpeningGates(
     // brief forbids both in five separate places and nothing has ever checked either, so
     // the same fault has reached real prospects run after run with every gate green.
     //
-    // REPORT-ONLY on this commit: returns an empty array while ACTIVITY_VERDICT_MODE says
-    // 'report'. Measured over the last four export runs of the pinned cohort before being
-    // wired here, 24 hits across 246 attempts, because a detector of this kind is only
-    // worth gating on once its rate on the PERMITTED shape is known. See the module.
+    // BLOCKS. ACTIVITY_VERDICT_MODE has read 'block' since 3358e53 on 2026-09-16, flipped
+    // because report mode let two genuine violations reach real prospects. The measurement
+    // that justified it: 24 hits across 246 attempts, 20 genuine, precision ~83%. This
+    // comment still said "REPORT-ONLY on this commit" five days after the flip. See the
+    // module for the four false positives, which are what the gate costs.
     //
     // BOTH PARTS, on the ban's own terms: "THE ABSENCE BAN. IT COVERS THE OBSERVATION AND
     // THE BRIDGE, BOTH." Twenty of those 24 hits were in the observation.
@@ -1498,15 +1520,37 @@ export function checkOpeningGates(
       const logContext = { prospectId: context?.prospectId ?? 'unknown', part }
       failures.push(...checkFiniteVerbs(text, logContext))
 
-      // LOG ONLY, PUSHING NOTHING. readabilityScore already gates candidate SELECTION
-      // upstream, where a hard fail ranks a candidate out. Nothing has ever scored the
-      // writer's own output, so there is no evidence about what it would reject here, and
-      // adding a hard gate without that evidence is how a good variant gets thrown away.
-      // Accumulate first, decide later.
+      // LENGTH GATES. HEDGES DO NOT. The two halves of readabilityScore's hard fail are
+      // split here deliberately, and the split is the whole point of this block.
+      //
+      // "Accumulate first, decide later" stood here from the day this was written, and the
+      // accumulation is now done: measured over the 84 shipped openings of 2026-09-21,
+      // SEVENTEEN carried a sentence over the 25-word cap, topping out at 34 words.
+      //
+      // LENGTH IS GATED because counting words has no false positives. It is the same rule
+      // the messaging agent enforces on email bodies in code, and the same constant the
+      // synthesis selector already applies to CANDIDATES: a sentence too long to select was
+      // still too long to write, and the writer was the one path that never checked.
+      //
+      // HEDGES ARE NOT GATED, on the same batch and the opposite result. THIRTY-NINE of 84
+      // carried a hedge phrase. A gate at that rate is not a gate, it is an outage: a
+      // variant that exhausts its retries is DROPPED for the authored template, so gating
+      // 46% of openings would ship worse copy than it rejected. The list is also the
+      // loosest thing in readability.ts, holding "often", "usually" and "typically", which
+      // are ordinary words in a sentence about what is typical of a population, which is
+      // exactly what a bridge is required to be. So they stay logged, and the number is
+      // there to be read before anyone narrows the list and revisits this.
       const readability = readabilityScore(text)
-      logger.info('writer-readability: scored, not gated', {
+      for (const sentence of readability.longSentences) {
+        const words = sentence.trim().split(/\s+/).filter(Boolean).length
+        failures.push(
+          `the ${part} has a ${words}-word sentence and the cap is ${MAX_SENTENCE_WORDS}: ` +
+          `split it into two sentences rather than deleting words from this one`,
+        )
+      }
+      logger.info('writer-readability: length gated, hedges logged', {
         ...logContext,
-        hardFail: readability.hardFail,
+        gatedSentences: readability.longSentences.length,
         penalty: readability.penalty,
         reasons: readability.reasons,
         hedges: readability.hedges,
