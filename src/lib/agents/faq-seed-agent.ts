@@ -333,7 +333,7 @@ async function callModelWithRetries(args: {
       // would report "no JSON object found", sending whoever reads the log looking for a
       // prompt fault when the real cause is the token ceiling.
       if (message.stop_reason === 'max_tokens') {
-        throw new Error(
+        throw new TruncatedAnswerError(
           `Opus stopped at the ${MAX_TOKENS} token ceiling, so the answer is truncated and ` +
           'its JSON is incomplete. This is not retried: the same request would truncate again.',
         )
@@ -357,8 +357,25 @@ async function callModelWithRetries(args: {
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
+/**
+ * The answer came back whole but too long. Deterministic, so retrying reproduces it
+ * exactly; it needs its own type because it carries no HTTP status, and the default for
+ * a status-less error below is to retry.
+ */
+class TruncatedAnswerError extends Error {
+  readonly retryable = false
+  constructor(message: string) {
+    super(message)
+    this.name = 'TruncatedAnswerError'
+  }
+}
+
 /** Transient faults worth a second attempt: transport trouble, rate limits, server faults. */
 function isRetryableModelError(err: unknown): boolean {
+  // Checked before anything else: this error reaches the status test below with no status,
+  // and would otherwise be read as a dropped connection and retried.
+  if (err instanceof TruncatedAnswerError) return false
+
   if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) return true
 
   const status = (err as { status?: unknown })?.status
