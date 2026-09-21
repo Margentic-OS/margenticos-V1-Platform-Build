@@ -4924,8 +4924,28 @@ first paying client". The stale comment in `BenchmarksView` claiming distinct re
 unavailable from this database was corrected in place, because it would have misled the
 next reader into thinking the swap was impossible rather than undecided.
 
-`positiveReplyRate` is now the only range on the page still cited to "Aggregated B2B
-research", which names no study. Also filed rather than fixed silently.
+`positiveReplyRate` was the only range on the page still cited to "Aggregated B2B
+research", which names no study. Filed rather than fixed silently at the time.
+
+**REMOVED 2026-09-21**, on the same reasoning as the two before it, so the page now
+carries no self-cited range at all. Two things were established before removing it rather
+than assumed:
+
+  WHERE 40 CAME FROM. Not research. `prd/sections/11-warnings.md` sets our own operator
+  alert threshold, "flag if positive replies drop below 40% of total replies". The lower
+  bound of the published "industry range" was our own alert threshold reflected back at
+  the client as though someone had measured it. 65 has no trace in the repository or its
+  history; the figure entered in `0735a03` with no source beside it while its three
+  siblings each got a named one.
+
+  WHETHER A REAL SOURCE EXISTS. Searched, and the candidates disagree by roughly 3x on
+  the same nominal quantity: 48.30% for a single hook type in one vendor's own test,
+  about 14% of replies in a 2M-email analysis, and unattributed "40 to 60%" restatements.
+  None is primary, and none defines a positive reply the way `POSITIVE_REPLY_INTENTS`
+  does, so a close-looking number would still not be comparable.
+
+The discriminated union did its job: `industryRange: null` does not typecheck without a
+`rangeAbsentNote`, so the removal could not happen silently.
 
 ### A second, smaller decision made in the same change
 

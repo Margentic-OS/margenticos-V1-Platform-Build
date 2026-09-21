@@ -296,7 +296,13 @@ Documents display in clean, readable format. No clutter.
 Section headings: 14px weight 500, dark green left border accent (3px, rounded).
 Body text: 12–13px, 1.6 line height, primary text colour.
 Version indicator at top: "v2.1 — Updated 3 days ago · Trigger added"
-Living status: small pulse dot + "Strategy is learning from campaign data"
+
+Living status: REMOVED 2026-09-21. The pulse dot and "Strategy is learning from campaign
+data" appeared on three screens and described something no code does. All four generation
+agents write `signal_count: 0` with the note "phase one — not yet populated", and the
+threshold logic that would consume signals is schema-only by decision. Signals are written
+by reply polling and suppression; nothing reads them back into a document. Do not
+reinstate the dot without the loop behind it.
 
 ---
 
