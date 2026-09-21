@@ -1008,6 +1008,19 @@ function buildFallbackSynthesis(
 
 const RETRY_DELAYS_MS = [2_000, 4_000, 8_000]
 
+/**
+ * Synthesis could not be performed. DISTINCT FROM "synthesis found nothing", and the whole
+ * point of the type is that the two can never again be confused by a caller.
+ *
+ * A caller that catches this must leave the prospect's stored copy exactly as it found it.
+ */
+export class SynthesisCallFailedError extends Error {
+  constructor(public readonly prospectId: string, public readonly cause: unknown) {
+    super(`Synthesis call failed for prospect ${prospectId}: ${String(cause)}`)
+    this.name = 'SynthesisCallFailedError'
+  }
+}
+
 async function callWithRetry(
   client: Anthropic,
   params: MessageCreateParamsNonStreaming,
@@ -1017,7 +1030,23 @@ async function callWithRetry(
 
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     try {
-      return await client.messages.create(params) as Message
+      // STREAMED, NOT create(). FIX 5, 2026-09-21. SYNTHESIS_MAX_OUTPUT_TOKENS is 24,000,
+      // and at that ceiling the SDK REFUSES a non-streaming request outright: "Streaming is
+      // required for operations that may take longer than 10 minutes." It is not a warning
+      // and there is no slow path to fall back to; the call throws before it is sent.
+      //
+      // So the inline research path could not synthesise at all, and had not been able to
+      // since the ceiling was raised. Nothing noticed because PRODUCTION DOES NOT USE THIS
+      // CALL: the live path submits through messages.batches.create in batch-sweep.ts,
+      // which is asynchronous and has no ten-minute request to exceed. Only
+      // scripts/run-research.ts and the operator's inline route reach this line, and a
+      // fresh run from either returned zero candidates for every prospect.
+      //
+      // Same pattern as messaging-generation-agent.ts and faq-seed-agent.ts, which both
+      // stream for the same reason. finalMessage() resolves to the identical Message shape
+      // create() returned, so nothing downstream changes.
+      const stream = client.messages.stream(params)
+      return await stream.finalMessage() as Message
     } catch (err) {
       if (!(err instanceof RateLimitError)) throw err   // non-rate-limit errors bubble up immediately
 
@@ -1461,8 +1490,34 @@ export async function synthesizeResearch(
     // seven credit errors, batch reported completed 6 failed 0, two verified 6/6
     // observations quietly replaced with nothing. Abort instead.
     throwIfFatal(err, `synthesis for prospect ${prospect.id}`)
-    logger.error('research/synthesize: Claude call failed', { error: String(err) })
-    return buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', `Claude error: ${String(err)}`, detectedSignal)
+    logger.error('research/synthesize: Claude call failed', { error: String(err), prospect_id: prospect.id })
+
+    // FIX 7, 2026-09-21. AN ERROR IS NOT A VERDICT, AND THIS LINE USED TO MAKE IT ONE.
+    //
+    // This returned buildFallbackSynthesis, which is a well-formed SynthesisOutput carrying
+    // ZERO candidates and no_signal. Downstream cannot tell that apart from a synthesis
+    // that ran fine and genuinely found nothing to say: both arrive as "no usable
+    // candidate". With allow_overwrite_trigger on, that verdict CLEARS the prospect's
+    // existing copy.
+    //
+    // Measured 2026-09-21: 28 prospects, every synthesis call refused by the SDK before it
+    // was sent, and NINETEEN had real personalisation copy deleted and replaced with
+    // nothing. Not one model call reached Anthropic. The batch reported "completed".
+    //
+    // The 9 prospects in that same run whose result INSERT threw kept their copy intact,
+    // which is the whole argument in one comparison: the ones that threw were safe, and the
+    // ones handed a fallback were not.
+    //
+    // So: throw. A failed prospect leaves its row untouched, is counted as failed rather
+    // than completed, and is picked up again by a resumable re-run. Only a synthesis that
+    // actually RAN and found nothing may clear copy, and that path still returns a
+    // fallback, further up, where it belongs.
+    //
+    // The sibling comment above about credit errors reached this same conclusion for FATAL
+    // errors and stopped there. The distinction it drew, fatal versus per-prospect, is the
+    // wrong axis: a per-prospect error is still an error, and silently converting one into
+    // a content decision is what destroyed the copy.
+    throw new SynthesisCallFailedError(prospect.id, err)
   }
 }
 
