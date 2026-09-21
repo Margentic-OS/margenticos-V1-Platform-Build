@@ -1114,6 +1114,43 @@ decoration: an operator approving or rejecting between the read and the write wo
 otherwise have their decision edited underneath them. Matching zero rows means that
 happened, and the run fails rather than retrying.
 
+### The source-provenance guard — why a repair can refuse
+
+A repair fills a slot **alongside** copy written from a particular ICP, Positioning and
+TOV. If any of those three has been approved anew since, filling the slot is not a repair,
+it is a partial regeneration, and the document ends up holding variants derived from
+different source documents while its own reason names only one set.
+
+**This reached production on 2026-09-21.** Variants A, C and D were written against ICP v5
+on 20 September. At 13:59 UTC another session approved an ICP suggestion, making v6 active
+and flagging the live messaging document stale. At 14:10 the repair ran, built its context
+from whatever was ACTIVE, and wrote variant B against **v6**. One document, four variants,
+two ICPs. v5 to v6 was 22,235 to 23,749 characters, so this was not cosmetic.
+
+Every existing guard passed, and each was right to. The payload guard proves the surviving
+variants' **bytes** do not change; it has no opinion about whether the **context** the new
+variant is written from matches theirs. Those are different claims. The worktree check at
+session start proves no other session is editing **code**; approving a document writes to
+the database and leaves no trace in git, so it reported no other session, correctly, while
+the ground had already moved.
+
+`assertSourceVersionsUnchanged` in `src/lib/messaging/source-provenance.ts` now runs in
+`verifyRepairContext`, before any call is spent, and refuses in two directions:
+
+- **A document moved.** The refusal prints a three-line comparison marking which changed,
+  names the variant, and says to regenerate the whole document instead.
+- **The provenance cannot be read.** "I cannot tell what this was written against" is not
+  "nothing changed". A guard that treats them alike is the original bug wearing a check's
+  name.
+
+It reads the `Source documents: ICP v5, Positioning v2, TOV v3.` tail the generation agent
+already writes, rather than a new column. That is deliberate: it works on rows written
+**before** the guard existed, which is every row that exists today. A new column would be
+null on all of them and the guard would pass vacuously on exactly the rows most at risk.
+
+The verified versions are then written into the repair note on the row, so the document
+records what it was actually written against.
+
 ### Shared context, one copy
 
 `buildVariantGenerationContext` in the generation agent does steps 1 to 7 (intake,
@@ -1134,8 +1171,10 @@ npx tsx --env-file=.env.local scripts/repair-missing-variant.ts \
 ```
 
 Dry by default: without `--write` it reports the surviving variants and their fingerprints,
-makes no model call and writes nothing. With `--write` it prints the read-back fingerprints
-so the "unchanged" claim can be read rather than assumed.
+makes no model call and writes nothing. It runs **every check the real run runs**, the
+provenance guard included (six reads, no model call), so a clean dry run means the repair
+would actually proceed. With `--write` it prints the read-back fingerprints and the verified
+source versions, so both claims can be read rather than assumed.
 
 There is no operator UI for this yet — see the Notion Backlog.
 
@@ -1147,5 +1186,10 @@ There is no operator UI for this yet — see the Notion Backlog.
   survivor. Nothing was written. This should be impossible and means a real bug.
 - **"the update matched no pending row"** — someone approved or rejected mid-run. Nothing
   was changed. Re-read the row before doing anything else.
+- **"Variant repair refused: a source document has changed"** — an upstream document was
+  approved after the surviving variants were written. Nothing was spent and nothing written.
+  Regenerate the whole document; do not try to force the repair.
+- **"does not record which strategy documents its variants were written against"** — the
+  suggestion predates provenance recording. Regenerate rather than bypassing this.
 - **"did not pass in N call(s)"** — the slot genuinely failed its gates 8 times. Read the
   logged violations; the variant may be asking for copy the current rules cannot produce.
