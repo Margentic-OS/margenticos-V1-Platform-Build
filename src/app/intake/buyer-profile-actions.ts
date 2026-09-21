@@ -16,11 +16,24 @@ import { logger } from '@/lib/logger'
 import type { BuyerProfile } from '@/lib/intake/buyer-profile'
 import {
   readBuyerProfile,
+  readBuyerProfileRow,
   writeBuyerProfile,
   changedBuyerProfileFields,
 } from '@/lib/intake/buyer-profile-store'
-import { documentsAffectedBy, intakeStaleReason } from '@/lib/intake/document-staleness'
+import { flagDocumentsStaleForIntakeEditSafely } from '@/lib/intake/flag-stale-documents'
 
+/**
+ * The caller's own organisation, from their session. THE ONLY SOURCE OF organisationId here.
+ *
+ * Read this before changing anything downstream of it. The flagging below runs with the
+ * service-role key, which bypasses RLS, and the whole safety argument for that rests on this
+ * function: the id comes from Supabase Auth and then from that user's own row in `users`.
+ * saveBuyerProfile takes a BuyerProfile and nothing else, and BuyerProfile has no
+ * organisation field, so there is no argument through which a caller could name one.
+ *
+ * If a future signature ever accepts an organisation id from the caller, the service-role
+ * write downstream becomes a cross-organisation write primitive. Do not do that.
+ */
 async function resolveOwnOrganisationId(
   supabase: Awaited<ReturnType<typeof createClient>>,
 ): Promise<string | null> {
@@ -56,7 +69,15 @@ export async function saveBuyerProfile(
 
   // Read what is being replaced BEFORE writing, so an edit can be told from a first answer.
   // Same reasoning as saveIntakeResponse: the form saves whether or not anything changed.
-  const previous = await readBuyerProfile(supabase, organisationId)
+  //
+  // readBuyerProfileRow, NOT readBuyerProfile. The difference is the whole first-save fix:
+  // readBuyerProfile returns an EMPTY profile when no row exists, which is indistinguishable
+  // from a row whose answers are all blank. Comparing against that made a client's FIRST save
+  // report every answer they filled in as "changed", and flag their live prospect profile on
+  // the strength of answers that never had an older value. readBuyerProfileRow returns null
+  // for "no row", and changedBuyerProfileFields returns nothing for null, which is exactly
+  // what isIntakeAnswerEdit does with a null previous on the other path.
+  const previous = await readBuyerProfileRow(supabase, organisationId)
 
   const { error } = await writeBuyerProfile(supabase, organisationId, profile)
   if (error) {
@@ -64,65 +85,13 @@ export async function saveBuyerProfile(
     return { error: 'Failed to save' }
   }
 
-  await markDocumentsStaleForBuyerProfileEdit(
-    supabase,
+  // Flags only; never regenerates. Never throws: the answers are already saved, and losing a
+  // flag is a smaller harm than failing a save that succeeded. See flag-stale-documents.ts
+  // for why this needs the service-role client and why that is safe with the id above.
+  await flagDocumentsStaleForIntakeEditSafely(
     organisationId,
     changedBuyerProfileFields(previous, profile),
   )
 
   return { success: true }
-}
-
-/**
- * Flag the live documents built from whichever of these answers changed.
- *
- * NOTHING IS FLAGGED TODAY AND THAT IS CORRECT. Every buyer-profile field is currently in
- * NOT_MAPPED, so documentsAffectedBy returns an empty list for all of them and this is a
- * no-op. It is wired now rather than later because the alternative is a session that maps a
- * field in document-staleness.ts, sees the map entry, and has no idea the write path never
- * calls the helper. Mapping a field is then the only step needed to make flagging work.
- *
- * Never throws, for the same reason the EAV version does not: the answers are already saved,
- * and losing a flag is a smaller harm than failing a save that succeeded.
- */
-async function markDocumentsStaleForBuyerProfileEdit(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  organisationId: string,
-  changedFields: readonly string[],
-): Promise<void> {
-  for (const fieldKey of changedFields) {
-    const affected = documentsAffectedBy(fieldKey)
-    if (affected.length === 0) continue
-
-    try {
-      const { error } = await (supabase
-        .from('strategy_documents') as unknown as {
-          update: (values: Record<string, unknown>) => {
-            eq: (c: string, v: string) => {
-              eq: (c: string, v: string) => {
-                in: (c: string, v: readonly string[]) => {
-                  is: (c: string, v: boolean) => Promise<{ error: unknown }>
-                }
-              }
-            }
-          }
-        })
-        .update({ is_stale: true, stale_reason: intakeStaleReason(fieldKey) })
-        .eq('organisation_id', organisationId) // explicit isolation filter
-        .eq('status', 'active')
-        .in('document_type', affected)
-        .is('is_stale', false)
-
-      if (error) {
-        logger.error('buyer profile edit: could not flag documents stale', {
-          organisation_id: organisationId, fieldKey, affected, error,
-          consequence: 'The answer is saved. The documents built from it are NOT flagged.',
-        })
-      }
-    } catch (err) {
-      logger.error('buyer profile edit: threw while flagging documents stale', {
-        organisation_id: organisationId, fieldKey, error: String(err),
-      })
-    }
-  }
 }
