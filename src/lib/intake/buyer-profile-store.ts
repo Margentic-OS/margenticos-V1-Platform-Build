@@ -101,11 +101,24 @@ export function buyerProfileToRow(profile: BuyerProfile): Record<string, unknown
  * Feeds the staleness flagging, which needs to know WHICH answer changed. Compared on the
  * normalised values, so re-saving the same list in the same order is not an edit. Arrays are
  * compared element by element rather than by reference.
+ *
+ * @param previous the stored answers, or NULL when this organisation has no row yet.
+ *
+ * Null returns nothing, deliberately, and this mirrors isIntakeAnswerEdit on the other intake
+ * path: a FIRST answer is not an edit. No document was built without it, so nothing it feeds
+ * can have been written on a different premise, and flagging one would send an operator to
+ * regenerate a document on the strength of an answer that never had an older value. A false
+ * flag teaches an operator to ignore flags, which costs more than the flag is worth.
+ *
+ * Passing EMPTY_BUYER_PROFILE instead of null reinstates exactly that bug, because an absent
+ * row and a row of blank answers are then indistinguishable.
  */
 export function changedBuyerProfileFields(
-  previous: BuyerProfile,
+  previous: BuyerProfile | null,
   next: BuyerProfile,
 ): string[] {
+  if (previous === null) return []
+
   const before = buyerProfileToRow(previous)
   const after = buyerProfileToRow(next)
   return Object.keys(after).filter(key => {
@@ -121,15 +134,20 @@ export function changedBuyerProfileFields(
 type AnyClient = Pick<SupabaseClient, 'from'>
 
 /**
- * One organisation's answers, or an empty profile when they have none.
+ * One organisation's answers, or NULL when they have no row at all.
+ *
+ * THE NULL IS THE POINT, and it is why this exists alongside readBuyerProfile. "No row" and
+ * "a row of blank answers" are different states, and only the caller comparing an old value
+ * with a new one cares about the difference. Collapsing them is what made a client's first
+ * save flag their live documents. See changedBuyerProfileFields.
  *
  * ALWAYS FILTERED BY organisation_id even though RLS also constrains it. Agent isolation is
  * enforced at three levels and the application filter is one of them.
  */
-export async function readBuyerProfile(
+export async function readBuyerProfileRow(
   client: AnyClient,
   organisationId: string,
-): Promise<BuyerProfile> {
+): Promise<BuyerProfile | null> {
   const { data } = await (client
     .from(BUYER_PROFILE_TABLE) as unknown as {
       select: (cols: string) => {
@@ -142,7 +160,20 @@ export async function readBuyerProfile(
     .eq('organisation_id', organisationId)
     .maybeSingle()
 
-  return rowToBuyerProfile(data)
+  return data ? rowToBuyerProfile(data) : null
+}
+
+/**
+ * One organisation's answers, or an empty profile when they have none.
+ *
+ * What the FORM wants: it renders a control per field and has no use for the distinction
+ * above. Anything deciding whether an answer changed wants readBuyerProfileRow instead.
+ */
+export async function readBuyerProfile(
+  client: AnyClient,
+  organisationId: string,
+): Promise<BuyerProfile> {
+  return (await readBuyerProfileRow(client, organisationId)) ?? { ...EMPTY_BUYER_PROFILE }
 }
 
 /**
