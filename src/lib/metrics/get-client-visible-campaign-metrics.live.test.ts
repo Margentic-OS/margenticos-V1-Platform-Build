@@ -202,6 +202,17 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
         meeting_status: 'booked',
       })
     }
+
+    // AND AN UNMATCHED BOOKING, prospect_id NULL. The booking webhook records one of
+    // these whenever it cannot tie a booking to a prospect (ADR-056), and the column is
+    // nullable precisely so it can. It must not count as a result: it may be inbound, a
+    // colleague testing the link, or someone who found the page directly.
+    await supabase.from('meetings').insert({
+      organisation_id: testOrgA,
+      prospect_id: null,
+      meeting_date: new Date().toISOString(),
+      meeting_status: 'booked',
+    })
   })
 
   afterEach(async () => {
@@ -300,10 +311,27 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   it('separates meetings booked from meetings held', async () => {
     const result = await getClientVisibleCampaignMetrics(testOrgA)
 
-    // One meeting, seeded at 'booked'. Booked answers "did outreach produce meetings";
-    // held answers "did they happen", and nobody has confirmed this one.
+    // TWO meetings are seeded and this is 1. The second has a NULL prospect_id and is
+    // excluded, because a booking nothing can attribute to a prospect did not come from
+    // this client's outreach. Held answers "did they happen", and nobody confirmed either.
+    //
+    // MUTATION-PROVED: deleting .not('prospect_id','is',null) from the meetings query
+    // makes this read 2. Before the filter existed the whole suite passed with unmatched
+    // bookings counted.
     expect(result.meetingsBooked).toBe(1)
     expect(result.meetingsHeld).toBe(0)
+  })
+
+  it('the unmatched booking is really there, so the count above is a filter and not an empty table', async () => {
+    // CONTROL. Without this, meetingsBooked === 1 would also pass if the second insert
+    // had silently failed, and the test would be proving nothing about the filter.
+    const { count, error } = await supabase
+      .from('meetings')
+      .select('id', { count: 'exact', head: true })
+      .eq('organisation_id', testOrgA)
+      .is('prospect_id', null)
+    expect(error).toBeNull()
+    expect(count).toBe(1)
   })
 
   it('cross-org boundary: client choicepoint returns ZERO org-B rows when queried as org-A', async () => {
@@ -408,10 +436,14 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
     // someone believed when they wrote the test; this proves it matches the rows.
     const result = await getClientVisibleCampaignMetrics(testOrgA)
 
+    // The unmatched booking is excluded HERE TOO, because the question is whether the
+    // chokepoint agrees with the rows about the same population. Leaving it in would make
+    // this compare two different questions and report the difference as a defect.
     const { count: meetingsFromDb } = await supabase
       .from('meetings')
       .select('*', { count: 'exact', head: true })
       .eq('organisation_id', testOrgA)
+      .not('prospect_id', 'is', null)
 
     const { data: campaignRows } = await supabase
       .from('campaigns')
