@@ -79,21 +79,44 @@ describe('pacedIntervalMs', () => {
 })
 
 describe('probesWithinBudget', () => {
-  // The first probe costs no wait, so a window of exactly one interval holds two.
-  it('counts the free first probe', () => {
+  // Slots fall at 0, i, 2i, ... and a probe is allowed when its slot is strictly inside the
+  // window. The first probe costs no wait, so any positive window holds at least one.
+  it('counts slots that start strictly before the deadline', () => {
     expect(probesWithinBudget(0, 1000)).toBe(0)
     expect(probesWithinBudget(1, 1000)).toBe(1)
-    expect(probesWithinBudget(1000, 1000)).toBe(2)
-    expect(probesWithinBudget(2000, 1000)).toBe(3)
+    expect(probesWithinBudget(999, 1000)).toBe(1)
+    expect(probesWithinBudget(1000, 1000)).toBe(1)
+    expect(probesWithinBudget(1001, 1000)).toBe(2)
+    expect(probesWithinBudget(2000, 1000)).toBe(2)
   })
 
   it('gives the production window its full count', () => {
-    // 240s at 2223ms = 107 waits plus the free first probe.
     expect(probesWithinBudget(DEFAULT_RUN_BUDGET_MS, pacedIntervalMs(30))).toBe(108)
   })
 
   it('is zero for a window that has already closed', () => {
     expect(probesWithinBudget(-5_000, 1000)).toBe(0)
+  })
+
+  // ── THE BOUNDARY THAT WAS WRONG ─────────────────────────────────────────────
+  //
+  // The first version returned `floor(budget / interval) + 1`, counting a probe starting
+  // exactly ON the deadline, while the loop stops when the next slot is `>= deadlineAt`.
+  // They agree everywhere EXCEPT an exact multiple, which is what made it worth a test of
+  // its own: on a window that divided evenly, the sizing selected one more row than the
+  // loop would ever reach, and that row was locked and then released unprobed.
+  //
+  // Stated as the property rather than as a number: however many this says fit, that is
+  // exactly how many slots land strictly inside the window.
+  it('agrees with the slots that actually land inside the window, at exact multiples', () => {
+    const interval = 2223
+    for (const multiple of [1, 2, 4, 10, 108]) {
+      const budget = interval * multiple
+      const slotsInside = Array.from({ length: multiple + 2 }, (_, k) => k * interval)
+        .filter(slot => slot < budget).length
+      expect(probesWithinBudget(budget, interval)).toBe(slotsInside)
+      expect(probesWithinBudget(budget, interval)).toBe(multiple)
+    }
   })
 })
 

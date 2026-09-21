@@ -50,14 +50,26 @@ describe('estimateVerificationDrainMinutes', () => {
     expect(minutes).toBeLessThan(35)
   })
 
+  // A FULL RUN'S WORTH, deliberately, so neither answer lands on the one-minute floor.
+  // Compared at `waiting: 10` these differ by 7 rather than 8, because the sooner estimate
+  // rounds to 20 seconds and is then raised to the floor: an estimate of "0 minutes" beside
+  // work still to do would read as finished. That floor is correct and it makes small
+  // backlogs the wrong place to measure a difference.
   it('includes the wait for the first run', () => {
-    const soon = estimateVerificationDrainMinutes({ ...LIVE, waiting: 10, msUntilNextRun: 0 })
+    const soon = estimateVerificationDrainMinutes({
+      ...LIVE, waiting: PER_RUN, msUntilNextRun: 0,
+    })
     const later = estimateVerificationDrainMinutes({
-      ...LIVE, waiting: 10, msUntilNextRun: 8 * 60_000,
+      ...LIVE, waiting: PER_RUN, msUntilNextRun: 8 * 60_000,
     })
     expect(soon).not.toBeNull()
     expect(later).not.toBeNull()
     expect((later as number) - (soon as number)).toBe(8)
+  })
+
+  // The floor itself, stated directly rather than left as a surprise in the test above.
+  it('never reports zero minutes while work is still waiting', () => {
+    expect(estimateVerificationDrainMinutes({ ...LIVE, waiting: 1, msUntilNextRun: 0 })).toBe(1)
   })
 
   // A backlog of 3 finishing in the next run must not report a whole budget's worth of time.

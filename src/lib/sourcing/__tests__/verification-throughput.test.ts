@@ -109,7 +109,14 @@ function fakeSupabase(rows: Array<{ id: string; email: string }>, opts: FakeOpts
           mode = 'single'
           const data: Record<string, unknown> = {}
           for (const col of selectedCols.split(',').map(c => c.trim()).filter(Boolean)) {
+            // Both columns recordVerificationResult reads. It selects
+            // 'verification_attempt_count, send_hold_at', and a fake that served only the
+            // first threw on every success path, sending all 108 probes to the failure
+            // branch: the run reported 0 verified while the handler had plainly been called
+            // 108 times. The throw is what surfaced it, which is why this fake throws on an
+            // unimplemented column rather than returning undefined.
             if (col === 'verification_attempt_count') data[col] = 0
+            else if (col === 'send_hold_at') data[col] = null
             else throw new Error(`fake maybeSingle does not implement column "${col}"`)
           }
           return Promise.resolve({ data, error: null })

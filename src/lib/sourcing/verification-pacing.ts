@@ -83,16 +83,29 @@ export function pacedIntervalMs(limitPerMinute: number): number {
 /**
  * How many probes fit in a working window, at a given interval.
  *
- * The first probe costs no wait, so a window of exactly one interval holds two: one at the
- * start and one at the end. Off-by-one in the cautious direction here would leave a slot
- * unused on every single run, which is the defect this whole file exists to remove.
+ * ── IT COUNTS PROBES THAT START STRICTLY BEFORE THE DEADLINE ──
+ *
+ * Slots fall at 0, i, 2i, ... and a probe is allowed when its slot is strictly inside the
+ * window, so the count is `ceil(budget / interval)`.
+ *
+ * THIS HAS TO AGREE EXACTLY WITH THE LOOP'S OWN DEADLINE TEST, which stops when the next
+ * slot is `>= deadlineAt`. The first version returned `floor(budget / interval) + 1`, which
+ * counts a probe starting exactly ON the deadline. Everywhere except an exact multiple the
+ * two agree, which is what makes the disagreement worth naming: the sizing would select one
+ * more row than the loop would ever reach, and that row would be LOCKED and then released
+ * unprobed on every run whose window happened to divide evenly. Caught by a test using a
+ * window of exactly four intervals.
+ *
+ * Two numbers that have to track each other, one of which is only wrong on a boundary, is
+ * the shape CLAUDE.md keeps naming. They are one expression now and the loop is the
+ * authority for what it means.
  */
 export function probesWithinBudget(budgetMs: number, intervalMs: number): number {
   if (budgetMs <= 0) return 0
   if (intervalMs <= 0) {
     throw new Error(`A pacing interval must be positive, got ${intervalMs}`)
   }
-  return Math.floor(budgetMs / intervalMs) + 1
+  return Math.ceil(budgetMs / intervalMs)
 }
 
 export interface Pacer {
