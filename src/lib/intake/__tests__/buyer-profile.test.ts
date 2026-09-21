@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import {
   BUYER_PROFILE_FIELD_KEYS,
   BUYER_PROFILE_QUESTIONS,
+  COUNTRY_OPTIONS,
   EMPTY_BUYER_PROFILE,
   SENIORITY_OPTIONS,
   normaliseList,
@@ -227,18 +228,35 @@ describe('what gets written', () => {
     expect(buyerProfileToRow(base).signoff_required).toBeNull()
   })
 
+  // REAL COUNTRIES, read from the platform's list. These two tests used 'a' and 'b', which
+  // buyerProfileToRow now drops because countries are a closed list, so BOTH sides normalised
+  // to the empty array. The first test failed outright. The SECOND went on passing, for the
+  // wrong reason: "no change" is trivially true when both lists are empty. That is the more
+  // dangerous half and it is why the vehicle is real values rather than a different column.
+  const [countryA, countryB, countryC] = COUNTRY_OPTIONS.map(option => option.name)
+
   it('reports only the fields that actually changed', () => {
-    const before: BuyerProfile = { ...base, target_countries: ['a', 'b'] }
-    const after: BuyerProfile = { ...base, target_countries: ['a', 'b', 'c'] }
+    const before: BuyerProfile = { ...base, target_countries: [countryA, countryB] }
+    const after: BuyerProfile = { ...base, target_countries: [countryA, countryB, countryC] }
     expect(changedBuyerProfileFields(before, after)).toEqual(['target_countries'])
   })
 
   it('re-saving the same answers reports no change', () => {
     // The form saves on blur whether or not anything was typed. Without this, every visit to
     // a field would count as an edit, which is what the EAV path already learned.
-    const same: BuyerProfile = { ...base, target_countries: [' a ', 'a', 'b'] }
-    const tidied: BuyerProfile = { ...base, target_countries: ['a', 'b'] }
+    const same: BuyerProfile = {
+      ...base,
+      target_countries: [` ${countryA} `, countryA.toUpperCase(), countryB],
+    }
+    const tidied: BuyerProfile = { ...base, target_countries: [countryA, countryB] }
     expect(changedBuyerProfileFields(same, tidied)).toEqual([])
+  })
+
+  it('and that no-change claim is not vacuous: both sides hold real entries', () => {
+    // Anti-vacuity for the test above. Two empty arrays are equal, so "no change" passes over
+    // a pair of lists that were both rejected. This asserts the values actually survive.
+    const tidied: BuyerProfile = { ...base, target_countries: [countryA, countryB] }
+    expect(buyerProfileToRow(tidied).target_countries).toEqual([countryA, countryB])
   })
 
   it('notices a reordered list, because order is the client ordering', () => {
