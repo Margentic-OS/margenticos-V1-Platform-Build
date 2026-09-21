@@ -395,6 +395,13 @@ So no published figure counts what we count: both the numerator and the denomina
 The old citation also read "Aggregated B2B research", which names no study, the same
 failure that removed the meeting range. The card now says there is no range and why.
 
+**The positive reply share lost its range on 2026-09-21, for the third instance of the
+same failure.** It was cited to "Aggregated B2B research" as well. Its lower bound, 40,
+turned out to be our OWN operator alert threshold from `prd/sections/11-warnings.md`
+printed back at the client as research; 65 has no source anywhere. Published figures for
+this metric disagree by about 3x and none defines a positive reply the way our own
+classification does, so none was substituted. No range on this page is now self-cited.
+
 **What this makes visible, said plainly because it is uncomfortable.** The client's own
 opt-out rate is roughly 2.9%, well above the 0 to 1% that used to be printed. The range
 coming off is not what hides that: the count is on the card either way, and the old 0 was

@@ -55,7 +55,15 @@ export async function collectWeeklyWatch(
   const senders = campaign.status === 'ok' ? campaign.value.senders : null
   const noSenders = cascade ?? 'campaign carried no sender list'
 
-  const burn = await collectBurnPerWeek(db, now)
+  // Both prospect counts are scoped to the campaign's own organisation. When the campaign
+  // could not be identified there is no organisation to scope to, and a platform-wide
+  // number presented as one client's supply is worse than a named gap, so they say so.
+  const organisationId = campaignRef.status === 'ok' ? campaignRef.value.organisationId : null
+  const noOrg = cascade ?? 'live campaign could not be identified, so no organisation to scope prospect counts to'
+
+  const burn: Reading<number | null> = organisationId
+    ? await collectBurnPerWeek(db, now, organisationId)
+    : unknown(noOrg)
   const burnValue = burn.status === 'ok' ? burn.value : null
 
   const warmupCanary: Promise<Reading<WarmupCanary>> = senders
@@ -72,7 +80,9 @@ export async function collectWeeklyWatch(
 
   const inventory: Promise<Reading<Inventory>> = burn.status === 'unknown'
     ? Promise.resolve(unknown(`burn rate unavailable, so inventory cannot be derived: ${burn.reason}`))
-    : collectInventory(db, burnValue)
+    : organisationId
+      ? collectInventory(db, burnValue, organisationId)
+      : Promise.resolve(unknown(noOrg))
 
   const ramp: Reading<RampPosition> = campaign.status === 'ok'
     ? ok(rampFrom(campaign.value))

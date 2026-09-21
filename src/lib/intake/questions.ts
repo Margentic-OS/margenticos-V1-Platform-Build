@@ -129,7 +129,7 @@ export const SECTIONS: Section[] = [
       },
       {
         fieldKey: 'clients_how_found',
-        label: "Walk me through how your last best client found you. Start from the beginning — how did they first become aware you existed?",
+        label: "Walk me through how your last best client found you. Start from the beginning. How did they first become aware you existed?",
         isCritical: true,
         type: 'long',
         dictation: true,
@@ -173,7 +173,7 @@ export const SECTIONS: Section[] = [
       },
       {
         fieldKey: 'offer_deliverables',
-        label: "What does a client actually get? Deliverables, outputs, access — what exists at the end that didn't before?",
+        label: "What does a client actually get? Deliverables, outputs, access. What exists at the end that didn't before?",
         isCritical: true,
         type: 'long',
         dictation: true,

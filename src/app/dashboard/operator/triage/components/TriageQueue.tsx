@@ -52,7 +52,18 @@ export function TriageQueue() {
     try {
       const res = await fetch('/api/reply-drafts', { credentials: 'same-origin' })
       if (res.status === 401) { router.push('/login'); return }
-      if (res.status === 403) { setFetchError('Your account no longer has operator permissions.'); return }
+      if (res.status === 403) {
+        // Surface what the route actually said, for the same reason the 409 branches below
+        // do. The route sends two different 403s: "Could not verify user role." when the
+        // user lookup itself failed, and "Only operators can access the reply queue." when
+        // the role was read and refused. Substituting one sentence for both reports a
+        // lookup failure as a permissions verdict, which is a guess about the cause.
+        const denied = await res.json().catch(() => ({})) as Record<string, unknown>
+        setFetchError(typeof denied.error === 'string'
+          ? denied.error
+          : 'Could not load queue (403).')
+        return
+      }
       if (!res.ok) {
         setFetchError(`Could not load queue (${res.status}).`)
         return
@@ -167,7 +178,12 @@ export function TriageQueue() {
 
       if (res.status === 401) { router.push('/login'); return }
       if (res.status === 403) {
-        updateCardState(draftId, { inFlight: 'idle', actionError: 'Your account no longer has operator permissions.' })
+        // Surface what the route said, for the same reason as the 409 below.
+        const denied = await res.json().catch(() => ({})) as Record<string, unknown>
+        const msg = typeof denied.error === 'string'
+          ? denied.error
+          : `This draft could not be approved (403).`
+        updateCardState(draftId, { inFlight: 'idle', actionError: msg })
         return
       }
       if (res.status === 409) {
@@ -232,7 +248,12 @@ export function TriageQueue() {
 
       if (res.status === 401) { router.push('/login'); return }
       if (res.status === 403) {
-        updateCardState(draftId, { inFlight: 'idle', actionError: 'Your account no longer has operator permissions.' })
+        // Surface what the route said, for the same reason as the 409 below.
+        const denied = await res.json().catch(() => ({})) as Record<string, unknown>
+        const msg = typeof denied.error === 'string'
+          ? denied.error
+          : `This draft could not be rejected (403).`
+        updateCardState(draftId, { inFlight: 'idle', actionError: msg })
         return
       }
       if (res.status === 409) {

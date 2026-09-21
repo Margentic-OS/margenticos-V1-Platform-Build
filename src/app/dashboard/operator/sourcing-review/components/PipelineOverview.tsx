@@ -140,7 +140,13 @@ export function PipelineOverview({
       const res = await fetch('/api/operator/sourcing-metrics', { credentials: 'same-origin' })
       if (res.status === 401) { router.push('/login'); return }
       if (res.status === 403) {
-        setStaleSince('Your account no longer has operator permissions.')
+        // Surface what the route actually said rather than a fixed sentence. The route
+        // returns a different 403 for "could not verify user role" than for "not an
+        // operator", and collapsing both into a permissions verdict invents a cause.
+        const denied = await res.json().catch(() => ({})) as Record<string, unknown>
+        setStaleSince(typeof denied.error === 'string'
+          ? `${denied.error} Showing the last good figures.`
+          : 'Could not refresh the counts (403). Showing the last good figures.')
         return
       }
       if (!res.ok) {

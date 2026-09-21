@@ -136,3 +136,63 @@ export function describeUnresearchedOnButton(unresearchedCount: number): string 
     ? '1 with your standard opener'
     : unresearchedCount + ' with your standard opener'
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AND HOW MANY OF THEM THE SUPPRESSION LIST WILL DROP
+//
+// applySendGate is a SQL predicate, and there is one thing it structurally cannot see.
+// A bounce does NOT write prospects.suppressed. It writes the global suppressed_emails
+// table, deliberately, because prospects.suppressed carries four per-organisation
+// meanings and deriving one from the other destroys all four. The header of
+// src/lib/sourcing/send-gate.ts says this in full, and names this count as the one
+// caller that did not consult the second store.
+//
+// So the send dropped prospects the count had promised, and nothing explained the gap.
+// The operator read a number, pressed upload, and a smaller number went out.
+//
+// WHAT THIS DOES NOT DO: it does not narrow the claim. The upload still attempts the
+// whole ready-to-send population and the gate still drops these at send time, exactly as
+// before. This only puts the difference on the screen, which is the same choice the
+// unresearched count above makes and for the same reason: a number that silently shrinks
+// to match a changed population is the failure this area keeps repeating.
+//
+// Over this population gate 1 can never fire, because applySendGate has already required
+// suppressed = false and client_review_status = 'approved'. Everything counted here is
+// therefore a globally suppressed address: a bounce or an opt-out recorded anywhere.
+
+import { findBlockedProspects } from '@/lib/suppression/send-gate'
+
+/**
+ * How many of the ready-to-send population the suppression chokepoint will block.
+ *
+ * Reads the SAME gate as sendGateCountQuery, so the two cannot be drawn from different
+ * populations. Throws rather than returning 0 on a failed read: a zero here reads as
+ * "the gate will drop nothing", which is the reassuring direction and the one an operator
+ * cannot check. That matches requireCount on the page that calls this.
+ */
+export async function sendGateBlockedCount(
+  serviceRole: ServiceRoleClient,
+  organisationId: string,
+): Promise<number> {
+  const { data, error } = await applySendGate(
+    serviceRole.from('prospects').select('id, email'),
+    organisationId,
+  )
+
+  if (error) {
+    throw new Error(
+      `suppression-blocked count failed for organisation ${organisationId}: ${error.message}`,
+    )
+  }
+
+  const candidates = (data ?? []) as { id: string; email: string | null }[]
+  const result = await findBlockedProspects(serviceRole, organisationId, candidates)
+
+  if (!result.ok) {
+    throw new Error(
+      `suppression-blocked count failed for organisation ${organisationId}: ${result.error}`,
+    )
+  }
+
+  return result.blocked.size
+}

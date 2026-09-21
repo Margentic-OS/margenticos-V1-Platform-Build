@@ -43,7 +43,10 @@ function account(active: boolean, warmupActive = true): ProviderAccount {
 
 /** Minimal thenable Supabase chain; throws on any method the collector did not declare. */
 function chain(result: Record<string, unknown>) {
-  const allowed = new Set(['select', 'eq', 'gte', 'lte', 'order', 'limit'])
+  // 'not' is here because applySendGate uses it. It THROWS on anything else, deliberately:
+  // a chainable proxy that silently returned itself would accept a filter that never ran
+  // and prove only that the code path executed.
+  const allowed = new Set(['select', 'eq', 'gte', 'lte', 'order', 'limit', 'not'])
   const proxy: unknown = new Proxy({}, {
     get(_t, prop: string) {
       if (prop === 'then') return (resolve: (v: unknown) => void) => resolve(result)
@@ -157,7 +160,7 @@ describe('collectBounces', () => {
 
 describe('collectBurnPerWeek', () => {
   it('returns null, not zero, when nothing was uploaded in the lookback', async () => {
-    const r = await collectBurnPerWeek(fakeDb({ count: 0, error: null }), new Date())
+    const r = await collectBurnPerWeek(fakeDb({ count: 0, error: null }), new Date(), 'org-1')
     expect(r.status).toBe('ok')
     if (r.status !== 'ok') return
     // Zero burn would divide into infinite runway, the most reassuring number on the report.
@@ -165,13 +168,13 @@ describe('collectBurnPerWeek', () => {
   })
 
   it('converts a 28-day count into a weekly rate', async () => {
-    const r = await collectBurnPerWeek(fakeDb({ count: 120, error: null }), new Date())
+    const r = await collectBurnPerWeek(fakeDb({ count: 120, error: null }), new Date(), 'org-1')
     if (r.status !== 'ok') throw new Error('expected ok')
     expect(r.value).toBe(30)
   })
 
   it('is unknown when the query errors', async () => {
-    const r = await collectBurnPerWeek(fakeDb({ count: null, error: { code: 'PGRST301', message: 'jwt expired' } }), new Date())
+    const r = await collectBurnPerWeek(fakeDb({ count: null, error: { code: 'PGRST301', message: 'jwt expired' } }), new Date(), 'org-1')
     expect(r.status).toBe('unknown')
     if (r.status !== 'unknown') return
     expect(r.reason).toContain('PGRST301')
@@ -180,12 +183,12 @@ describe('collectBurnPerWeek', () => {
 
 describe('collectInventory', () => {
   it('is unknown when the query errors rather than reporting zero pending', async () => {
-    const r = await collectInventory(fakeDb({ count: null, error: { code: '08006', message: 'connection failure' } }), 30)
+    const r = await collectInventory(fakeDb({ count: null, error: { code: '08006', message: 'connection failure' } }), 30, 'org-1')
     expect(r.status).toBe('unknown')
   })
 
   it('leaves weeksOfInventory null when burn is unknown', async () => {
-    const r = await collectInventory(fakeDb({ count: 197, error: null }), null)
+    const r = await collectInventory(fakeDb({ count: 197, error: null }), null, 'org-1')
     if (r.status !== 'ok') throw new Error('expected ok')
     expect(r.value.pending).toBe(197)
     expect(r.value.weeksOfInventory).toBeNull()
@@ -299,5 +302,68 @@ describe('findLiveCampaign', () => {
 
   it('is unknown when there is no active campaign', async () => {
     expect((await findLiveCampaign(fakeDb({ data: [], error: null }))).status).toBe('unknown')
+  })
+})
+
+// ─── The supply number is scoped and gated ────────────────────────────────────
+//
+// collectInventory counted `outbound_upload_status = 'pending'` across EVERY organisation
+// and with none of the send gate, so it answered "how many prospect rows exist" and
+// printed it as this client's remaining supply. Measured platform-wide it reported 176
+// pending where none were actually sendable.
+//
+// The fake above cannot test this: it returns the same result whatever is filtered, so a
+// test written against it would pass with every filter deleted. That is the exact shape
+// CLAUDE.md warns about. This one RECORDS the filters instead, so the assertions are
+// about the query that was built rather than about the number handed back.
+
+function recordingDb(result: Record<string, unknown>) {
+  const calls: { method: string; args: unknown[] }[] = []
+  const allowed = new Set(['select', 'eq', 'gte', 'lte', 'order', 'limit', 'not'])
+  const proxy: unknown = new Proxy({}, {
+    get(_t, prop: string) {
+      if (prop === 'then') return (resolve: (v: unknown) => void) => resolve(result)
+      if (allowed.has(prop)) {
+        return (...args: unknown[]) => { calls.push({ method: prop, args }); return proxy }
+      }
+      throw new Error(`fake supabase does not implement .${prop}()`)
+    },
+  })
+  return { db: { from: () => proxy } as never, calls }
+}
+
+const applied = (calls: { method: string; args: unknown[] }[], method: string) =>
+  calls.filter(c => c.method === method).map(c => c.args)
+
+describe('collectInventory scopes and gates the supply number', () => {
+  it('filters to the campaign organisation', async () => {
+    const { db, calls } = recordingDb({ count: 12, error: null })
+    const r = await collectInventory(db, 4, 'org-under-test')
+    expect(r.status).toBe('ok')
+    // CONTROL: the recorder saw the query being built at all. Without this, every
+    // assertion below would also pass against a fake that recorded nothing.
+    expect(calls.length).toBeGreaterThan(0)
+    expect(applied(calls, 'eq')).toContainEqual(['organisation_id', 'org-under-test'])
+  })
+
+  it('applies the send gate rather than counting every pending row', async () => {
+    const { db, calls } = recordingDb({ count: 12, error: null })
+    await collectInventory(db, 4, 'org-under-test')
+    const eqs = applied(calls, 'eq')
+    // The clauses applySendGate owns. Asserted individually so a partial gate fails.
+    expect(eqs).toContainEqual(['outbound_upload_status', 'pending'])
+    expect(eqs).toContainEqual(['email_send_eligible', true])
+    expect(eqs).toContainEqual(['client_review_status', 'approved'])
+    expect(eqs).toContainEqual(['suppressed', false])
+    expect(applied(calls, 'not')).toContainEqual(['email', 'is', null])
+  })
+
+  it('scopes the burn rate to the same organisation, so the ratio is one population', async () => {
+    // weeksOfInventory divides pending by burn. An org-scoped numerator over a
+    // platform-wide denominator is the mixed-unit fault in a different coat.
+    const { db, calls } = recordingDb({ count: 28, error: null })
+    await collectBurnPerWeek(db, new Date(), 'org-under-test')
+    expect(calls.length).toBeGreaterThan(0)
+    expect(applied(calls, 'eq')).toContainEqual(['organisation_id', 'org-under-test'])
   })
 })

@@ -13,6 +13,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { evaluateSendingHealth, sendingHealthWindow, type MailboxDailyStat } from '@/lib/sending-health/evaluate'
+import { applySendGate } from '@/lib/sourcing/send-gate'
 import { rungFor } from './report'
 import {
   BURN_LOOKBACK_DAYS,
@@ -47,6 +48,12 @@ function why(err: unknown): string {
 export interface LiveCampaign {
   externalId: string
   name:       string
+  /**
+   * The campaign's organisation. Carried so the prospect counts can be scoped to the
+   * client the report is about. Without it they were platform-wide, and the report
+   * silently described every organisation's rows as this one's supply.
+   */
+  organisationId: string
 }
 
 /**
@@ -57,7 +64,7 @@ export async function findLiveCampaign(db: DB): Promise<Reading<LiveCampaign>> {
   try {
     const { data, error } = await db
       .from('campaigns')
-      .select('external_id, name, status')
+      .select('external_id, name, status, organisation_id')
       .eq('campaign_type', 'cold_email')
       .eq('status', 'active')
     if (error) return unknown(`campaigns query failed: ${error.code} ${error.message}`)
@@ -66,7 +73,11 @@ export async function findLiveCampaign(db: DB): Promise<Reading<LiveCampaign>> {
     if (rows.length > 1) {
       return unknown(`${rows.length} active cold_email campaigns; the watch reports on one and cannot choose`)
     }
-    return ok({ externalId: rows[0].external_id as string, name: rows[0].name ?? '(unnamed)' })
+    return ok({
+      externalId:     rows[0].external_id as string,
+      name:           rows[0].name ?? '(unnamed)',
+      organisationId: rows[0].organisation_id,
+    })
   } catch (err) {
     return unknown(`campaign lookup threw: ${why(err)}`)
   }
@@ -267,12 +278,17 @@ export async function collectLeadCapacity(
  * into "infinite weeks of headroom", the most reassuring number on the report, and would
  * be produced by a campaign that had stopped sending entirely.
  */
-export async function collectBurnPerWeek(db: DB, now: Date): Promise<Reading<number | null>> {
+export async function collectBurnPerWeek(
+  db: DB,
+  now: Date,
+  organisationId: string,
+): Promise<Reading<number | null>> {
   try {
     const since = new Date(now.getTime() - BURN_LOOKBACK_DAYS * 86_400_000).toISOString()
     const { count, error } = await db
       .from('prospects')
       .select('id', { count: 'exact', head: true })
+      .eq('organisation_id', organisationId)
       .eq('outbound_upload_status', 'uploaded')
       .gte('outbound_upload_attempted_at', since)
     if (error) return unknown(`burn-rate query failed: ${error.code} ${error.message}`)
@@ -283,12 +299,33 @@ export async function collectBurnPerWeek(db: DB, now: Date): Promise<Reading<num
   }
 }
 
-export async function collectInventory(db: DB, burnPerWeek: number | null): Promise<Reading<Inventory>> {
+// THE SUPPLY NUMBER IS WHAT IS SENDABLE, NOT WHAT EXISTS.
+//
+// This counted `outbound_upload_status = 'pending'` across every organisation, so it
+// answered "how many prospect rows are in the database" and presented it as this client's
+// remaining supply. Two faults at once, and both run the same way: they OVERSTATE, on a
+// planning screen, which is the direction that gets noticed last. Measured platform-wide
+// it reported 176 pending where none were actually sendable.
+//
+// Now it applies applySendGate, the same predicate the upload claim uses, which supplies
+// the organisation scope and the eligibility clauses together. Reusing it rather than
+// restating the filters is the point: a hand-copied predicate agrees only until somebody
+// edits one of them, and the report would keep rendering a number that looked fine.
+//
+// It does NOT consult the global suppression list, and that is worth stating rather than
+// leaving to be discovered. A bounced address is still counted here. This is a weekly
+// planning figure, so the cost of a small overstatement is a reorder slightly too late;
+// the send path itself gates on both stores.
+export async function collectInventory(
+  db: DB,
+  burnPerWeek: number | null,
+  organisationId: string,
+): Promise<Reading<Inventory>> {
   try {
-    const { count, error } = await db
-      .from('prospects')
-      .select('id', { count: 'exact', head: true })
-      .eq('outbound_upload_status', 'pending')
+    const { count, error } = await applySendGate(
+      db.from('prospects').select('id', { count: 'exact', head: true }),
+      organisationId,
+    )
     if (error) return unknown(`pending-prospect query failed: ${error.code} ${error.message}`)
     if (count === null) return unknown('pending-prospect query returned no count')
     return ok({
