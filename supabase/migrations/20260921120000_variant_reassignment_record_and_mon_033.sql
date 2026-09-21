@@ -1,3 +1,8 @@
+-- Status: APPLIED (verified live 2026-09-21, production hjpvnvjryxdjcfdsfhzy and test
+-- tidqheqjzvwmrrrebzir). Read back on both: both columns present on prospects, mon_033
+-- exists as a view, and anon and authenticated hold NONE of the eight table privileges
+-- on it. Checked in both directions, per the standing rule: reading only the role that
+-- must have access proves nothing about who else does.
 -- A prospect whose assigned variant is not in the live messaging document, recorded and
 -- monitored.
 --
