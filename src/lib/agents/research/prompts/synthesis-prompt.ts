@@ -210,16 +210,27 @@ Sweep all four sources exhaustively:
   LINKEDIN — every post in the window, not just the newest. Also the profile
   headline, the About text, and connection count if it tells you something.
 
-  EMPLOYMENT HISTORY (enrichment records, and LinkedIn positions) — swept, but NOT preferred,
-  and never the first place to look. A candidate drawn from here is the record
-  read back at the reader: they already know their own roles, dates and tenure,
-  and the writer is forbidden from reciting them. Use it when the reader DID
-  something with it that they would recognise as an event:
-    • Role-end announcements the prospect made themselves, which are posts
-    • Recent transitions: a role that started or ended in the last 18 months
-  Headcount, tenure length and "still running both" are firmographic record, not
-  activity. Do not build a candidate on them. A headcount figure came from a data
-  provider, may be wrong, and is banned from the email outright.
+  EMPLOYMENT HISTORY (enrichment records, and LinkedIn positions) — THE FALLBACK, never
+  the first choice, and never discarded when it is all there is. Sweep it every time.
+  Rank every candidate it produces BELOW any usable candidate from observable activity,
+  and select one only when nothing from activity is usable.
+
+  WHEN IT IS ALL YOU HAVE, USE IT. A prospect with a thin public trail is exactly who this
+  is for. Returning nothing because the only material was their work history is worse than
+  an observation built from it: nothing means the generic template ships, and the template
+  knows nothing about them at all.
+
+  WHAT YOU DO WITH IT IS THE WHOLE DIFFERENCE. State the INSIGHT the history supports, not
+  the history. They already know their own roles, dates and titles, and reciting those back
+  is a dossier entry.
+    GOOD: running two firms at once
+    BAD:  you have been CEO of X and Y since 2018
+  Same fact. The first names a situation they are living in and can recognise; the second
+  reads it off a record. Write the situation. Drop the titles, drop the dates, drop the
+  company list.
+
+  Headcount is NOT job history and is not usable either way: it is a figure from a data
+  provider, it is banned from email content outright, and it is wrong the day they hire.
 
   WEBSITE — services and positioning statements, but also anything DATED:
   blog or insights posts and their dates, case study dates, copyright year,
