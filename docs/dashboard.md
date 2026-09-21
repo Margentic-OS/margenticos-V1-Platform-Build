@@ -857,6 +857,80 @@ if a screen and an action can disagree about what they mean, eventually they wil
 
 ---
 
+## Progress an operator can act on
+
+*Added 2026-09-21.*
+
+### The gap this closes
+
+The panel above says **"Waiting to be checked: 38"**. An operator reading that cannot tell a
+queue that drains in ten minutes from one that drains tomorrow, and the two call for
+completely different decisions. The same number sat there for the whole of a wait with
+nothing saying whether anything was coming.
+
+### Verification: when it next runs, and when it finishes
+
+Two new lines, both from the same polled payload:
+
+| Line | Where it comes from |
+|---|---|
+| **Next check runs** | `cron_schedule_registry`, parsed by `cron-interval.ts` |
+| **Estimated to finish** | this client's backlog, the cron period, and the configured per-minute pace |
+
+The estimate is **not** `waiting / rate`. That is the answer if the sweep ran continuously,
+and it does not: it works for a budget and then waits for the next firing. A backlog of 200
+at 27 a minute is not 7.4 minutes, it is two runs and the gap between them.
+
+**The assumption is printed next to the number.** The sweep takes one organisation per
+invocation, oldest backlog first, so the estimate assumes this client is served each run.
+That is exact when only this client has work and optimistic when others do. The caption says
+so, because a number an operator plans around must not read as stronger than it is.
+
+**Either line is omitted rather than guessed.** If the schedule or the provider pace cannot
+be read, the estimate is null and the line does not render. A confident "about 12 minutes"
+built on a default nobody chose is worse than a blank line, because it gets trusted.
+
+### Enrichment: how many more presses
+
+Enrichment is **pressed, not scheduled**, so "when does it next run" has no answer for it on
+the inline path. The equivalent fact is how many more presses, and it has never been on the
+screen.
+
+**One press enriches at most `ENRICHMENT_PER_PRESS_LIMIT` (100) and then stops, however many
+are waiting.** That has always been true. Nothing said so, so an operator who pressed with
+240 waiting watched the count fall to 140 and had no way to tell whether that was the design,
+a partial failure, or a spend cap they had hit. It is the design, and the screen now says it
+**before** the press:
+
+> Enriching runs 100 at a time. Pressing once will enrich 100 and leave 140 waiting, so you
+> will need to press it again — 3 presses in total to clear them all.
+
+A client whose whole backlog fits in one press gains no warning, because for them there is
+nothing to warn about.
+
+The ceiling is **one constant**, exported from `enrichment-trigger.ts`. It was the literal
+`100` written twice, in the route and as the trigger's default parameter. The screen renders
+the same constant the route enforces, so what it promises and what the button does cannot
+drift apart.
+
+A **"Next queue run"** line appears only while the queue actually holds enrichment jobs. On
+the inline path the work happens inside the press itself, and naming a scheduled run would be
+wrong.
+
+### What to check if it looks wrong
+
+1. **No "Next check runs" line at all.** `cron_schedule_registry` has no row for
+   `verify-pending`, or its `schedule` is not a plain minute interval. `cron-interval.ts`
+   deliberately refuses anything with an hour or day field rather than guessing.
+2. **The finish estimate looks far too optimistic.** Check whether more than one client has a
+   verification backlog. The estimate assumes this one is served every run, and the error is
+   bounded by how many clients hold work at once.
+3. **"Presses needed" disagrees with what a press actually does.** Both read
+   `ENRICHMENT_PER_PRESS_LIMIT`. If they disagree, something has reintroduced a second copy
+   of the number.
+
+---
+
 ## Counts on the operator screens now say what they cover
 
 *Added 2026-09-17.*

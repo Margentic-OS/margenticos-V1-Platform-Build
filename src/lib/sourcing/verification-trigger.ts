@@ -14,7 +14,11 @@
 // re-probed on every sweep with no state that could ever stop them.
 //
 // Lock pattern: verification_locked_at column, stale-reclaim after 30 minutes
-// Rate limit: 30 emails per minute (enforced by batch spacing)
+// Rate limit: read from integrations_registry at run time, NOT compiled in, and held by a
+// PACER rather than by batch spacing. It was `const RATE_LIMIT_PER_MINUTE = 30` while
+// `config.rate_limit_per_minute` sat on the registry row unread since 2026-09-04. See
+// src/lib/sourcing/verification-pacing.ts for what the pacer does and why a flat sleep
+// undershot the limit by whatever the probe cost.
 // Daily limit: read from integrations_registry at run time, NOT compiled in. It was
 // `const FREE_DAILY_LIMIT = 100`, the validator's free-tier allowance, and the account left
 // that tier on 2026-09-01. See src/lib/sourcing/verification-limits.ts.
@@ -23,7 +27,19 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { myemailverifierHandler, type VerificationResult } from '@/lib/sourcing/handlers/adapter-myemailverifier'
 import { checkSendEligibility, firstPassSendEligibility } from '@/lib/sourcing/send-eligibility-rules'
-import { getDailyVerificationLimit } from '@/lib/sourcing/verification-limits'
+import {
+  getDailyVerificationLimit,
+  getVerificationRateLimit,
+  FALLBACK_RATE_LIMIT_PER_MINUTE,
+} from '@/lib/sourcing/verification-limits'
+import {
+  createPacer,
+  pacedIntervalMs,
+  probesWithinBudget,
+  systemPacingClock,
+  DEFAULT_RUN_BUDGET_MS,
+  type PacingClock,
+} from '@/lib/sourcing/verification-pacing'
 import {
   selectPendingVerification,
   type VerificationThresholds,
@@ -68,21 +84,47 @@ export function verificationThresholds(): VerificationThresholds {
     maxRetryAttempts: MAX_RETRY_ATTEMPTS,
   }
 }
-const RATE_LIMIT_PER_MINUTE = 30
+/**
+ * How many addresses one invocation may attempt, as a CEILING rather than as the plan.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THIS IS NO LONGER THE BINDING CONSTRAINT, AND THAT IS THE POINT
+ *
+ * It used to be 40, sized so that forty flat two-second sleeps fit inside a 300-second
+ * route with room to spare. That made the BATCH SIZE the thing limiting throughput rather
+ * than the provider: about 240 addresses an hour against an allowance of 1,800, with the
+ * run finishing after roughly eighty seconds of a six-hundred-second period and the rest
+ * of the window idle.
+ *
+ * What bounds a run now is the DEADLINE the caller passes and the daily budget, both of
+ * which are real limits rather than a number picked to be safe. This constant survives as
+ * the ceiling for a caller that passes no deadline at all, and it is DERIVED from the
+ * default budget and the fallback pace so it cannot disagree with them: whatever a
+ * full-length run could achieve, this permits, and no more.
+ *
+ * Derived, not written down, for the reason CLAUDE.md gives about literals that have to
+ * track each other: a hand-maintained 108 here would silently stop matching the budget the
+ * first time either number moved.
+ */
+export const DEFAULT_VERIFY_BATCH_SIZE = probesWithinBudget(
+  DEFAULT_RUN_BUDGET_MS,
+  pacedIntervalMs(FALLBACK_RATE_LIMIT_PER_MINUTE),
+)
 
 /**
- * How many addresses one invocation attempts by default.
+ * The knobs a caller may set on one run. All optional; the defaults are production's.
  *
- * SIZED AGAINST THE CLOCK, not the free tier. The loop sleeps 60000/RATE_LIMIT_PER_MINUTE =
- * 2s between addresses, so N addresses cost at least 2*(N-1) seconds of deliberate waiting
- * before any network time. The old default of 100 is ~198s of sleep plus up to 100 probes,
- * which cannot finish inside a 300s route.
- *
- * 40 is ~78s of sleep plus at most 40 * 20s of probe timeout in the pathological case. The
- * realistic case is well under half the budget, and anything not reached keeps its lock
- * released and is picked up by the next sweep.
+ * `deadlineAt` is an ABSOLUTE moment, not a duration, and that is deliberate. The cron route
+ * computes it from the moment the REQUEST started, so the tiering pass that runs before this
+ * function is charged against the same window. A duration would restart the clock here and
+ * quietly grant the run whatever tiering had already spent.
  */
-export const DEFAULT_VERIFY_BATCH_SIZE = 40
+export interface VerifyBatchOptions {
+  /** Stop before starting a probe at or after this moment. Absent means only the ceiling binds. */
+  deadlineAt?: number
+  /** Injected so a test can measure the achieved pace without spending the wall clock on it. */
+  clock?: PacingClock
+}
 
 export interface VerificationRun {
   organisation_id: string
@@ -171,7 +213,10 @@ export async function verifyEnrichedBatch(
   supabase: SupabaseClient,
   organisationId: string,
   maxBatchSize: number = DEFAULT_VERIFY_BATCH_SIZE,
+  options: VerifyBatchOptions = {},
 ): Promise<VerificationRun> {
+  const clock = options.clock ?? systemPacingClock
+  const deadlineAt = options.deadlineAt ?? null
   const operationId = `verify-${organisationId.slice(0, 8)}-${Date.now()}`
 
   // Every prospect this run has locked and not yet released. Each exit path removes its own
@@ -246,6 +291,17 @@ export async function verifyEnrichedBatch(
     const { limit: dailyLimit, source: limitSource, reason: limitReason } =
       await getDailyVerificationLimit(supabase)
 
+    // THE PACE IS CONFIG TOO, read from the same row by the same function family. Read here
+    // rather than at module load so raising the provider's allowance takes effect on the next
+    // sweep with no deploy, which is the entire reason it is not a constant any more.
+    const {
+      limitPerMinute: rateLimitPerMinute,
+      source: rateSource,
+      reason: rateReason,
+    } = await getVerificationRateLimit(supabase)
+
+    const intervalMs = pacedIntervalMs(rateLimitPerMinute)
+
     const dailyUsed = dailyCount ?? 0
     const dailyRemaining = Math.max(0, dailyLimit - dailyUsed)
 
@@ -256,6 +312,10 @@ export async function verifyEnrichedBatch(
       daily_limit: dailyLimit,
       daily_limit_source: limitSource,
       daily_limit_fallback_reason: limitReason,
+      rate_limit_per_minute: rateLimitPerMinute,
+      rate_limit_source: rateSource,
+      rate_limit_fallback_reason: rateReason,
+      paced_interval_ms: intervalMs,
     })
 
     if (dailyRemaining <= 0) {
@@ -284,7 +344,38 @@ export async function verifyEnrichedBatch(
     // needs a call-counter table, which is a separate change. What is fixed here is the
     // larger error, the per-organisation scoping, plus the in-run accounting below so a
     // single run cannot exceed its own budget by failing.
-    const cappedBatchSize = Math.min(maxBatchSize, dailyRemaining)
+    // ── THREE CEILINGS, AND THE RUN TAKES THE SMALLEST ───────────────────────
+    //
+    //   maxBatchSize    what the caller permits at most.
+    //   dailyRemaining  what the account's daily budget still allows.
+    //   fitsInWindow    what the clock allows, at the paced interval, before the deadline.
+    //
+    // The third is new and is what turns a fixed forty into a run that uses its window. It
+    // is computed from the time ACTUALLY LEFT rather than from the full budget, so the
+    // tiering pass that ran before this function is already subtracted: a slow tiering pass
+    // shortens this run instead of pushing it past the deadline.
+    //
+    // Selecting more rows than can be probed would be worse than useless. Every selected row
+    // is LOCKED up front, so an over-long selection locks addresses this run will not reach,
+    // and the next sweep declines to select them until the lock goes stale.
+    const fitsInWindow = deadlineAt === null
+      ? Number.POSITIVE_INFINITY
+      : probesWithinBudget(deadlineAt - clock.now(), intervalMs)
+
+    const cappedBatchSize = Math.min(maxBatchSize, dailyRemaining, fitsInWindow)
+
+    // Out of time before selecting anything. Not a failure: the window closed, the rows keep
+    // their unlocked state, and the next firing takes them. Returning early also avoids a
+    // `.limit(0)` select, which PostgREST answers with every row rather than with none.
+    if (cappedBatchSize <= 0) {
+      logger.info('verification-trigger: no time left in this run to probe anything', {
+        operation_id: operationId,
+        organisation_id: organisationId,
+        ms_to_deadline: deadlineAt === null ? null : deadlineAt - clock.now(),
+      })
+      verificationRun.daily_verifications_used = dailyUsed
+      return verificationRun
+    }
 
     // Select (a) unverified, (b) Grey-listed retryable.
     //
@@ -363,8 +454,12 @@ export async function verifyEnrichedBatch(
     })
 
     // ── Step 3: Verify each prospect ────────────────────────────────────────
-    // Respect rate limit (30/minute): 1 email every 2 seconds
-    const rateLimitDelayMs = (60 * 1000) / RATE_LIMIT_PER_MINUTE
+    //
+    // Paced by SLOTS at fixed absolute moments, not by a flat sleep between calls. The old
+    // `sleep(2000)` after each probe made the real cycle 2000ms PLUS however long the probe
+    // took, so the achieved rate was the target minus the provider's latency and got further
+    // under the limit the slower the provider was. See verification-pacing.ts.
+    const pacer = createPacer(intervalMs, clock)
 
     // Probes ATTEMPTED by this run, successful or not. Every attempt spends quota, so this
     // is what the budget must be measured against — not total_verified, which counts only
@@ -454,10 +549,36 @@ export async function verifyEnrichedBatch(
         continue
       }
 
-      // Rate limit: sleep between requests
-      if (idx > 0) {
-        await new Promise(resolve => setTimeout(resolve, rateLimitDelayMs))
+      // ── STOP IF THE NEXT SLOT FALLS OUTSIDE THE WINDOW ─────────────────────
+      //
+      // Asked BEFORE waiting, not after. A run that waited its way up to the deadline and
+      // then abandoned the wait would spend the last slot of every window on nothing.
+      //
+      // The batch was already sized to fit, so this rarely fires. It is the backstop for the
+      // case the sizing cannot predict: probes that ran slower than the interval, which push
+      // the remaining slots later than the arithmetic at selection time assumed.
+      if (deadlineAt !== null && pacer.nextSlotAt() >= deadlineAt) {
+        logger.info('verification-trigger: stopping, the run is out of time', {
+          operation_id: operationId,
+          probes_attempted: probesAttempted,
+          not_processed: lockableProspects.length - idx,
+          ms_past_deadline: pacer.nextSlotAt() - deadlineAt,
+        })
+        verificationRun.status = 'partial'
+        const unprocessed = lockableProspects.slice(idx).map(prospectRow => prospectRow.id as string)
+        await supabase
+          .from('prospects')
+          .update({ verification_locked_at: null })
+          .in('id', unprocessed)
+          .eq('organisation_id', organisationId)
+        for (const id of unprocessed) heldLocks.delete(id)
+        break
       }
+
+      // Wait for this probe's slot. A prospect the country rule already decided never reaches
+      // here, so it consumes no slot: the old code slept two seconds after one of those as
+      // well, waiting out a rate limit for a call it had not made.
+      await pacer.awaitSlot()
 
       try {
         probesAttempted++

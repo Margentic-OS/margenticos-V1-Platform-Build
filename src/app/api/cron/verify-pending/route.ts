@@ -42,10 +42,17 @@ import { logger } from '@/lib/logger'
 import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE, MAX_RETRY_ATTEMPTS } from '@/lib/sourcing/verification-trigger'
 import { tierEnrichedBatch } from '@/lib/sourcing/tiering-trigger'
 import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
+import { runBudgetMs } from '@/lib/sourcing/verification-pacing'
+import { readCronPeriodMs } from '@/lib/sourcing/cron-schedule'
 
 export const dynamic = 'force-dynamic'
-// The trigger sleeps 2s per address for rate limiting, so a batch is mostly deliberate
-// waiting. Same ceiling and same reasoning as every other long route in this repo.
+// A run is mostly deliberate waiting: the trigger paces itself just under the provider's
+// per-minute allowance, so the wall clock, not the work, is what fills the request. Same
+// ceiling and same reasoning as every other long route in this repo.
+//
+// THE RUN NOW USES THIS BUDGET RATHER THAN STOPPING WELL SHORT OF IT. It used to take a
+// fixed forty addresses and finish after roughly eighty seconds, leaving the rest of both
+// the request and the ten-minute period idle. See verification-pacing.ts.
 export const maxDuration = 300
 
 /**
@@ -153,6 +160,11 @@ async function findOrganisationWithPendingVerification(
 }
 
 export async function POST(request: NextRequest) {
+  // Captured before anything else, because the verification deadline is measured from it and
+  // every step in between (auth, the client, the organisation pick, tiering) spends part of
+  // the same 300-second request.
+  const requestStartedAt = Date.now()
+
   const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
 
@@ -212,7 +224,41 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const run = await verifyEnrichedBatch(supabase, organisationId, DEFAULT_VERIFY_BATCH_SIZE)
+    // ── HOW LONG THIS RUN MAY SPEND PROBING ──────────────────────────────────
+    //
+    // Two ceilings, and runBudgetMs takes the smaller: this request's own 300-second cap,
+    // and the gap to the next firing of this same job.
+    //
+    // THE SECOND ONE IS WHAT MAKES THE PACING TRUE ACROSS RUNS AND NOT ONLY WITHIN ONE. Two
+    // sweeps overlapping would each pace at just under the provider's per-minute limit and
+    // together spend it twice over, with neither doing anything wrong by itself. Keeping a
+    // run inside its own period is what stops that, and it is DERIVED from the schedule
+    // rather than assumed, so moving this job from every ten minutes to every five is a
+    // registry edit and this file does not change.
+    //
+    // MEASURED FROM THE START OF THE REQUEST, not from here, so the tiering pass above is
+    // charged against the same window. Tiering that runs long shortens the verification run
+    // instead of pushing it past the deadline.
+    const periodMs = await readCronPeriodMs(supabase, MONITOR_SLUG)
+    const budgetMs = runBudgetMs(periodMs)
+    const deadlineAt = requestStartedAt + budgetMs
+
+    logger.info('verify-pending: run window', {
+      organisation_id: organisationId,
+      cron_period_ms: periodMs,
+      budget_ms: budgetMs,
+      // A null period means the schedule could not be read and the compiled budget was used.
+      // Logged beside the value so a derived window and a fallback one are distinguishable.
+      budget_source: periodMs === null ? 'compiled fallback' : 'derived from the cron period',
+      ms_already_spent: Date.now() - requestStartedAt,
+    })
+
+    const run = await verifyEnrichedBatch(
+      supabase,
+      organisationId,
+      DEFAULT_VERIFY_BATCH_SIZE,
+      { deadlineAt },
+    )
 
     // 'failed' is the only status that is genuinely a problem. 'free_tier_exhausted' and
     // 'partial' are the system doing exactly what it is told, and paging on them would train

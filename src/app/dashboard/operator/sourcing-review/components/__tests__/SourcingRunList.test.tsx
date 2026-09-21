@@ -19,6 +19,16 @@ import '@testing-library/jest-dom/vitest'
 import { SourcingRunList } from '../SourcingRunList'
 import type { BatchFunnel, PipelineMetrics, TierMetrics } from '@/lib/operator/sourcing-metrics'
 
+// ── FIXTURE DEFAULTS FOR THE PROGRESS FIELDS ADDED 2026-09-21 ────────────────
+//
+// Spread into every fixture rather than written out in each one. These are the "we could not
+// read the schedule" values, so an existing test that says nothing about the next run or the
+// press plan renders exactly what it did before: those lines are omitted when the value is
+// null. A test that wants them says so by overriding.
+const NO_SWEEP_SCHEDULE = { nextRunAt: null, estimatedMinutesRemaining: null }
+const NO_PRESS_PLAN = { pressPlan: null, queueNextRunAt: null }
+
+
 afterEach(cleanup)
 
 function tier(total: number, sendable = total): TierMetrics {
@@ -73,8 +83,8 @@ function metrics(over: Partial<PipelineMetrics>): PipelineMetrics {
     // because the type requires them; a cast would switch off the check that told us they
     // were missing.
     progress: {
-      verification: { waiting: 0, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null },
-      enrichment: { done: 0, waiting: 0, inFlight: 0 },
+      verification: { ...NO_SWEEP_SCHEDULE, waiting: 0, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null },
+      enrichment: { ...NO_PRESS_PLAN, done: 0, waiting: 0, inFlight: 0 },
       research: {
         stage: 'idle',
         fetchingSources: 0,

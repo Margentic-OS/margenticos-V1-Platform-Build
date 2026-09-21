@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/lib/logger'
 import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE } from '@/lib/sourcing/verification-trigger'
+import { DEFAULT_RUN_BUDGET_MS } from '@/lib/sourcing/verification-pacing'
 
 // The Hobby ceiling, and this repo's convention for every long route. This file declared
 // NOTHING, which meant Vercel's default while the trigger deliberately sleeps 2s per address
@@ -22,6 +23,10 @@ interface VerifyEnrichedRequest {
 }
 
 export async function POST(request: NextRequest) {
+  // Captured first: the verification deadline is measured from it, and the auth and
+  // validation steps below spend part of the same 300-second request.
+  const requestStartedAt = Date.now()
+
   try {
     // ── 1. Authenticated ───────────────────────────────────────────────────
     const supabase = await createClient()
@@ -80,10 +85,23 @@ export async function POST(request: NextRequest) {
       max_batch_size: max_batch_size ?? DEFAULT_VERIFY_BATCH_SIZE,
     })
 
+    // ── THIS ROUTE NEEDS A DEADLINE TOO, and the reason is worth stating ─────
+    //
+    // DEFAULT_VERIFY_BATCH_SIZE is no longer a small fixed number. It is derived from a
+    // full-length window, so at the paced interval it is about 108 rather than the old 40,
+    // and 108 probes is roughly 238 seconds of deliberate waiting BEFORE any network time.
+    // Against a 300-second cap that leaves no room for the probes themselves.
+    //
+    // A batch ceiling alone cannot fix that, because the ceiling counts addresses and the
+    // constraint is the clock. The same deadline the cron route uses is what bounds this
+    // one, measured from the start of the handler so the auth and validation steps above are
+    // charged against the same window. An operator who asks for more than fits gets a
+    // partial run and the remainder released, which is exactly what the sweep does.
     const result = await verifyEnrichedBatch(
       supabase,
       organisation_id,
       max_batch_size ?? DEFAULT_VERIFY_BATCH_SIZE,
+      { deadlineAt: requestStartedAt + DEFAULT_RUN_BUDGET_MS },
     )
 
     logger.info('verify-enriched: completed', {

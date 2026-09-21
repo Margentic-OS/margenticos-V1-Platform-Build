@@ -49,6 +49,14 @@ import {
   OPEN_BATCH_STATES,
   AWAITING_MODEL_ENTRY_STATES,
 } from '@/lib/agents/research/types'
+import { readCronPeriodMs, readNextRunAt } from '@/lib/sourcing/cron-schedule'
+import { getVerificationRateLimit } from '@/lib/sourcing/verification-limits'
+import { ENRICHMENT_PER_PRESS_LIMIT } from '@/lib/sourcing/enrichment-trigger'
+import {
+  estimateVerificationDrainMinutes,
+  planEnrichmentPresses,
+  type EnrichmentPressPlan,
+} from '@/lib/operator/stage-estimates'
 
 /** Job states that mean the queue still owes this work. Claimed is running; queued is next. */
 const LIVE_JOB_STATES = ['queued', 'claimed'] as const
@@ -79,6 +87,27 @@ export interface VerificationProgress {
    * another client was ahead in the queue.
    */
   sweepLastRanAt: string | null
+
+  /**
+   * When the sweep next fires, platform-wide.
+   *
+   * A backlog count on its own cannot tell an operator whether anything is coming. Null when
+   * the schedule could not be read or is not a plain minute interval, and the screen then
+   * says nothing rather than printing a guessed time. See cron-schedule.ts.
+   */
+  nextRunAt: string | null
+
+  /**
+   * Roughly how many minutes until this client's backlog is empty, at the configured pace.
+   *
+   * ASSUMES THIS CLIENT IS SERVED EACH RUN, which the sweep does not guarantee: it takes one
+   * organisation per invocation, oldest backlog first. The caption on the screen says so. The
+   * error is bounded by how many clients hold work at once, which is a knowable overstatement
+   * rather than an arbitrary one, and the alternative on the screen today is no answer at all.
+   *
+   * Zero when nothing is waiting. Null when the inputs it needs could not be read.
+   */
+  estimatedMinutesRemaining: number | null
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -91,6 +120,26 @@ export interface EnrichmentProgress {
   waiting: number
   /** Enrichment jobs the queue is holding, when the queued path is on. */
   inFlight: number
+
+  /**
+   * What one press of Enrich and tier will do, and what it will leave behind.
+   *
+   * ENRICHMENT IS PRESSED, NOT SCHEDULED, so "when does it next run" has no answer for it and
+   * this is the equivalent fact: how many more presses. It stops at ENRICHMENT_PER_PRESS_LIMIT
+   * and always has; nothing on the screen said so, so an operator who pressed with 240 waiting
+   * watched the number fall to 140 and had to guess whether that was the design or a failure.
+   *
+   * Null when nothing is waiting, so the screen gains no line when there is nothing to press.
+   */
+  pressPlan: EnrichmentPressPlan | null
+
+  /**
+   * When the queue worker next runs, for the queued enrichment path only.
+   *
+   * Only meaningful while inFlight is non-zero: on the inline path the work happens inside the
+   * press itself and there is no scheduled run to wait for.
+   */
+  queueNextRunAt: string | null
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -174,8 +223,15 @@ export async function getPipelineProgress(
   supabase: SupabaseClient,
   organisationId: string,
   thresholds: VerificationThresholds,
-  /** Pre-read once per request, not once per organisation. The sweep is global. */
-  sweepLastRanAt: string | null,
+  /**
+   * Pre-read once per request, not once per organisation.
+   *
+   * EVERY FIELD IN HERE IS PLATFORM-WIDE. One sweep serves every organisation, on one
+   * schedule, against one provider allowance. Reading them inside the per-organisation loop
+   * asked the same three questions once per client for three identical answers, which is the
+   * mistake the existing sweepLastRanAt parameter was already there to avoid.
+   */
+  sweep: SweepContext,
 ): Promise<PipelineProgress> {
   const [
     verificationWaiting,
@@ -300,12 +356,31 @@ export async function getPipelineProgress(
       inFlight: verificationInFlight,
       lastCompletedAt: (lastVerified.data as { independent_verified_at: string } | null)
         ?.independent_verified_at ?? null,
-      sweepLastRanAt,
+      sweepLastRanAt: sweep.lastRanAt,
+      nextRunAt: sweep.nextRunAt,
+      // Computed per organisation because the backlog is, even though every other input is
+      // platform-wide. Null propagates: an unreadable schedule or pace means no estimate
+      // rather than an estimate built on a default nobody chose.
+      estimatedMinutesRemaining:
+        sweep.ratePerMinute === null
+          ? null
+          : estimateVerificationDrainMinutes({
+              waiting: verificationWaiting,
+              periodMs: sweep.periodMs,
+              ratePerMinute: sweep.ratePerMinute,
+              msUntilNextRun: sweep.nextRunAt === null
+                ? null
+                : Math.max(0, new Date(sweep.nextRunAt).getTime() - sweep.readAtMs),
+            }),
     },
     enrichment: {
       done: enrichmentDone,
       waiting: enrichmentWaiting,
       inFlight: enrichmentInFlight,
+      pressPlan: planEnrichmentPresses(enrichmentWaiting, ENRICHMENT_PER_PRESS_LIMIT),
+      // Only meaningful while the queue actually holds enrichment work. On the inline path
+      // the work happens inside the press and there is no scheduled run to name.
+      queueNextRunAt: enrichmentInFlight > 0 ? sweep.queueNextRunAt : null,
     },
     research: {
       stage,
@@ -319,25 +394,77 @@ export async function getPipelineProgress(
   }
 }
 
+/** The scheduled job that verifies addresses. Also its cron_heartbeats job_name. */
+export const VERIFICATION_SWEEP_JOB_NAME = 'verify-pending'
+/** The job that drains the enrichment queue, when the queued path is on. */
+export const QUEUE_WORKER_JOB_NAME = 'queue-worker'
+
 /**
- * When the verification sweep last ran, across every organisation.
+ * Everything about the sweep that is the same for every organisation on the screen.
  *
- * READ ONCE PER REQUEST. The sweep is global and the pipeline screen renders every client at
- * once, so reading this inside the per-organisation loop asked one question three times for
- * three identical answers. Same reasoning as readResearchPath in research-verdict.ts.
- *
- * A read failure is reported as NULL, not as an error, and this is the one place in this
- * module that swallows one. The heartbeat is a liveness HINT beside the real counts; failing
- * the whole metrics payload because a decorative timestamp could not be read would take the
- * counts off the screen too, and those are what the operator came for.
+ * READ ONCE PER REQUEST. The pipeline screen renders every client at once, and one sweep on
+ * one schedule against one provider allowance serves all of them. Reading any of this inside
+ * the per-organisation loop would ask the same question once per client for identical
+ * answers. Same reasoning as readResearchPath in research-verdict.ts.
  */
-export async function readVerificationSweepHeartbeat(
+export interface SweepContext {
+  /** When the verification sweep last ran, from its heartbeat. */
+  lastRanAt: string | null
+  /** When it next fires, from its declared schedule. Null when that could not be read. */
+  nextRunAt: string | null
+  /** How often it fires, in milliseconds. Null when the schedule is not a minute interval. */
+  periodMs: number | null
+  /** The provider's per-minute allowance, from the integrations registry. */
+  ratePerMinute: number | null
+  /** When the queue worker next fires, for the queued enrichment path. */
+  queueNextRunAt: string | null
+  /**
+   * The moment this context was read.
+   *
+   * CARRIED RATHER THAN RE-READ. Every "in about N minutes" on the page is measured from one
+   * moment, so two clients rendered in the same response cannot disagree about how far away
+   * the next run is by however long the reads in between took.
+   */
+  readAtMs: number
+}
+
+/**
+ * Read the whole sweep context in one pass.
+ *
+ * EVERY READ HERE DEGRADES TO NULL RATHER THAN THROWING, and this is the one place in this
+ * module that swallows an error. These are captions beside the real counts: failing the
+ * metrics payload because a schedule row could not be read would take every count off the
+ * screen, and those are what the operator came for. The counts themselves still fail loud,
+ * in countScoped and countPendingVerification, because a wrong count is read as fact.
+ */
+export async function readSweepContext(
   supabase: SupabaseClient,
-): Promise<string | null> {
+  now: Date = new Date(),
+): Promise<SweepContext> {
+  const [lastRanAt, nextRunAt, periodMs, rate, queueNextRunAt] = await Promise.all([
+    readSweepHeartbeat(supabase),
+    readNextRunAt(supabase, VERIFICATION_SWEEP_JOB_NAME, now),
+    readCronPeriodMs(supabase, VERIFICATION_SWEEP_JOB_NAME),
+    getVerificationRateLimit(supabase).then(r => r.limitPerMinute).catch(() => null),
+    readNextRunAt(supabase, QUEUE_WORKER_JOB_NAME, now),
+  ])
+
+  return {
+    lastRanAt,
+    nextRunAt: nextRunAt?.toISOString() ?? null,
+    periodMs,
+    ratePerMinute: rate,
+    queueNextRunAt: queueNextRunAt?.toISOString() ?? null,
+    readAtMs: now.getTime(),
+  }
+}
+
+/** When the verification sweep last ran, across every organisation. */
+async function readSweepHeartbeat(supabase: SupabaseClient): Promise<string | null> {
   const { data, error } = await supabase
     .from('cron_heartbeats')
     .select('ran_at')
-    .eq('job_name', 'verify-pending')
+    .eq('job_name', VERIFICATION_SWEEP_JOB_NAME)
     .order('ran_at', { ascending: false })
     .limit(1)
     .maybeSingle()

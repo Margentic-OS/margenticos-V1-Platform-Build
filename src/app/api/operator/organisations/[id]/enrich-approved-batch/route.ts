@@ -27,7 +27,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
-import { enrichApprovedBatch } from '@/lib/sourcing/enrichment-trigger'
+import { enrichApprovedBatch, ENRICHMENT_PER_PRESS_LIMIT } from '@/lib/sourcing/enrichment-trigger'
 import { isQueueEnabled } from '@/lib/queue/flags'
 import { enqueueEnrichForOrganisation } from '@/lib/queue/enqueue/enrich'
 import { logger } from '@/lib/logger'
@@ -140,7 +140,10 @@ export async function POST(
     }
 
     // ── INLINE PATH ─────────────────────────────────────────────────────────
-    const result = await enrichApprovedBatch(supabase, organisationId, 100)
+    // The ceiling comes from the trigger that owns it, not from a literal here. The pipeline
+    // screen renders the same constant, so what it tells the operator one press will do and
+    // what this call actually does cannot drift apart.
+    const result = await enrichApprovedBatch(supabase, organisationId, ENRICHMENT_PER_PRESS_LIMIT)
 
     logger.info('enrich-approved-batch: triggered successfully', {
       operator_id: user.id,

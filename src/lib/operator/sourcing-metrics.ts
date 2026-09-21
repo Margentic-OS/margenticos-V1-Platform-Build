@@ -46,7 +46,7 @@ import {
 } from '@/lib/operator/research-verdict'
 import {
   getPipelineProgress,
-  readVerificationSweepHeartbeat,
+  readSweepContext,
   type PipelineProgress,
 } from '@/lib/operator/pipeline-progress'
 import { verificationThresholds } from '@/lib/sourcing/verification-trigger'
@@ -602,9 +602,9 @@ export async function getMetricsForOrganisations(
   //
   // The verification sweep heartbeat and the retry thresholds are global for the same
   // reason: one sweep serves every organisation, and the two durations belong to it.
-  const [pathState, sweepLastRanAt] = await Promise.all([
+  const [pathState, sweep] = await Promise.all([
     readResearchPath(supabase),
-    readVerificationSweepHeartbeat(supabase),
+    readSweepContext(supabase),
   ])
   const thresholds = verificationThresholds()
 
@@ -659,7 +659,7 @@ export async function getMetricsForOrganisations(
           selectUnpublished(q.not('sourced_tier', 'is', null))),
         readBreakdowns(supabase, org.id),
         getResearchVerdict(supabase, org.id, 'unresearched', pathState),
-        getPipelineProgress(supabase, org.id, thresholds, sweepLastRanAt),
+        getPipelineProgress(supabase, org.id, thresholds, sweep),
       ])
 
       return {
