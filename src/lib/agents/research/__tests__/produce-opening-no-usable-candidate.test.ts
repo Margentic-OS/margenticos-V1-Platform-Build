@@ -21,6 +21,7 @@ vi.mock('@/lib/composition/compose-sequence', () => ({
 
 import { produceOpening, NO_USABLE_CANDIDATE_REASON } from '../produce-opening'
 import { hasUsableCandidate } from '../synthesize'
+import { EMPTY_FOLLOWUP } from '../followup-frame'
 import type { ObservationCandidate, ProspectContext } from '../types'
 
 type Scores = ObservationCandidate['scores']
@@ -85,9 +86,22 @@ describe('the writer still runs whenever synthesis would use a candidate', () =>
   it('runs for a six-out-of-six candidate', async () => {
     const out = await run([candidate()])
     expect(writeAndJudgeOpening).toHaveBeenCalledTimes(1)
-    expect(out).toBe(WRITTEN)
+    // NOT `toBe`. produceOpening no longer passes the writer's object through by
+    // reference: since the follow-up call was added it returns a NEW object carrying the
+    // writer's result plus the two follow-up outcomes. The writer's own fields must still
+    // arrive untouched, which is what this asserts, and identity was never the contract
+    // that mattered.
+    expect(out).toMatchObject(WRITTEN)
     // A written opening, won or lost, never carries the not-written code.
     expect((out as { not_written_reason?: string }).not_written_reason).toBeUndefined()
+
+    // AND THE COHERENCE RULE ON THIS PATH, which the old identity assertion could not
+    // reach. `run` does not pass writeFollowupEmails, which is the production state: both
+    // production callers omit it. So no follow-up call is made and both outcomes are
+    // empty, even though Email 1 won.
+    expect(out.email2).toEqual(EMPTY_FOLLOWUP)
+    expect(out.email3).toEqual(EMPTY_FOLLOWUP)
+    expect(out.followup_usage).toBeNull()
   })
 
   it('runs for a candidate that passes only SPECIFIC + VERIFIABLE + RELEVANT', async () => {
