@@ -1319,7 +1319,7 @@ describe('the budget is per part and sits below the gate', () => {
   it('sums to the stated target', () => {
     expect(OPENING_BUDGET.observation + OPENING_BUDGET.bridge + OPENING_BUDGET.question)
       .toBe(OPENING_TARGET_WORDS)
-    expect(OPENING_TARGET_WORDS).toBe(58)
+    expect(OPENING_TARGET_WORDS).toBeLessThan(OPENING_MAX_WORDS)
   })
 
   it('leaves real slack under the hard cap', () => {
@@ -1340,7 +1340,7 @@ describe('the budget is per part and sits below the gate', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('A BUDGET PER PART, NOT ONE TOTAL')
     expect(flat).toContain(`observation about ${OPENING_BUDGET.observation} words`)
-    expect(flat).toContain(`bridge about ${OPENING_BUDGET.bridge} words`)
+    expect(flat).toContain(`bridge ONE sentence, about ${OPENING_BUDGET.bridge} words`)
     expect(flat).toContain(`closing question about ${OPENING_BUDGET.question} words`)
     expect(flat).toContain(`${OPENING_TARGET_WORDS} words in total`)
   })
@@ -1355,7 +1355,7 @@ describe('the budget is per part and sits below the gate', () => {
   it('the prompt forbids borrowing between parts', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('observation about 22 words')
-    expect(flat).toContain('bridge about 22 words')
+    expect(flat).toContain(`bridge ONE sentence, about ${OPENING_BUDGET.bridge} words`)
   })
 })
 
@@ -1368,9 +1368,9 @@ describe('a length failure names the part that is over', () => {
     const question = long(15)
     const combined = `${observation} ${bridge} ${question}`
     const msg = checkOpeningGates(combined, null, combined, undefined, { observation, bridge, question }).join(' ')
-    expect(msg).toContain('observation 31 (target 22, OVER by 9)')
-    expect(msg).toContain('bridge 32 (target 22, OVER by 10)')
-    expect(msg).toContain('question 15 (target 14, OVER by 1)')
+    expect(msg).toContain(`observation 31 (target ${OPENING_BUDGET.observation}, OVER by ${31 - OPENING_BUDGET.observation})`)
+    expect(msg).toContain(`bridge 32 (target ${OPENING_BUDGET.bridge}, OVER by ${32 - OPENING_BUDGET.bridge})`)
+    expect(msg).toContain(`question 15 (target ${OPENING_BUDGET.question}, OVER by ${15 - OPENING_BUDGET.question})`)
   })
 
   it('states both the hard cap and the target', () => {
@@ -1391,10 +1391,13 @@ describe('a length failure names the part that is over', () => {
   })
 
   it('handles a block over the cap with every part inside its target', () => {
-    // Possible because 22 + 22 + 14 leaves slack: three parts can each sit at target and
-    // still clear 67 only if the targets are met. This covers the boundary rather than
-    // leaving the message to say "cut the " with nothing after it.
-    const observation = long(22), bridge = long(22), question = long(14)
+    // Possible because the three targets leave slack under the hard cap: each part can
+    // sit exactly at target and the block still clear 67. This covers the boundary rather
+    // than leaving the message to say "cut the " with nothing after it. Derived from
+    // OPENING_BUDGET so a budget change moves the fixture with it.
+    const observation = long(OPENING_BUDGET.observation)
+    const bridge = long(OPENING_BUDGET.bridge)
+    const question = long(OPENING_BUDGET.question)
     const padded = `${observation} ${bridge} ${question} ${long(20)}`
     const msg = checkOpeningGates(padded, null, padded, undefined, { observation, bridge, question }).join(' ')
     expect(msg).toContain('Every part is inside its target')

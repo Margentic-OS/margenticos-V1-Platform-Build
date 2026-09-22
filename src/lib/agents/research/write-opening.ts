@@ -80,9 +80,28 @@ export const OPENING_MAX_WORDS = 67
  */
 export const OPENING_BUDGET = {
   observation: 22,
-  bridge:      22,
+  bridge:      15,
   question:    14,
 } as const
+
+/**
+ * The writer's OWN per-sentence cap, for the observation and the bridge only.
+ *
+ * NOT MAX_SENTENCE_WORDS. That one is 25, it lives in readability.ts, and synthesis and
+ * the messaging agent both read it; moving it would change three things at once. This is
+ * the writer's, and readabilityScore already takes the cap as a parameter, so the writer
+ * gets its own limit without touching the shared one.
+ *
+ * WHY 15. Measured on the 84-prospect cohort of 2026-09-21: 135 sentences across the 58
+ * stored observations, mean 16.8 words, none over 25, and 40 of 135 sitting at 21 to 25,
+ * directly under the ceiling. The writer treats the budget as a target, and words per
+ * sentence is the term the Flesch-Kincaid grade turns on, so the ceiling is what moves it.
+ *
+ * THE PROMPT STATES THIS SAME NUMBER. A gate the prompt contradicts spends retries on a
+ * rule the writer was never told, and a prospect that exhausts its retries ships the
+ * approved template instead.
+ */
+export const WRITER_MAX_SENTENCE_WORDS = 15
 
 /** The sum of the per-part targets. What the prompt aims at, not what the gate enforces. */
 export const OPENING_TARGET_WORDS =
@@ -805,10 +824,14 @@ Second person and still wrong. It recites his own CV back at him. He knows all o
 
 LENGTH. A BUDGET PER PART, NOT ONE TOTAL.
 
-  observation   about ${OPENING_BUDGET.observation} words
-  bridge        about ${OPENING_BUDGET.bridge} words
+  observation   about ${OPENING_BUDGET.observation} words, usually two sentences
+  bridge        ONE sentence, about ${OPENING_BUDGET.bridge} words
   closing question  about ${OPENING_BUDGET.question} words
                     ${OPENING_TARGET_WORDS} words in total
+
+EVERY SENTENCE IN THE OBSERVATION AND THE BRIDGE IS AT MOST ${WRITER_MAX_SENTENCE_WORDS} WORDS.
+A sentence over it is rejected before a human sees it. Two short sentences beat one long one,
+so when a fact will not fit, split the sentence rather than cutting the fact.
 
 These are TARGETS. The HARD LIMIT is ${OPENING_MAX_WORDS} words for all three together, and
 anything over it is rejected before a human sees it. Aim at ${OPENING_TARGET_WORDS} and you
@@ -1350,17 +1373,29 @@ export function checkOpeningGates(
       const logContext = { prospectId: context?.prospectId ?? 'unknown', part }
       failures.push(...checkFiniteVerbs(text, logContext))
 
-      // LOG ONLY, PUSHING NOTHING. readabilityScore already gates candidate SELECTION
-      // upstream, where a hard fail ranks a candidate out. Nothing has ever scored the
-      // writer's own output, so there is no evidence about what it would reject here, and
-      // adding a hard gate without that evidence is how a good variant gets thrown away.
-      // Accumulate first, decide later.
-      const readability = readabilityScore(text)
-      logger.info('writer-readability: scored, not gated', {
+      // SENTENCE LENGTH IS NOW GATED AT THE WRITER'S OWN CAP. The evidence this was
+      // waiting for arrived: the 2026-09-21 cohort put 40 of 135 sentences at 21 to 25
+      // words with none over, which is a writer treating the ceiling as the target, and
+      // the resulting Email 1 reads at grade 9.5 against a target of 3 to 5.
+      //
+      // ONLY the sentence-length half gates. Hedges and nominalisation density are still
+      // log-only: the hedge list collides with the prompt's own permitted frames and
+      // nominalisation has known false positives, so gating either would be a second
+      // change wearing the same commit.
+      const readability = readabilityScore(text, WRITER_MAX_SENTENCE_WORDS)
+      for (const sentence of readability.longSentences) {
+        const n = sentence.trim().split(/\s+/).filter(Boolean).length
+        failures.push(
+          `the ${part} has a sentence of ${n} words, and the writer cap is ` +
+          `${WRITER_MAX_SENTENCE_WORDS}: split it into two shorter sentences rather than ` +
+          `cutting the fact out`,
+        )
+      }
+      logger.info('writer-readability: sentence length gated, the rest scored only', {
         ...logContext,
-        hardFail: readability.hardFail,
+        cap: WRITER_MAX_SENTENCE_WORDS,
+        longSentences: readability.longSentences.length,
         penalty: readability.penalty,
-        reasons: readability.reasons,
         hedges: readability.hedges,
       })
     }

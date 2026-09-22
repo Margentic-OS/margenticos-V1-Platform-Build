@@ -245,6 +245,9 @@ const GATE_PATTERNS: ReadonlyArray<readonly [string, string]> = [
   // started firing. activity_verdict and opening_reference both fired on the 2026-09-14
   // replay; writer_sentence_length arrives with the 15-word writer cap.
   ['activity_verdict',      'names what they lack'],
+  // Two more messages from the same gate, found unclassified on the 2026-09-22 cut run.
+  ['activity_verdict',      'they are visibly doing does not work'],
+  ['activity_verdict',      'lands the gap on people who have already met them'],
   ['opening_reference',     'points back instead of naming'],
   ['writer_sentence_length', 'words, and the writer cap is'],
 ]
