@@ -92,6 +92,31 @@ describe('item 10 — the operator can read the opening line before publishing',
     expect(screen.getByText(/gets the standard opener for its variant/)).toBeInTheDocument()
   })
 
+  // ── WIDE ENOUGH TO READ, IN BOTH STATES ────────────────────────────────────
+  //
+  // jsdom lays nothing out, so this cannot measure a rendered width. What it CAN hold is
+  // the thing that produces one: the floor lives on a block inside the cell, because a
+  // min-width on a td under auto table layout is a hint the engine may disregard. The cell
+  // previously carried max-w-[320px], a ceiling with no floor, and the eleventh column of
+  // eleven was squeezed to a few words a line. Live openings run 143 to 341 characters.
+  it('gives the opening line a width floor that the table cannot squeeze', () => {
+    const line = 'Your last three hires were all in delivery, none in sales.'
+    const { container } = renderReview([prospect({ personalisation_trigger: line })])
+
+    const cell = screen.getByText(line)
+    expect(cell.className).toContain('min-w-[380px]')
+
+    // The ceiling is gone, not merely joined by a floor. Both together is how the column
+    // ends up pinned at the width that was unreadable.
+    expect(container.innerHTML).not.toContain('max-w-[320px]')
+  })
+
+  it('gives the unresearched state the same floor, so the column keeps one width', () => {
+    renderReview([prospect({ personalisation_trigger: null })])
+    const cell = screen.getByText(/gets the standard opener for its variant/)
+    expect(cell.className).toContain('min-w-[380px]')
+  })
+
   it('tells the two apart in one list', () => {
     renderReview([
       prospect({ id: 'a', personalisation_trigger: 'Written for this prospect.' }),
