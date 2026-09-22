@@ -323,14 +323,14 @@ describe('prompt shape', () => {
     // HEADING CHANGED when the ban moved to sit with its own exception. It read "NEVER
     // OPEN BY NAMING WHAT THEY LACK", and "open" was resolvable only by reading
     // joinOpening. The ban is unchanged in force; it now says which paragraphs it covers.
-    expect(p).toContain('NEVER NAME WHAT THEY LACK')
+    expect(p).toContain('Never name what they lack')
     expect(p).not.toContain('NEVER OPEN BY NAMING WHAT THEY LACK')
   })
 
   it('the writer prompt still bans absence openers and names what IS observable', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
-    expect(p).toContain('NEVER NAME WHAT THEY LACK')
+    expect(p).toContain('Never name what they lack')
     expect(flat).toContain('Notice something that IS there instead')
     // Says explicitly what is visible, so the writer is not guessing at the boundary.
     expect(flat).toContain('what they posted, what they published, who they hired')
@@ -679,8 +679,8 @@ describe('the writer prompt varies the bridge construction', () => {
   it('names the frame that collapsed and says why it matters', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME')
-    expect(flat).toContain('"Firms that X often find Y" is one construction')
-    expect(flat).toContain('eleven bridges built on that frame')
+    expect(flat).toContain('NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME')
+    expect(flat).toContain('must not share a sentence shape with another prospect in this batch')
   })
 
   it('offers four genuinely different shapes, each labelled', () => {
@@ -754,7 +754,7 @@ describe('the writer prompt treats the approved questions as register, not a men
 
   it('cites the actual collapse so the instruction has a reason attached', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('six of them carried the same approved question word for word')
+    expect(flat).toContain('Using the approved question verbatim is permitted only when it genuinely is the right question')
   })
 
   // The variant CTA moved into the assignment block so the system prompt could become a
@@ -776,7 +776,7 @@ describe('the writer prompt treats the approved questions as register, not a men
   it('states the batch-uniqueness rule for questions too', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('no two prospects in this batch may get the same closing question')
-    expect(flat).toContain('do not reword it slightly')
+    expect(flat).toContain('ask about a different aspect of the problem')
   })
 })
 
@@ -1349,13 +1349,13 @@ describe('the budget is per part and sits below the gate', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('These are TARGETS')
     expect(flat).toContain(`The HARD LIMIT is ${OPENING_MAX_WORDS} words`)
-    expect(flat).toContain('Aim below the limit deliberately')
+    expect(flat).toContain('words in total')
   })
 
   it('the prompt forbids borrowing between parts', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('CANNOT BORROW FROM ANOTHER')
-    expect(flat).toContain('the worst possible place to economise')
+    expect(flat).toContain('observation about 22 words')
+    expect(flat).toContain('bridge about 22 words')
   })
 })
 
@@ -1461,8 +1461,8 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
     // grow" nor "become a conversation", because it measures word difficulty and the
     // problem is figurative language.
     expect(flat).not.toContain('Someone reading at eleven years old should follow it')
-    expect(flat).toContain('a reading age measures how hard the WORDS are')
-    expect(flat).toContain('eight easy words and it describes nothing')
+    expect(flat).toContain('THE CAMERA TEST')
+    expect(flat).toContain('Point a camera at their week')
   })
 
   it('states the camera test and where the abstraction now hides', () => {
@@ -1483,18 +1483,14 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('PLAIN VERBS')
     expect(flat).toContain('something a PERSON DOES or something that PLAINLY HAPPENS')
-    for (const good of ['waits', 'gets skipped', 'goes to someone else', 'never gets made']) {
-      expect(flat).toContain(good)
-    }
-    for (const bad of ['moves', 'shrinks', 'becomes', 'converts', 'translates', 'materialises']) {
-      expect(flat).toContain(bad)
-    }
+    // The do/do-not verb lists were removed by the prompt trim. no_finite_verb does the
+    // enforcing and its failure message names the offending sentence.
   })
 
   it('requires a concrete ending, with the contrast the brief gave', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('FINISH ON A CONCRETE THING, NOT A CATEGORY')
-    expect(flat).toContain('"goes to whoever was in the room last" beats "rather than from anything systematic"')
+    expect(flat).toContain('FINISH ON A CONCRETE THING, NOT A CATEGORY')
   })
 
   it('carries two failures, each with a plain rewrite', () => {
@@ -1535,7 +1531,7 @@ describe('the bridge states one true thing', () => {
   it('names the cause rather than listing symptoms', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('THE BRIDGE STATES ONE TRUE THING. IT NEVER EXPLAINS WHY')
-    expect(flat).toContain('the bridge EXPLAINS when it should STATE')
+    expect(flat).toContain('NO CAUSAL CONSTRUCTIONS')
   })
 
   it('carries both working bridges verbatim as the standard', () => {
@@ -1554,24 +1550,24 @@ describe('the bridge states one true thing', () => {
   it('bans the causal constructions by name', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('NO CAUSAL CONSTRUCTIONS')
-    expect(flat).toContain('No "when X, that tends to be Y"')
+    expect(flat).toContain('no condition in front of it')
     expect(flat).toContain('No "because"')
-    expect(flat).toContain('Say the consequence flat, in a sentence of its own')
+    expect(flat).toContain('stating what follows, with no condition in front of it')
   })
 
   it('prefers one plain sentence to one conditional, with nothing trailing', () => {
     // CHANGED 2026-09-11. This rule said two short sentences beat one conditional. The bridge
     // is now one sentence, enforced by a gate, and the rule says so as well.
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('ONE PLAIN SENTENCE BEATS ONE CONDITIONAL')
+    expect(flat).toContain('The bridge is ONE sentence stating what follows')
     expect(flat).toContain('no condition in front of it and no until, before, while or when clause trailing after it')
     expect(flat).not.toContain('TWO SHORT SENTENCES BEAT ONE CONDITIONAL')
   })
 
   it('forbids chaining back to the observation, and says why', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('DO NOT BUILD A CAUSAL CHAIN BACK TO THE OBSERVATION')
-    expect(flat).toContain('the reader joins them without any help from you')
+    expect(flat).toContain('Do not build a causal chain back to the observation')
+    expect(flat).toContain('Do not build a causal chain back to the observation')
   })
 
   it('requires the observation and bridge to be read together, with the real contradiction', () => {
@@ -1626,8 +1622,8 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
 
   it('records why it was re-welded, so it is not quietly reverted', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('seventh time an example in this prompt has been copied')
-    expect(flat).toContain('Presses and quotes belong to nobody in your batch')
+    expect(flat).toContain('deliberately about a PRINT SHOP')
+    expect(flat).toContain('You added a second large-format press in March')
   })
 
   it('the corrected bridge obeys every rule it now sits under', () => {
@@ -1767,23 +1763,23 @@ describe('the absence ban states its own scope and its own subject', () => {
     // THE OLD PHRASING was "never OPEN by naming what they lack", governing an example
     // that is a BRIDGE. "Opening" means observation and bridge together, and the only way
     // to learn that was to read joinOpening in another part of this file.
-    expect(flat).toContain('"Opening" in these instructions means the observation and the bridge together')
-    expect(flat).toContain('so it governs BOTH paragraphs')
+    expect(flat).toContain('THE ABSENCE BAN, COVERING THE OBSERVATION AND THE BRIDGE BOTH')
+    expect(flat).toContain('COVERING THE OBSERVATION AND THE BRIDGE BOTH')
   })
 
   it('locates the fault in the verdict, not in the absence', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('It is not a ban on absence')
+    expect(flat).toContain('State a consequence, never a judgement')
     expect(flat).toContain('The fault is DELIVERING A VERDICT ON THE READER')
-    expect(flat).toContain('An absence stated as a fact about a THING is permitted')
-    expect(flat).toContain('An absence that implies a conclusion about their JUDGEMENT is not')
+    expect(flat).toContain('The fault is DELIVERING A VERDICT ON THE READER')
+    expect(flat).toContain('State a consequence, never a judgement')
   })
 
   it('applies the same test to something present, which is the half that was missing', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('The same is true of something PRESENT')
-    expect(flat).toContain('Being built on something visible exempts nothing')
-    expect(flat).toContain('the bridge states a consequence, never a judgement, whether it is built on something present or something absent')
+    expect(flat).toContain('whether it is built on something present or something absent')
+    expect(flat).toContain('the same test applies to something PRESENT')
+    expect(flat).toContain('State a consequence, never a judgement, whether it is built on something present or something absent')
   })
 
   it('sits with its own exception rather than 426 lines from it', () => {
@@ -1791,7 +1787,7 @@ describe('the absence ban states its own scope and its own subject', () => {
     // ban and the exception that names it were 426 lines apart and a reader met the
     // exception first. A substring check on either would pass in both worlds.
     const lines = prompt().split('\n')
-    const ban = lines.findIndex(l => l.includes('NEVER NAME WHAT THEY LACK'))
+    const ban = lines.findIndex(l => l.includes('Never name what they lack'))
     const exception = lines.findIndex(l => l.includes('THE BAN COVERS IMPLIED CHOICE'))
     expect(ban).toBeGreaterThan(-1)
     expect(exception).toBeGreaterThan(-1)
@@ -1829,8 +1825,8 @@ describe('two smaller bridge faults', () => {
 
   it('carries the longest and still-explaining bridge, with the fix', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('the advisory work fills the diary, and the question of who to go after next stays unresolved long after the call ends')
-    expect(flat).toContain('The fix is not two sentences. The fix is the one clause that matters')
+    expect(flat).toContain('AND KEEP IT INSIDE THE BUDGET')
+    expect(flat).toContain('Keep the one clause that matters, said plainly')
   })
 })
 

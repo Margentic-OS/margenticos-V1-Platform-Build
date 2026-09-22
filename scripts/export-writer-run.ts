@@ -238,6 +238,15 @@ const GATE_PATTERNS: ReadonlyArray<readonly [string, string]> = [
   ['missing_observation',   'writer returned no observation'],
   ['missing_bridge',        'writer returned no bridge'],
   ['bridge_sentences',      'sentences and must be ONE'],
+  // ADDED 2026-09-22. These three gates are live in checkOpeningGates and had no pattern
+  // here, so every failure they produced was counted as 'unclassified'. The comment above
+  // warns about exactly this: a gate added after the table was written is invisible in the
+  // histogram, and it is invisible in the case that matters most, which is a gate that has
+  // started firing. activity_verdict and opening_reference both fired on the 2026-09-14
+  // replay; writer_sentence_length arrives with the 15-word writer cap.
+  ['activity_verdict',      'names what they lack'],
+  ['opening_reference',     'points back instead of naming'],
+  ['writer_sentence_length', 'words, and the writer cap is'],
 ]
 
 export function classifyGateFailure(failure: string): string {

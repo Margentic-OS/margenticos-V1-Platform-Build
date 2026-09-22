@@ -82,7 +82,7 @@ describe('the prompt agrees with the gate', () => {
 
   it('states the rule where the writer reads it, and asks for one sentence in the output', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('ONE PLAIN SENTENCE BEATS ONE CONDITIONAL')
+    expect(flat).toContain('The bridge is ONE sentence stating what follows')
     expect(flat).toContain('The bridge is exactly one of them')
     expect(flat).toContain('BRIDGE: <the pattern, in one sentence, its own paragraph>')
     expect(flat).not.toContain('TWO SHORT SENTENCES BEAT ONE CONDITIONAL')
