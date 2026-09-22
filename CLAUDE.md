@@ -235,11 +235,31 @@ in any live config. Do not reinstate either without a concrete need and a caller
 solely because this list asked for a GitHub MCP that nobody built. It expired
 2026-05-09 and was deleted 2026-09-05. Nothing noticed, because nothing used it:
 zero references to GITHUB_TOKEN, GH_TOKEN or GITHUB_PAT anywhere in the repo, no
-GitHub credential in Vercel Production or Preview, and no `.github/` workflows at
-all. September pushes reached origin regardless of what git authenticates with.
+GitHub credential in Vercel Production or Preview, and no `.github/` workflows.
+September pushes reached origin regardless of what git authenticates with.
 **A required-tools list that names a tool nobody set up produces credentials
 nobody uses**, and a standing credential with no consumer is the worst kind: when
 it leaks, nothing breaks, so nothing tells you it leaked.
+
+**THE WORKFLOWS CLAUSE EXPIRED ELEVEN DAYS AFTER IT WAS WRITTEN. CORRECTED
+2026-09-21.** This paragraph said "no `.github/` workflows at all". There is one:
+`.github/workflows/ci.yml`, added 2026-09-16 in ea6483a, "the first CI this repo
+has had". It runs on every push.
+
+**THE CONCLUSION SURVIVES AND THE EVIDENCE DID NOT, which is the distinction to
+carry away.** Checked 2026-09-21 against that file: the only secrets it consumes
+are `TEST_SUPABASE_URL` and `TEST_SUPABASE_SERVICE_ROLE_KEY`. It references no
+`GITHUB_TOKEN`, no `GH_TOKEN` and no `GITHUB_PAT`, because GitHub Actions injects
+its own scoped token per run and a workflow needs no PAT to check out the
+repository it belongs to. So the deleted credential still has no consumer, and
+deleting it was still right.
+
+**And this is the section's own lesson happening to the section.** The argument
+above rests on three facts and one of them quietly stopped being true, in a file
+whose entire subject is documents that assert things which are no longer so. A
+reader finding the false clause could reasonably discard the finding with it.
+Nothing re-reads a document to check whether it is still true, which is why the
+correction is dated, says what changed, and says what it does NOT change.
 
 This is the same family as the rest of this week, a document asserting something
 that was never true. The clean tree that was 280 commits stale, the audit query
