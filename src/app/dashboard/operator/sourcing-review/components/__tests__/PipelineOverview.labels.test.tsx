@@ -89,8 +89,9 @@ function metrics(over: Partial<PipelineMetrics> = {}): PipelineMetrics {
       verification: { ...NO_SWEEP_SCHEDULE, waiting: 0, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null },
       enrichment: { ...NO_PRESS_PLAN, done: 0, waiting: 0, inFlight: 0 },
       research: {
-        stage: 'idle', fetchingSources: 0, awaitingModel: 0, collecting: 0,
-        waveDone: null, waveTotal: null, oldestBatchSubmittedAt: null,
+        stage: 'idle', fetchingSources: 0, awaitingSubmission: 0, awaitingModel: 0,
+        collecting: 0, waveDone: null, waveTotal: null,
+        oldestBatchSubmittedAt: null, nextSubmissionRunAt: null,
       },
     },
     batches: [funnel()],
@@ -146,7 +147,7 @@ describe('item 5 — a count that spans more than one run says so', () => {
       pending_review_count: 100,
       batches: [funnel({ pending_review: 35 })],
     })
-    expect(screen.getByText(/Approve: 35 from the run on 17 Sep 2026, 65 carried over/))
+    expect(screen.getByText(/Approve: 35 from the run on 17 Sep 2026 at 19:47 UTC, 65 carried over/))
       .toBeInTheDocument()
   })
 
@@ -155,7 +156,7 @@ describe('item 5 — a count that spans more than one run says so', () => {
       unpublished_count: 49,
       batches: [funnel({ unpublished: 20 })],
     })
-    expect(screen.getByText(/Publish: 20 from the run on 17 Sep 2026, 29 carried over/))
+    expect(screen.getByText(/Publish: 20 from the run on 17 Sep 2026 at 19:47 UTC, 29 carried over/))
       .toBeInTheDocument()
   })
 
@@ -170,7 +171,7 @@ describe('item 5 — a count that spans more than one run says so', () => {
         stoppable: 0,
       },
     })
-    expect(screen.getByText(/Research: 49 from the run on 17 Sep 2026, 13 carried over/))
+    expect(screen.getByText(/Research: 49 from the run on 17 Sep 2026 at 19:47 UTC, 13 carried over/))
       .toBeInTheDocument()
   })
 

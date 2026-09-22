@@ -13,6 +13,13 @@
 //                  marker anything reads is written at the very end. Measured 2026-09-17:
 //                  14 minutes 32 seconds with 62 prospects in flight and no queue row.
 //
+// THE FIRST FIX FOR RESEARCH LEFT THE FRONT OF THAT WINDOW DARK, and it is the part an
+// operator meets first. Entries were counted through their open batch, and an entry has no
+// batch until the sweep submits it. Measured 2026-09-21: phase 1 finished for 107 prospects
+// at 18:06:17 and the first batch was created 18:08:01, with 7 waiting until 18:13:01. For
+// all of it this panel rendered NOTHING, because every count was zero and the stage was
+// idle. See awaitingSubmission in pipeline-progress.ts.
+//
 // EVERY NUMBER HERE COMES FROM THE SERVER, from pipeline-progress.ts, through the same poll
 // that drives the cards. That is what makes it survive a page reload, which the button state
 // it replaces did not: refreshing during a long step used to show the screen as it looks
@@ -292,6 +299,9 @@ const RESEARCH_STAGE_LABELS: Record<
   string
 > = {
   fetching_sources: 'Reading the sources',
+  // NAMED AS DONE-AND-WAITING, not as a fourth kind of working. The sources are gathered
+  // and paid for; what is left is a scheduled send that has not come round yet.
+  awaiting_submission: 'Sources done, waiting to be sent to the model',
   awaiting_model: 'Waiting for the model to come back',
   collecting: 'Writing the opening lines',
 }
@@ -304,10 +314,12 @@ const RESEARCH_STAGE_LABELS: Record<
  * was invisible and was read as a stall, repeatedly.
  */
 function ResearchSection({ research }: { research: PipelineProgress['research'] }) {
-  const { stage, fetchingSources, awaitingModel, collecting, waveDone, waveTotal } = research
+  const {
+    stage, fetchingSources, awaitingSubmission, awaitingModel, collecting, waveDone, waveTotal,
+  } = research
   if (stage === 'idle') return null
 
-  const left = fetchingSources + awaitingModel + collecting
+  const left = fetchingSources + awaitingSubmission + awaitingModel + collecting
 
   return (
     <div>
@@ -330,6 +342,28 @@ function ResearchSection({ research }: { research: PipelineProgress['research'] 
       <Row label="Still to go">
         <span className="font-medium">{left}</span>
       </Row>
+
+      {/* ── THE STAGE THAT USED TO TAKE THE WHOLE PANEL OFF THE SCREEN ────────
+          Between phase 1 finishing and the sweep firing there is no queue row and no open
+          batch, so every count read zero, the stage read idle, and the panel rendered
+          nothing at all. An operator saw a screen that looked exactly like one where
+          nothing had been started, while a hundred prospects sat with their sources bought.
+
+          TWO FACTS, because one without the other still reads as a stall: what has
+          finished, and when the next thing happens. The time is omitted rather than
+          guessed when the schedule could not be read. */}
+      {awaitingSubmission > 0 && (
+        <p className="mt-2 text-xs text-text-secondary">
+          The sources are gathered for {awaitingSubmission}{' '}
+          {awaitingSubmission === 1 ? 'prospect' : 'prospects'} and nothing more is being
+          bought for {awaitingSubmission === 1 ? 'it' : 'them'}. They go to the model on the
+          next send
+          {research.nextSubmissionRunAt
+            ? `, ${timeUntil(research.nextSubmissionRunAt)}`
+            : ''}
+          . Nothing is queued until then and nothing has stalled.
+        </p>
+      )}
 
       {awaitingModel > 0 && (
         <p className="mt-2 text-xs text-text-secondary">

@@ -148,24 +148,49 @@ function SendabilityCell({ prospect }: { prospect: Prospect }) {
  * variant's own authored opening instead. That is a deliberate design (four authored
  * openings rather than one shared line) and saying "none" would read as a fault.
  *
- * The text is shown in full on hover rather than truncated silently, because a half-sentence
- * is exactly what an operator cannot judge.
+ * ── WHY THE COLUMN HAS A MINIMUM WIDTH AND NOT A MAXIMUM ────────────────────
+ *
+ * The cell carried max-w-[320px], which sets a ceiling and no floor. This is the eleventh
+ * column of eleven in an auto-laid-out table, so the browser gives the longest text column
+ * whatever is left once the other ten have taken what they need, and a ceiling does nothing
+ * to stop that. What arrived on screen was a few words per line down a ribbon, which cannot
+ * be read as a sentence at all.
+ *
+ * Measured on the live prospects table 2026-09-22: 222 stored openings, 143 to 341
+ * characters, average 245. These are paragraphs. A min-width is used as a floor
+ * instead, wide enough for roughly sixty characters a line, so an average opening lands in
+ * about four lines. The table already sits in an overflow-x-auto wrapper, so the cost is
+ * sideways scrolling on a narrow window rather than an unreadable column on every window.
+ *
+ * THE FLOOR SITS ON A BLOCK INSIDE THE CELL, NOT ON THE td. min-width on a table cell under
+ * auto layout is a hint the engine is free to disregard, which is how a width silently
+ * stops applying. A block child's minimum is a real contribution to the column's width, and
+ * the header needs nothing: a column is as wide as its widest cell, and these are.
+ *
+ * WIDER RATHER THAN CLICK-TO-EXPAND, deliberately. This is a bulk review screen: the
+ * operator reads every row before publishing, twenty at a time and 108 in the run that
+ * prompted this. An expander would charge a click per prospect for the thing they came to
+ * do, and a row-at-a-time reveal cannot be scanned down the column to spot four openings
+ * that say the same thing. The hover title is kept, for the rare opening that still runs
+ * long.
  */
 function OpeningLineCell({ prospect }: { prospect: Prospect }) {
   const opening = prospect.personalisation_trigger
 
+  // BOTH STATES GET THE SAME FLOOR. A tier in which nothing has been researched would
+  // otherwise render a narrow column, and the column would change width between tiers.
   if (!opening) {
     return (
-      <span className="text-xs text-text-secondary">
+      <div className="min-w-[380px] text-xs text-text-secondary">
         No research: gets the standard opener for its variant
-      </span>
+      </div>
     )
   }
 
   return (
-    <span className="text-xs text-text-primary" title={opening}>
+    <div className="min-w-[380px] text-xs text-text-primary leading-relaxed" title={opening}>
       {opening}
-    </span>
+    </div>
   )
 }
 
@@ -225,7 +250,7 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
       </td>
 
       {/* The first line the prospect reads, which this screen could not show at all. */}
-      <td className="px-4 py-3 max-w-[320px]">
+      <td className="px-4 py-3 align-top">
         <OpeningLineCell prospect={prospect} />
       </td>
 
