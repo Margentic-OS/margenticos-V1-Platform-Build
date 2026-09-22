@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation'
 import { ExtractionCard, type ExtractionInFlight } from './ExtractionCard'
 import { ExtractionCardSkeleton } from './ExtractionCardSkeleton'
 import { FaqRow } from './FaqRow'
+import { SeedFaqsPanel } from './SeedFaqsPanel'
 import type { ExtractionItem, FaqListItem } from './types'
 import { logger } from '@/lib/logger'
 
@@ -448,6 +449,8 @@ export function FaqCurationView({ orgId, orgName }: FaqCurationViewProps) {
 
       {/* ── Left column: extraction queue ───────────────────────────────────── */}
       <section className="flex-1 min-w-0">
+        <SeedFaqsPanel orgId={orgId} orgName={orgName} onSeeded={fetchExtractions} />
+
         <div className="flex items-baseline justify-between mb-4">
           <h2 className="text-[13px] font-semibold text-text-primary">
             Extraction queue
