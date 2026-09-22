@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { FaqListItem } from './types'
+import { AutoGrowTextarea } from './AutoGrowTextarea'
 
 interface FaqRowProps {
   faq: FaqListItem
@@ -93,13 +94,13 @@ export function FaqRow({ faq, onSave, onArchive, onRestore }: FaqRowProps) {
       {/* Answer display / edit */}
       {editing ? (
         <div className="mt-2">
-          <textarea
+          {/* Was four rows with resizing off. The answer being edited here is the one
+              already on file, so the box opens holding text it could not show. */}
+          <AutoGrowTextarea
             value={draftAnswer}
-            onChange={e => setDraftAnswer(e.target.value)}
+            onChange={setDraftAnswer}
             disabled={saving}
-            rows={4}
-            aria-label={`Edit answer for: ${faq.question_canonical}`}
-            className="w-full text-[12px] text-text-primary leading-relaxed px-3 py-2.5 border border-border-card rounded-[6px] bg-white resize-none focus:outline-none focus:border-[#A8D4B8] focus:ring-1 focus:ring-[#A8D4B8] disabled:opacity-60"
+            ariaLabel={`Edit answer for: ${faq.question_canonical}`}
           />
           {error && <p className="text-[11px] text-[#8B2020] mt-1">{error}</p>}
           <div className="flex items-center gap-2 mt-2">
