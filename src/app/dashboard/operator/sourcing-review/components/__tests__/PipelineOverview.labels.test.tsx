@@ -89,8 +89,9 @@ function metrics(over: Partial<PipelineMetrics> = {}): PipelineMetrics {
       verification: { ...NO_SWEEP_SCHEDULE, waiting: 0, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null },
       enrichment: { ...NO_PRESS_PLAN, done: 0, waiting: 0, inFlight: 0 },
       research: {
-        stage: 'idle', fetchingSources: 0, awaitingModel: 0, collecting: 0,
-        waveDone: null, waveTotal: null, oldestBatchSubmittedAt: null,
+        stage: 'idle', fetchingSources: 0, awaitingSubmission: 0, awaitingModel: 0,
+        collecting: 0, waveDone: null, waveTotal: null,
+        oldestBatchSubmittedAt: null, nextSubmissionRunAt: null,
       },
     },
     batches: [funnel()],

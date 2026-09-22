@@ -87,7 +87,9 @@ function metrics(over: Partial<PipelineMetrics>): PipelineMetrics {
       enrichment: { ...NO_PRESS_PLAN, done: 0, waiting: 0, inFlight: 0 },
       research: {
         stage: 'idle',
-        fetchingSources: 0,
+        awaitingSubmission: 0,
+    nextSubmissionRunAt: null,
+    fetchingSources: 0,
         awaitingModel: 0,
         collecting: 0,
         waveDone: null,
