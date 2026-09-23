@@ -1,7 +1,10 @@
 -- MON-034 — a research source that stopped coming back.
 --
--- Status: NOT APPLIED. Written 2026-09-23, awaiting a decision before it is applied via
--- the Supabase MCP. See the standing rule in CLAUDE.md: Vercel does not apply migrations.
+-- Status: APPLIED (verified live 2026-09-23) to BOTH projects:
+--   hjpvnvjryxdjcfdsfhzy  production
+--   tidqheqjzvwmrrrebzir  test
+-- Read back in both directions: service_role SELECT t, anon/authenticated SELECT f, and
+-- anon/authenticated INSERT/UPDATE/DELETE all f.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THIS READS RESEARCH ROWS RATHER THAN A NEW COLUMN
@@ -71,12 +74,32 @@ SELECT
     WHEN (SELECT rows_total FROM counts) = 0
       THEN 'No fetching research run in the last 7 days, so no source rate can be computed. '
         || 'This is UNKNOWN rather than OK: the check has nothing to look at.'
-    ELSE 'Over ' || (SELECT rows_total FROM counts)::text
+    -- ─── THE DETAIL NAMES THE SOURCE THAT TRIPPED, AND ROUNDS TO ONE DECIMAL ───
+    --
+    -- FOUND ON THE FIRST LIVE READ, 2026-09-23. The first version rounded to whole
+    -- percent and listed the four rates without saying which one failed. Its first real
+    -- output was PROBLEM with "website 50%", and 50% is not below a floor of 50%. The
+    -- check was right: the true rate was 0.4982. The DETAIL had rounded the evidence for
+    -- its own verdict out of existence, so an operator reading it would have seen a red
+    -- monitor with four healthy-looking numbers and no way to tell what it meant.
+    --
+    -- One decimal, and the failing sources named first. A monitor whose detail does not
+    -- explain its own state sends the reader to the SQL, which is where this file's
+    -- whole family of past defects has lived.
+    ELSE 'BELOW FLOOR: ' || COALESCE(NULLIF(array_to_string(ARRAY(
+        SELECT s FROM (
+          SELECT 'linkedin'   AS s, (SELECT linkedin_ok::numeric   / rows_total FROM counts) AS v
+          UNION ALL SELECT 'apollo',     (SELECT apollo_ok::numeric     / rows_total FROM counts)
+          UNION ALL SELECT 'web_search', (SELECT web_search_ok::numeric / rows_total FROM counts)
+          UNION ALL SELECT 'website',    (SELECT website_ok::numeric    / rows_total FROM counts)
+        ) q WHERE q.v < 0.50 ORDER BY q.v
+      ), ', '), ''), 'none') || '. '
+      || 'Over ' || (SELECT rows_total FROM counts)::text
       || ' prospects researched in 7 days, each source came back for: linkedin '
-      || round(100.0 * (SELECT linkedin_ok::numeric   / rows_total FROM counts))::text || '%, apollo '
-      || round(100.0 * (SELECT apollo_ok::numeric     / rows_total FROM counts))::text || '%, web_search '
-      || round(100.0 * (SELECT web_search_ok::numeric / rows_total FROM counts))::text || '%, website '
-      || round(100.0 * (SELECT website_ok::numeric    / rows_total FROM counts))::text
+      || round(100.0 * (SELECT linkedin_ok::numeric   / rows_total FROM counts), 1)::text || '%, apollo '
+      || round(100.0 * (SELECT apollo_ok::numeric     / rows_total FROM counts), 1)::text || '%, web_search '
+      || round(100.0 * (SELECT web_search_ok::numeric / rows_total FROM counts), 1)::text || '%, website '
+      || round(100.0 * (SELECT website_ok::numeric    / rows_total FROM counts), 1)::text
       || '%. A source under its floor means research is running on what survived, and the '
       || 'copy it produces is built from whichever sources still answered.'
   END AS detail;
