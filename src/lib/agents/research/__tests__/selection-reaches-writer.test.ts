@@ -91,7 +91,7 @@ describe('a reshare is marked as somebody else\'s', () => {
 
   it('a stored candidate with no is_reshare field reads as their own, never as shared', () => {
     const stored = candidate({})
-    delete (stored as Record<string, unknown>).is_reshare
+    delete (stored as unknown as Record<string, unknown>).is_reshare
     const block = buildFindingsBlock([stored], {})
     expect(block).not.toContain('[SHARED, NOT THEIRS]')
   })
