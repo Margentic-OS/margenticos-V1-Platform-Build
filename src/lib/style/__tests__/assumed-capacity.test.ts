@@ -70,6 +70,38 @@ describe('claims about who does the selling', () => {
   })
 })
 
+// ─── THE MEASURED MISSES, 2026-09-23 ─────────────────────────────────────────
+//
+// The first trigger-reason derivation passed this detector with ZERO faults and produced
+// three reasons that plainly broke the rule. Every pattern at that point was about the
+// READER doing the selling; none was about a NAMED ROLE doing it, about who used to hold
+// the job, or about the selling stopping. These are those three, verbatim in shape, with
+// the reasons from the same run that were correct as the control.
+describe('claims about a named role, or about the selling stopping', () => {
+  it.each([
+    'A major engagement starting or ending means the founder re-enters delivery and pipeline stops.',
+    'Promoting delivery people into client-facing roles shifts them away from generating new pipeline.',
+    'The person who owned outbound is gone, so pipeline generation has no operator.',
+    'Whoever ran the prospecting has moved on.',
+    'The owner goes back into delivery when a project lands.',
+  ])('flags %s', (sentence) => {
+    expect(hit(sentence)).not.toEqual([])
+  })
+
+  it.each([
+    // FROM THE SAME RUN, and correct. These are what a passing reason looks like, so a
+    // widening that broke them would be caught here rather than by reading output.
+    'More delivery capacity means more client slots to fill with new pipeline.',
+    'A new offer needs its own pipeline of qualified conversations to generate revenue.',
+    'Visibility generates inbound interest that needs outbound follow-through to convert into meetings.',
+    'New credentials strengthen outbound messaging but only create pipeline if used in active outreach.',
+    'Lost recurring revenue creates an immediate gap that requires new conversations to fill.',
+    'Third-party recognition is a credibility anchor that makes cold outreach convert at higher rates.',
+  ])('leaves alone: %s', (sentence) => {
+    expect(hit(sentence)).toEqual([])
+  })
+})
+
 describe('counting', () => {
   it('counts a sentence ONCE per kind, however many ways it is phrased', () => {
     // Three time patterns in one sentence is one fault, not three: counting each would make

@@ -99,6 +99,23 @@ const WHO_SELLS: RegExp[] = [
   // established. Deliberately NOT triggered by "no buyers" or "no existing clients":
   // those are about the market, not about who works there.
   /\b(nobody|no one|no-one)\s+(is\s+)?(left\s+)?(doing|does|owns?|handles?|running|runs?|responsible\s+for|to\s+do)\b/i,
+  // ── ADDED 2026-09-23 AFTER A MEASURED MISS ──────────────────────────────────
+  // The first derivation run passed the gate with 0 faults and produced three reasons that
+  // plainly broke the rule: "the founder re-enters delivery and pipeline stops", "shifts
+  // them away from generating new pipeline", "the person who owned outbound is gone, so
+  // pipeline generation has no operator". Every pattern above was about the READER doing
+  // the selling; none was about a NAMED ROLE doing it, or about the selling stopping.
+  //
+  // WHO HELD THE JOB: "the person who owned outbound", "whoever ran the prospecting".
+  new RegExp(`\\b(who|whoever)\\s+(owned|owns|ran|runs|handled|handles|did|does|drove|drives)\\s+(the\\s+)?${SELL_VERB}\\b`, 'i'),
+  // WHAT A NAMED ROLE DOES WITH THEIR TIME: "the founder re-enters delivery".
+  /\b(the\s+)?(founder|owner|principal|partner|director)\s+(re-?enters?|returns? to|goes? back (in)?to|is back in|drops? back into|moves? back into)\b/i,
+  // THE SELLING STOPPING, as a claim about this company rather than about the event.
+  new RegExp(`\\b${SELL_VERB}\\s+(stops|stalls|halts|pauses|freezes|dries up|resets|goes quiet|has no operator)\\b`, 'i'),
+  // MOVED OFF THE SELLING: "shifts them away from generating new pipeline".
+  new RegExp(`\\b(away from|off)\\s+(generating|doing|running|driving)\\s+(new\\s+)?${SELL_VERB}\\b`, 'i'),
+  // NOBODY LEFT ON IT, stated as a shortage of people rather than with "nobody".
+  new RegExp(`\\b${SELL_VERB}\\s+(generation\\s+)?has\\s+no\\s+(operator|owner|one)\\b`, 'i'),
 ]
 
 /** Split on sentence ends, keeping it simple: this reports, it does not parse. */
