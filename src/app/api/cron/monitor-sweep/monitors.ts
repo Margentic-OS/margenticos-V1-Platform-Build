@@ -152,4 +152,11 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // view reads prospects.variant_reassigned_at, which resolveVariant writes at the moment
   // it moves one, so the monitor reads state rather than a log line.
   ['MON-033', 'mon_033'],
+
+  // A research source that stopped coming back. On 2026-09-21 Apify returned HTTP 402 for
+  // 50 of 84 prospects and the batch reported `completed 84, failed 0`, so nothing in the
+  // system said a source had been down. The view reads sources_successful on the research
+  // rows, which the succeeding path writes, rather than a counter the failing path would
+  // have had to write while it was failing.
+  ['MON-034', 'mon_034'],
 ] as const

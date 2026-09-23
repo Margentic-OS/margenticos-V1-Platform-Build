@@ -6,6 +6,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
+import { isFatalSourceStatus, readErrorBody, SourceHttpError, throwIfFatalSource } from './source-http'
 import type { ProspectContext, ApolloSourceResult } from '../types'
 
 interface ApolloEmployment {
@@ -136,21 +137,40 @@ export async function fetchApolloSource(prospect: ProspectContext): Promise<Apol
       signal: AbortSignal.timeout(15000),
     })
 
-    if (response.status === 401) {
-      // API key invalid or not configured — alert operator; this won't self-resolve.
-      logger.warn('research/apollo: API key invalid or not configured (401)')
+    // ── BILLING AND AUTH FIRST, AND IT HAS TO BE FIRST ───────────────────────
+    //
+    // This block REPLACES separate 401 and 403 branches that each logged and returned
+    // `available: false`. Those branches sat above the fatal check when it was first
+    // added, so they returned before it ran and the guard only ever saw a 402. A guard
+    // installed below the code it is meant to intercept is not installed.
+    //
+    // ─── A DELIBERATE BEHAVIOUR CHANGE, 2026-09-23 ───────────────────────────
+    //
+    // The 403 branch read "free tier or insufficient scope — expected when plan doesn't
+    // include enrichment. No Sentry alert: this is an anticipated state, not an error",
+    // and it continued without Apollo data. That is precisely the shape being closed:
+    // whatever a 403 means, it means it for EVERY prospect, and research that continues
+    // without its strongest source produces copy built from whichever sources answered.
+    //
+    // The free-tier reading survives in the message, because it is usually the right
+    // diagnosis and the operator needs it. What does not survive is carrying on.
+    if (isFatalSourceStatus(response.status)) {
+      const body = await readErrorBody(response)
+      logger.error('research/apollo: account cannot call the provider, aborting the run', {
+        status: response.status,
+        body: body.slice(0, 500),
+      })
       Sentry.captureException(
-        new Error('Apollo 401: API key invalid or not configured — verify APOLLO_API_KEY in integration_credentials'),
-        { level: 'warning' }
+        new Error(
+          `Apollo ${response.status} on people/match. ` +
+          (response.status === 403
+            ? 'Usually the plan does not include enrichment, or the key lacks scope. '
+            : 'Usually the key is invalid or not configured. ') +
+          `Verify APOLLO_API_KEY. Provider said: ${body.slice(0, 300)}`,
+        ),
+        { level: 'error' },
       )
-      return { available: false, formatted: null, raw: null, error: 'Apollo API key invalid (401)' }
-    }
-
-    if (response.status === 403) {
-      // Free tier or insufficient scope — expected when plan doesn't include enrichment.
-      // No Sentry alert: this is an anticipated state, not an error.
-      logger.info('research/apollo: access denied (403) — free tier or insufficient scope; continuing without Apollo data')
-      return { available: false, formatted: null, raw: null, error: 'Apollo access denied (403)' }
+      throwIfFatalSource(new SourceHttpError('Apollo people/match', response.status, body), 'research/apollo')
     }
 
     if (response.status === 429) {
@@ -195,6 +215,10 @@ export async function fetchApolloSource(prospect: ProspectContext): Promise<Apol
     return { available: true, formatted, raw: data.person as Record<string, unknown> }
 
   } catch (err) {
+    // Lets a FatalApiError raised above travel out rather than being flattened into a
+    // per-prospect error string by the return below.
+    throwIfFatalSource(err, 'research/apollo')
+
     logger.warn('research/apollo: fetch failed', { error: String(err) })
     return { available: false, formatted: null, raw: null, error: String(err) }
   }

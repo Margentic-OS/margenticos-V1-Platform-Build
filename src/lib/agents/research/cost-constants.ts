@@ -15,10 +15,36 @@ export const COST_ANTHROPIC_LOW  = 0.130
 export const COST_ANTHROPIC_HIGH = 0.190
 export const COST_ANTHROPIC_MEASURED = 0.159
 
-// Apify, per prospect. ONE actor since 2026-08-25: harvestapi~linkedin-profile-posts
-// at $2/1000. The profile scraper at $4/1000 was dropped after producing 1 candidate in
-// 147, never selected. Was 0.006 when both ran. See src/lib/agents/research/sources/linkedin.ts.
-export const COST_APIFY = 0.002
+// Apify, per prospect. ONE actor since 2026-08-25: harvestapi~linkedin-profile-posts.
+// The profile scraper was dropped after producing 1 candidate in 147, never selected.
+//
+// ═══ CORRECTED 2026-09-23, FROM $0.002. THE OLD FIGURE WAS 20x LOW ═══════════
+//
+// It read $0.002 and cited "$2/1000", which was the PRICE_PER_DATASET_ITEM model. The
+// actor moved to PAY_PER_EVENT on 2026-03-09 and the repo never noticed, because nothing
+// reads a vendor's pricing page on a schedule and the constant looked like a fact.
+//
+// Under pay-per-event:
+//     actor start        $0.00005   once per run
+//     each post returned $0.002     the primary charged event
+//     zero-result query  $0.001
+//
+// MEASURED against the live Apify API on 2026-09-23, over the 158 successful runs of
+// 2026-09-21: mean $0.0795 a prospect, median $0.098, and 77 of 158 at exactly $0.10005.
+// That $0.10005 is one start plus FIFTY posts, because maxPosts was unset. The formatter
+// read five of them.
+//
+// THIS FIGURE IS THE CEILING UNDER THE NEW SETTINGS, not the old measurement:
+//     0.00005 + (MAX_POSTS 5 x 0.002) = 0.01005
+//
+// A ceiling rather than a mean, deliberately. A prospect who posted less returns fewer
+// items and costs less, so this over-estimates and never under-estimates, which is the
+// direction a spend guard has to err. The old figure erred the other way for six months.
+//
+// IF MAX_POSTS CHANGES IN linkedin.ts, CHANGE THIS. They are two numbers that must agree
+// and there is no way to derive one from the other across the module boundary without
+// importing the source handler into the cost model, which is worse. A test pins them.
+export const COST_APIFY = 0.01005
 
 // Brave Search: 2 calls per prospect; free tier covers 2000 calls/month
 export const BRAVE_FREE_MONTHLY  = 2000

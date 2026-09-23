@@ -25,6 +25,7 @@ import { produceOpening, resolveVariantId, loadClientName } from './research/pro
 import { writerInputFromSynthesis } from './research/writer-input'
 import { loadProspectContext } from './research/prospect-context'
 import { holdsEvidence } from './research/evidence-record'
+import { assessSourceIntegrity, ResearchIncompleteError } from './research/source-integrity'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { suppressProspectAtProvider } from '@/lib/suppression/provider-suppression'
 import type { OpeningResult } from './research/write-opening'
@@ -61,10 +62,13 @@ function getServiceClient() {
 /**
  * The error a reuse run puts on all four source stubs in place of fetching them.
  *
- * Shared by the code that WRITES the stubs and the code that READS them, because the two
- * have to agree on the exact string and stating it twice is how they stop agreeing.
+ * MOVED to research/source-skip.ts on 2026-09-23 and re-exported here, so every existing
+ * importer keeps working. It had to move because source-integrity.ts reads it and this
+ * file imports source-integrity; see the header of source-skip.ts for why that ordering
+ * matters more than it looks.
  */
-export const SOURCE_SKIPPED_REUSE = 'skipped: stored findings reused'
+import { SOURCE_SKIPPED_REUSE } from './research/source-skip'
+export { SOURCE_SKIPPED_REUSE }
 
 // Exported for its test. Nothing outside this module should need it.
 export function buildSourceTracking(rawData: RawSourceData): {
@@ -620,6 +624,45 @@ export async function runProspectResearchAgentV2({
     const { sources_attempted, sources_successful } = buildSourceTracking(rawData)
     logger.debug('prospect-research-v2: sources complete', { sources_attempted, sources_successful })
 
+    // ── HOLD, RATHER THAN RESEARCH ON WHAT SURVIVED ──────────────────────────
+    //
+    // HERE, BEFORE SYNTHESIS, FOR TWO REASONS. Synthesis is four Sonnet calls at about
+    // $0.159 a prospect, so checking afterwards would pay in full for a verdict thrown
+    // away. And a verdict is FROZEN on the prospect once written: a row produced while a
+    // source was unreachable is a statement about our infrastructure carrying a
+    // prospect's name, and everything downstream reads it as a statement about them.
+    //
+    // A reuse run is exempt by construction, not by a condition: its four stubs carry
+    // SOURCE_SKIPPED_REUSE, which assessSourceIntegrity counts as skipped rather than
+    // failed. It made no calls, so it has nothing to be incomplete about.
+    const integrity = assessSourceIntegrity(rawData)
+
+    // RECORDED FAILURES ARE LOGGED EVEN THOUGH THE RUN CONTINUES. Website and web search
+    // do not hold a prospect, and that must not make them silent: a source degrading
+    // quietly while runs report success is the whole of the 2026-09-21 incident, and the
+    // tier that does not stop anything is the tier where it would happen again unnoticed.
+    if (integrity.recorded.length > 0) {
+      logger.warn('prospect-research-v2: a non-holding source did not come back, continuing', {
+        prospect_id,
+        client_id,
+        recorded: integrity.recorded,
+        successful: integrity.successful,
+      })
+    }
+
+    if (!integrity.complete) {
+      logger.error('prospect-research-v2: research incomplete, prospect held — no row written', {
+        prospect_id,
+        client_id,
+        holding_sources: integrity.holding.map(f => f.source),
+        holding_failures: integrity.holding,
+        also_failed_but_not_holding: integrity.recorded,
+        successful: integrity.successful,
+        skipped: integrity.skipped,
+      })
+      throw new ResearchIncompleteError(prospect_id, integrity.holding)
+    }
+
     // Synthesize. The six tests now RANK the raw material; they no longer choose what
     // ships. The writer below decides that, and the judge decides whether it ships at all.
     const synthesis = stored
@@ -758,6 +801,7 @@ export async function runProspectResearchAgentV2({
       synthesis_reasoning: synthesis.reasoning,
       sources_attempted,
       sources_successful,
+      recorded_source_failures: integrity.recorded,
       candidates:            stripNulls(synthesis.candidates),
       selected_candidate_id: synthesis.selected_candidate_id,
       trigger_readability:   synthesis.trigger_readability,
@@ -873,6 +917,8 @@ export async function runProspectResearchAgentV2Batch({
     skipped:        0,
     failed:         0,
     failures,
+    source_failures: {},
+    held_incomplete: 0,
     failed_log_path: null,
     frame_collisions,
     bridge_frame_collisions,
@@ -997,9 +1043,27 @@ export async function runProspectResearchAgentV2Batch({
             })
           }
         }
+        // A RECORDED FAILURE ARRIVES ON THE SUCCESS PATH, which is exactly why it is
+        // counted here as well as in the catch. Website and web search do not hold a
+        // prospect, so their failures never throw; counting only thrown failures would
+        // mean the tier that stops nothing is also the tier the summary cannot see.
+        for (const f of result.recorded_source_failures ?? []) {
+          summary.source_failures[f.source] = (summary.source_failures[f.source] ?? 0) + 1
+        }
         summary.completed++
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
+
+        // COUNT THE SOURCE, NOT JUST THE PROSPECT. A held prospect names which sources did
+        // not come back, and those counts are what make a run like 2026-09-21 visibly
+        // wrong while it is still running rather than two days later.
+        if (err instanceof ResearchIncompleteError) {
+          summary.held_incomplete++
+          for (const f of err.failed) {   // holding failures only; recorded ones are counted above
+            summary.source_failures[f.source] = (summary.source_failures[f.source] ?? 0) + 1
+          }
+        }
+
         if (fatalApiReason(err)) {
           fatal = err instanceof FatalApiError
             ? err
@@ -1036,6 +1100,18 @@ export async function runProspectResearchAgentV2Batch({
 
   // Loudly, and after the failure log is written so the partial run stays diagnosable.
   // The caller must not be able to read this as a completed batch.
+  // SOURCE FAILURES ARE REPORTED WHETHER OR NOT THE RUN ABORTED, and at error level, so
+  // a run that completed with a source down cannot look clean in the logs. This is the
+  // line whose absence let `completed 84, failed 0` stand while LinkedIn was dead.
+  if (Object.keys(summary.source_failures).length > 0) {
+    logger.error('prospect-research-v2 batch: SOURCES FAILED during this run', {
+      source_failures: summary.source_failures,
+      held_incomplete: summary.held_incomplete,
+      total: summary.total,
+      completed: summary.completed,
+    })
+  }
+
   if (fatal) {
     throw new FatalApiError(
       `${(fatal as FatalApiError).reason}. ${summary.completed} of ${summary.total} prospects completed before the abort`,

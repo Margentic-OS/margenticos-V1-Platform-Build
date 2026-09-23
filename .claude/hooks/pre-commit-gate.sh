@@ -129,6 +129,17 @@ while IFS= read -r file; do
   case "$file" in
     src/lib/integrations/*)  continue ;;   # the handler layer, where names belong
     src/lib/sourcing/handlers/*) continue ;;
+    # THE THIRD HANDLER DIRECTORY, added 2026-09-23. The research sources ARE handlers:
+    # apollo.ts, linkedin.ts, website.ts and web-search.ts each wrap one vendor's API and
+    # exist so that nothing upstream of them names a vendor. They belong here for exactly
+    # the reason the two lines above do, and their omission is the same shape as
+    # MyEmailVerifier's omission from VENDORS: a list of places was written once and the
+    # world grew a third one.
+    #
+    # It went unnoticed because the gate cannot see a commit made from a worktree, and
+    # these files are edited from worktrees. A check with a known blind spot will report
+    # clean about the area it cannot see.
+    src/lib/agents/research/sources/*) continue ;;
     src/lib/agents/vendor-name-gate.ts) continue ;;  # the ban list: it must name every vendor it bans
     *.md|*.sql|*.json|*.sh)  continue ;;   # docs, migrations, config, scripts
     *test*|*__tests__*)      continue ;;   # fixtures name the tool they fake
