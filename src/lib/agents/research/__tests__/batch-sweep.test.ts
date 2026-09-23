@@ -373,9 +373,10 @@ describe('submission writes the ledger BEFORE the paid call', () => {
   })
 
   it('caps a batch at MAX_ENTRIES_PER_BATCH, which bounds the blast radius of one stuck batch', async () => {
-    // Not a provider limit: Anthropic allows 100,000 requests or 256 MB and our prompt
-    // material is about 4 KB per prospect. It bounds how many prospects one aged-out batch
-    // strands at once.
+    // Not a provider limit: Anthropic allows 100,000 requests or 256 MB, and one request
+    // measures about 46 KB (measured 2026-09-23 over 176 production entries, NOT the 4 KB
+    // this comment used to claim). It bounds how many prospects one aged-out batch strands
+    // at once. See the constant's own comment for the measurement.
     expect(MAX_ENTRIES_PER_BATCH).toBeGreaterThan(1)
     const db = fakeDb({
       entries: Array.from({ length: 3 }, (_, i) =>
@@ -388,6 +389,46 @@ describe('submission writes the ledger BEFORE the paid call', () => {
     // All three fit under the cap, so exactly one batch and one shared cached prefix.
     expect(an.calls.create).toBe(1)
     expect(an.calls.createdRequests).toHaveLength(3)
+  })
+
+  // ── THE CAP AT ITS BOUNDARY, WHICH IS THE WHOLE POINT OF RAISING IT ─────────
+  //
+  // The test above proves the cap is greater than one. That passed at 100 and passes at
+  // 500, so it cannot tell the two apart and cannot notice a revert. These two do: the
+  // first fails if the cap is below 500, the second fails if there is no cap at all.
+  //
+  // WHY 500 IS THE NUMBER THAT MATTERS. A 500-prospect sourcing run is the run this
+  // project wants to press once and walk away from. At a cap of 100 its last 400 prospects
+  // waited for four more firings of a five-minute sweep, each paying its own cache write
+  // instead of reading the first batch's prefix.
+  it('sends 500 entries as ONE batch, so a 500-prospect run does not wait for a second', async () => {
+    expect(MAX_ENTRIES_PER_BATCH).toBeGreaterThanOrEqual(500)
+    const db = fakeDb({
+      entries: Array.from({ length: 500 }, (_, i) =>
+        entry({ n: i + 1, id: `entry-${i + 1}`, prospect_id: `p-${i + 1}` })),
+    })
+    const an = fakeAnthropic()
+
+    await runSynthesisBatchSweep(db.client, an.client, NOW)
+
+    // ONE create call, carrying all 500. At a cap of 100 this is 1 create of 100, because
+    // the sweep takes one batch per organisation per firing.
+    expect(an.calls.create).toBe(1)
+    expect(an.calls.createdRequests).toHaveLength(500)
+  })
+
+  it('still caps: 501 pending entries send 500 and leave one for the next firing', async () => {
+    const db = fakeDb({
+      entries: Array.from({ length: 501 }, (_, i) =>
+        entry({ n: i + 1, id: `entry-${i + 1}`, prospect_id: `p-${i + 1}` })),
+    })
+    const an = fakeAnthropic()
+
+    await runSynthesisBatchSweep(db.client, an.client, NOW)
+
+    // Deleting `.limit(MAX_ENTRIES_PER_BATCH)` makes this 501. The fake honours limit()
+    // precisely so that mutation is visible here rather than passing green.
+    expect(an.calls.createdRequests).toHaveLength(500)
   })
 
   it('uses each entry id as its custom_id, which is what makes reconciliation possible', async () => {
