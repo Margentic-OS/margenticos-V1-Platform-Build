@@ -495,6 +495,32 @@ point at and say "there it is".
   produces facts nobody can use. Name the EVENT, never the number attached to it: "a post
   naming a role they are hiring for", not "headcount change in the last 90 days".
 
+**EVERY TRIGGER CARRIES ITS OWN `reason`.** One short principle saying why this event
+creates a need for what this client sells. Without it the copy has only the client's core
+pain to fall back on, and every email ends up arguing the same thing whatever happened to
+the prospect.
+
+The `reason` is about the EVENT, never about the reader:
+
+  UNDER 15 WORDS, in plain words a stranger would use.
+
+  TRUE FOR ANY COMPANY THE TRIGGER DESCRIBES. If it only holds for companies of a certain
+  size, or run a certain way, it is not the reason, it is a guess.
+
+  NO CLAIM ABOUT WHO DOES THE SELLING. Not who owns pipeline, not who handles outreach, not
+  whether anyone has been hired to. You do not know how the company is staffed.
+
+  NO CLAIM ABOUT ANYONE'S TIME. Not busy, not stretched, not short of hours, not absorbed in
+  delivery. You do not know how their week goes, and a stranger told how their week goes
+  stops reading.
+
+  IT NAMES A CONSEQUENCE OF THE EVENT. What is now true, or now needed, that was not before.
+
+**The trigger sentence names the EVENT ONLY.** Do not append the reason to it, and do not
+write "signalling that...", "suggesting they...", or "leaving them...". Those clauses are the
+reason in the wrong field, and a trigger sentence carrying one is matched against prospects
+as though the inference were part of the observable event.
+
 **Order matters.** Put the trigger that most strongly gives the buyer a reason to want this
 client's service first. Selection reads that order.
 
@@ -574,7 +600,8 @@ Return raw JSON only.
     },
     "triggers": [
       {
-        "trigger": "One thing that happened, on a date, visible from outside the company",
+        "trigger": "One thing that happened, on a date, visible from outside the company. The event only, with no clause explaining what it signals",
+        "reason": "Under 15 words: why this event creates a need for what this client sells. About the event, never about the reader's time or who does their selling",
         "evidence_to_find": [
           "Where it would be visible and what it would say: e.g. a post naming a new role the company is hiring for",
           "Where it would be visible and what it would say: e.g. a service page published with a start date",

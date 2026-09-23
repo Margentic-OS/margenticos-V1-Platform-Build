@@ -26,6 +26,7 @@
 // ═════════════════════════════════════════════════════════════════════════════
 
 import { findFirmographicFigures } from '@/lib/style/firmographic'
+import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
 
 /**
  * The firmographic labels that mean A FIGURE FROM THE COMPANY RECORD, as opposed to a way
@@ -138,16 +139,47 @@ export interface EvidenceFault {
   trigger_index: number
   /** The trigger's own text, so a reader knows which one without counting. */
   trigger: string
-  /** The offending evidence item, verbatim. */
+  /** The offending evidence item, verbatim. Empty for a fault on the trigger or its reason. */
   evidence: string
   /**
    * 'figure'       a number off the company record
    * 'absence'      says there is none of something
    * 'record_field' names a record field to go and read, with or without a number
+   * 'reason_missing'  the trigger carries no reason at all
+   * 'reason_long'     the reason is over the word cap
+   * 'reason_assumes'  the reason claims something about the reader's time or staffing
+   * 'trigger_infers'  the trigger SENTENCE carries a clause that belongs in the reason
    */
-  kind: 'figure' | 'absence' | 'record_field'
+  kind: 'figure' | 'absence' | 'record_field' | 'reason_missing' | 'reason_long' | 'reason_assumes' | 'trigger_infers'
   /** What matched: a firmographic label, or the span the absence detector found. */
   detail: string
+}
+
+/** The reason's word cap, from HOW TO WRITE TRIGGERS. One constant, stated once. */
+export const TRIGGER_REASON_MAX_WORDS = 15
+
+/**
+ * Clauses that turn a trigger SENTENCE into an inference. Each one introduces what the
+ * event supposedly means, which is the reason in the wrong field: the trigger is matched
+ * against what is observable, so an inference inside it gets matched as though it were.
+ *
+ * Anchored to a comma or a clause start so an ordinary use of the word is untouched:
+ * "a post signalling the start date" is a description, ", signalling they are about to" is
+ * a verdict.
+ */
+const TRIGGER_INFERENCE_CLAUSES: ReadonlyArray<{ pattern: RegExp; label: string }> = [
+  { pattern: /,\s*(signalling|signaling)\b/i, label: 'signalling' },
+  { pattern: /,\s*suggesting\b/i,             label: 'suggesting' },
+  { pattern: /,\s*indicating\b/i,             label: 'indicating' },
+  { pattern: /,\s*leaving\b/i,                label: 'leaving' },
+  { pattern: /,\s*meaning\b/i,                label: 'meaning' },
+  { pattern: /,\s*creating\b/i,               label: 'creating' },
+  { pattern: /,\s*which (means|signals|suggests|leaves)\b/i, label: 'which means' },
+  { pattern: /\bso (?:that )?(?:the|they|it) \w+ (?:will|would|may) \b/i, label: 'so that' },
+]
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length
 }
 
 /** Every fault in a generated trigger list. Empty means the list passes. */
@@ -159,6 +191,42 @@ export function findEvidenceFaults(triggers: unknown): EvidenceFault[] {
     const row = (t ?? {}) as Record<string, unknown>
     const triggerText = typeof row.trigger === 'string' ? row.trigger : String(t)
     const evidence = Array.isArray(row.evidence_to_find) ? row.evidence_to_find : []
+    const reason = typeof row.reason === 'string' ? row.reason.trim() : ''
+
+    // ── THE REASON ─────────────────────────────────────────────────────────
+    //
+    // BLOCKS, unlike the per-prospect counter that shares its detector. This text is short,
+    // written once per client, and a rewrite costs one call. The same assumption in a
+    // prospect's email is report-only, because there the false-positive cost is a
+    // researched email thrown away.
+    if (!reason) {
+      faults.push({ trigger_index: i + 1, trigger: triggerText, evidence: '', kind: 'reason_missing', detail: 'no reason' })
+    } else {
+      if (wordCount(reason) > TRIGGER_REASON_MAX_WORDS) {
+        faults.push({
+          trigger_index: i + 1, trigger: triggerText, evidence: reason, kind: 'reason_long',
+          detail: `${wordCount(reason)} words`,
+        })
+      }
+      for (const h of findAssumedCapacityClaims(reason)) {
+        faults.push({
+          trigger_index: i + 1, trigger: triggerText, evidence: reason, kind: 'reason_assumes',
+          detail: `${h.kind}: "${h.matched}"`,
+        })
+      }
+    }
+
+    // ── THE TRIGGER SENTENCE NAMES THE EVENT ONLY ──────────────────────────
+    for (const { pattern, label } of TRIGGER_INFERENCE_CLAUSES) {
+      const m = triggerText.match(pattern)
+      if (m) {
+        faults.push({
+          trigger_index: i + 1, trigger: triggerText, evidence: '', kind: 'trigger_infers',
+          detail: `"${m[0].trim()}" (${label})`,
+        })
+        break
+      }
+    }
 
     for (const raw of evidence) {
       if (typeof raw !== 'string' || raw.trim().length === 0) continue
@@ -197,14 +265,19 @@ export function findEvidenceFaults(triggers: unknown): EvidenceFault[] {
 export function evidenceFaultFeedback(faults: EvidenceFault[]): string {
   if (faults.length === 0) return ''
   const WHAT: Record<string, string> = {
-    figure:       'a figure from the company record',
-    absence:      'an absence',
-    record_field: 'a field from the company record',
+    figure:         'a figure from the company record',
+    absence:        'an absence',
+    record_field:   'a field from the company record',
+    reason_missing: 'no reason at all',
+    reason_long:    `a reason over ${TRIGGER_REASON_MAX_WORDS} words`,
+    reason_assumes: "a claim about the reader's time or who does their selling",
+    trigger_infers: 'an inference clause that belongs in the reason, not the trigger sentence',
   }
-  const lines = faults.map(f =>
-    `  trigger ${f.trigger_index}, evidence "${f.evidence}" — names ${WHAT[f.kind]} (${f.detail})`)
+  const lines = faults.map(f => f.evidence
+    ? `  trigger ${f.trigger_index}, "${f.evidence}" — ${WHAT[f.kind]} (${f.detail})`
+    : `  trigger ${f.trigger_index}, "${f.trigger}" — ${WHAT[f.kind]} (${f.detail})`)
   return [
-    `${faults.length} evidence item(s) in the trigger list break a ban stated in HOW TO WRITE TRIGGERS.`,
+    `${faults.length} item(s) in the trigger list break a ban stated in HOW TO WRITE TRIGGERS.`,
     'Rewrite tier_1.triggers so none of them does. Everything else in the document stays as it is.',
     '',
     ...lines,
