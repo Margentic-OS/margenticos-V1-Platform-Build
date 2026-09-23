@@ -27,7 +27,7 @@ export const BANNED_FIRMOGRAPHIC: ReadonlyArray<{ pattern: RegExp; label: string
   { pattern: /[£$€]\s?\d/,                                    label: 'a currency amount' },
   { pattern: /\b\d+(?:\.\d+)?\s*[km]\b/i,                     label: 'a figure like 500K or 5M' },
   { pattern: /\b\d+(?:\.\d+)?\s*(?:bn|billion|million)\b/i,   label: 'a figure in millions or billions' },
-  { pattern: /\b\d+\s*(?:employees|staff|headcount)\b/i,      label: 'a headcount' },
+  { pattern: /\b\d+\s*(?:employees|staff|headcount|people|persons?|heads)\b/i, label: 'a headcount' },
   { pattern: /\bteam of \d+/i,                                label: 'a team size' },
   { pattern: /\b\d+[- ]person\b/i,                            label: 'a team size' },
 
@@ -38,6 +38,42 @@ export const BANNED_FIRMOGRAPHIC: ReadonlyArray<{ pattern: RegExp; label: string
   // Oblique references to size, which say the same thing without a number at all.
   { pattern: /\b(?:a|the)\s+(?:firm|company|business|team|shop|practice)\s+(?:that|this)\s+size\b/i, label: 'an oblique reference to their size' },
   { pattern: /\bof\s+(?:that|this)\s+size\b/i,                                      label: 'an oblique reference to their size' },
+
+  // ADDED 2026-09-21, ALL FOUR FROM ONE MEASURED BATCH. Eight of 84 openings quoted the
+  // prospect's own headcount straight off the record and every one of them passed this
+  // list. The holes were not subtle and they were not in the reasoning; they were in the
+  // spelling. Each entry below names the shipped line that motivates it.
+  //
+  //   "your headcount has sat at 24 people"    -> 'people' was in the SPELLED-OUT pattern
+  //                                               above and missing from the numeral one,
+  //                                               so "twelve people" was caught and
+  //                                               "24 people" was not. A one-word
+  //                                               asymmetry between two adjacent lines.
+  //                                               Fixed in place, on line 30.
+  //
+  // HEADCOUNT IN EITHER ORDER. The numeral pattern requires "24 headcount". Real copy
+  // writes "headcount has sat at 24 people" and "headcount has been the same", which put
+  // the word first, or supply no numeral at all. Both are the same claim.
+  { pattern: /\bheadcount\b[^.]{0,60}?\b\d+/i,                  label: 'a headcount' },
+  { pattern: /\bheadcount\b[^.]{0,40}?\b(?:has|have|had)\s+(?:been|stayed|sat|remained|held|grown|shrunk|risen|fallen)\b/i,
+                                                                 label: 'a headcount claim' },
+  { pattern: /\b(?:has|have|had)\s+(?:been|stayed|sat|remained|held|grown)\b[^.]{0,30}?\bheadcount\b/i,
+                                                                 label: 'a headcount claim' },
+
+  // SIZE INVARIANCE. "your team stayed the same size" and "held at roughly the same size"
+  // are the headcount restated as a non-event. The oblique patterns above needed an
+  // article, a noun from a closed list, and "that"/"this", so none of these matched.
+  { pattern: /\b(?:the\s+|roughly\s+the\s+|about\s+the\s+|exactly\s+the\s+)?same\s+size\b/i,
+                                                                 label: 'an unchanged-headcount claim' },
+  // Bare plural nouns and "your size", neither of which the article-led patterns reach:
+  // "at founder-led consultancies that size", "at a staffing firm your size".
+  { pattern: /\b(?:firms?|companies|compan(?:y|ies)|business(?:es)?|teams?|shops?|practices?|consultanc(?:y|ies)|agenc(?:y|ies)|outfits?)\s+(?:that|this|your)\s+size\b/i,
+                                                                 label: 'an oblique reference to their size' },
+  { pattern: /\bat\s+(?:that|this|your)\s+size\b/i,             label: 'an oblique reference to their size' },
+
+  // PERCENTAGES. "your headcount has grown 18% in the last twelve months" is a growth rate
+  // off the same record as any other figure, and there was no percentage pattern at all.
+  { pattern: /\b\d+(?:\.\d+)?\s*(?:%|per\s?cent\b)/i,           label: 'a percentage from their record' },
 
   // A headcount of one, which is the same claim as "a two-person firm" and was the one
   // spelling the list did not have. "You launched BrightlaneIQ within three months of

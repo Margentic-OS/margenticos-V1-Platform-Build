@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ExtractionCard, type ExtractionInFlight } from './ExtractionCard'
 import { ExtractionCardSkeleton } from './ExtractionCardSkeleton'
+import { AutoGrowTextarea } from './AutoGrowTextarea'
 import { FaqRow } from './FaqRow'
 import { SeedFaqsPanel } from './SeedFaqsPanel'
 import type { ExtractionItem, FaqListItem } from './types'
@@ -35,7 +36,11 @@ interface AddFaqFormProps {
   onAdded: (faq: FaqListItem) => void
 }
 
-function AddFaqForm({ orgId, onAdded }: AddFaqFormProps) {
+/**
+ * EXPORTED FOR ITS OWN TEST. Mounting FaqCurationView to reach this form starts two poll
+ * loops and a router, none of which the form is about.
+ */
+export function AddFaqForm({ orgId, onAdded }: AddFaqFormProps) {
   const [open, setOpen] = useState(false)
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
@@ -90,26 +95,31 @@ function AddFaqForm({ orgId, onAdded }: AddFaqFormProps) {
         <label className="text-[10px] text-text-secondary uppercase tracking-[0.07em] mb-1 block">
           Question
         </label>
+        {/* STILL ONE LINE, because question_canonical is one question and the extraction
+            and merge paths both compare it as a single string. What it gains is room: the
+            old box rendered at the same 12px as the answer and a real question ran past
+            its right edge while being typed. */}
         <input
           type="text"
           value={question}
           onChange={e => setQuestion(e.target.value)}
           disabled={saving}
           placeholder="e.g. How long does onboarding take?"
-          className="w-full text-[12px] text-text-primary bg-white border border-border-card rounded-[6px] px-3 py-2 focus:outline-none focus:border-[#A8D4B8] focus:ring-1 focus:ring-[#A8D4B8] disabled:opacity-60"
+          className="w-full text-[13px] leading-relaxed text-text-primary bg-white border border-border-card rounded-[6px] px-3 py-2.5 focus:outline-none focus:border-[#A8D4B8] focus:ring-1 focus:ring-[#A8D4B8] disabled:opacity-60"
         />
       </div>
       <div>
         <label className="text-[10px] text-text-secondary uppercase tracking-[0.07em] mb-1 block">
           Answer
         </label>
-        <textarea
+        {/* Was three rows with resizing off, for answers that run to several paragraphs.
+            See AutoGrowTextarea for what the live answers actually measure. */}
+        <AutoGrowTextarea
           value={answer}
-          onChange={e => setAnswer(e.target.value)}
+          onChange={setAnswer}
           disabled={saving}
-          rows={3}
           placeholder="Write the standard answer here…"
-          className="w-full text-[12px] text-text-primary bg-white border border-border-card rounded-[6px] px-3 py-2 resize-none focus:outline-none focus:border-[#A8D4B8] focus:ring-1 focus:ring-[#A8D4B8] disabled:opacity-60"
+          ariaLabel="Answer for the new FAQ"
         />
       </div>
       {error && <p className="text-[11px] text-[#8B2020]">{error}</p>}

@@ -104,6 +104,37 @@ export function buildSourceTracking(rawData: RawSourceData): {
  * the audit row only, and sources_attempted/sources_successful derived from rawData by
  * buildSourceTracking rather than restated.
  */
+/**
+ * FIX 6, 2026-09-21. Remove NUL (U+0000) before anything reaches a jsonb column.
+ *
+ * Postgres text, and therefore jsonb, CANNOT REPRESENT U+0000 at all. It is not a length
+ * limit or an encoding preference: the escape \u0000 is rejected outright with
+ * "unsupported Unicode escape sequence", and the whole INSERT fails.
+ *
+ * It arrives in scraped source text, which is what raw_linkedin, raw_apollo, raw_website
+ * and raw_web_search hold. Measured 2026-09-21: NINE of 28 prospects in one fresh run
+ * failed their result INSERT on this, a third of the batch, and it fails at the storage
+ * boundary, so every model call and every paid source had already been spent.
+ *
+ * APPLIED AT BOTH WRITE SITES. This file inserts prospect_research_results in two places
+ * and the blocks are identical line for line. If a third appears, it needs this too.
+ *
+ * Structure is preserved exactly: only string VALUES and KEYS change, and only by losing a
+ * character Postgres could never have stored.
+ */
+function stripNulls<T>(value: T): T {
+  if (typeof value === 'string') return value.replace(/\u0000/g, '') as unknown as T
+  if (Array.isArray(value)) return value.map(stripNulls) as unknown as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k.replace(/\u0000/g, '')] = stripNulls(v)
+    }
+    return out as unknown as T
+  }
+  return value
+}
+
 export async function storeResearchResult(
   prospect: ProspectContext,
   rawData: RawSourceData,
@@ -144,18 +175,18 @@ export async function storeResearchResult(
       // verdict yields an opening; see updateProspect for the prospects-side rule.
       trigger_text:         opening.opening ?? synthesis.icp_pain_proxy,
       trigger_source:       synthesis.trigger_source,
-      synthesis_reasoning:  synthesis.reasoning,
+      synthesis_reasoning:  stripNulls(synthesis.reasoning),
       synthesis_confidence: synthesis.confidence,
-      raw_linkedin:         rawData.linkedin.available ? rawData.linkedin : { error: rawData.linkedin.error },
-      raw_apollo:           rawData.apollo.available   ? rawData.apollo   : { error: rawData.apollo.error },
-      raw_website:          rawData.website.available  ? rawData.website  : { error: rawData.website.error },
-      raw_web_search:       rawData.web_search.available ? rawData.web_search : { error: rawData.web_search.error },
+      raw_linkedin:         stripNulls(rawData.linkedin.available ? rawData.linkedin : { error: rawData.linkedin.error }),
+      raw_apollo:           stripNulls(rawData.apollo.available   ? rawData.apollo   : { error: rawData.apollo.error }),
+      raw_website:          stripNulls(rawData.website.available  ? rawData.website  : { error: rawData.website.error }),
+      raw_web_search:       stripNulls(rawData.web_search.available ? rawData.web_search : { error: rawData.web_search.error }),
       sources_attempted,
       sources_successful,
       relevance_reason: synthesis.relevance_reason,
       // Every candidate considered, winner included, with six-test scores and provenance.
       // Rejected candidates are kept deliberately so selection is auditable.
-      candidates:            synthesis.candidates,
+      candidates:            stripNulls(synthesis.candidates),
       selected_candidate_id: synthesis.selected_candidate_id,
       // Omitted entirely when null so the column's own DEFAULT now() applies. Passing
       // null explicitly would violate NOT NULL.
@@ -702,7 +733,7 @@ export async function runProspectResearchAgentV2({
       synthesis_reasoning: synthesis.reasoning,
       sources_attempted,
       sources_successful,
-      candidates:            synthesis.candidates,
+      candidates:            stripNulls(synthesis.candidates),
       selected_candidate_id: synthesis.selected_candidate_id,
       trigger_readability:   synthesis.trigger_readability,
       demotion_reason:       synthesis.demotion_reason,

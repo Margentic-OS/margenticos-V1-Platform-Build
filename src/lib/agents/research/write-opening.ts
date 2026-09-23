@@ -92,16 +92,24 @@ export const OPENING_BUDGET = {
  * the writer's, and readabilityScore already takes the cap as a parameter, so the writer
  * gets its own limit without touching the shared one.
  *
- * WHY 15. Measured on the 84-prospect cohort of 2026-09-21: 135 sentences across the 58
- * stored observations, mean 16.8 words, none over 25, and 40 of 135 sitting at 21 to 25,
- * directly under the ceiling. The writer treats the budget as a target, and words per
- * sentence is the term the Flesch-Kincaid grade turns on, so the ceiling is what moves it.
+ * WHY A WRITER CAP AT ALL. Measured on the 84-prospect cohort of 2026-09-21: 135 sentences
+ * across the 58 stored observations, mean 16.8 words, none over 25, and 40 of 135 sitting at
+ * 21 to 25, directly under the ceiling. The writer treats the budget as a target, and words
+ * per sentence is the term the Flesch-Kincaid grade turns on, so the ceiling is what moves it.
+ *
+ * WHY 18 AND NOT 15. 15 was tried first and MEASURED END TO END on 2026-09-22, on that same
+ * 84. It was too tight: the template rate went to 31 to 38 percent, there were 135
+ * sentence-length rejections, and good bridges of 17 and 19 words were lost to it. A prospect
+ * that exhausts its retries ships the approved template instead of personalised copy, so a
+ * cap that rejects at that rate buys grade by spending the thing the writer exists to produce.
+ * 18 was the agreed fix: still well under the 25 the writer was treating as a target, and
+ * above the 16.8-word mean it actually writes at.
  *
  * THE PROMPT STATES THIS SAME NUMBER. A gate the prompt contradicts spends retries on a
  * rule the writer was never told, and a prospect that exhausts its retries ships the
  * approved template instead.
  */
-export const WRITER_MAX_SENTENCE_WORDS = 15
+export const WRITER_MAX_SENTENCE_WORDS = 18
 
 /** The sum of the per-part targets. What the prompt aims at, not what the gate enforces. */
 export const OPENING_TARGET_WORDS =
@@ -342,9 +350,13 @@ waved away. A belief put in their mouth can only be argued with.
 
 THE BRIDGE STATES ONE TRUE THING. IT NEVER EXPLAINS WHY.
 
-WORKS, and both of these say one true thing and then stop:
+WORKS, and it says one true thing and then stops:
   "The founders who need you next are not reading your feed yet."
-  "The next qualified sales conversation tends to wait for the next event."
+
+There was a second example here. It was DELETED on 2026-09-21, not lost: four of 84
+prospects shipped a bridge on its exact frame and six more on a one-clause variant of it.
+A worked example the writer copies verbatim stops being an example and becomes a template.
+A test pins it ABSENT so it cannot return silently.
 
 FAILS, and all three are causal constructions the reader has to assemble before they can
 agree with anything:
@@ -1382,6 +1394,14 @@ export function checkOpeningGates(
       // log-only: the hedge list collides with the prompt's own permitted frames and
       // nominalisation has known false positives, so gating either would be a second
       // change wearing the same commit.
+      //
+      // THE NUMBER THAT SETTLES HEDGES, kept from the version this replaced so nobody
+      // re-litigates it from scratch: on the same batch of 84 shipped openings, THIRTY-NINE
+      // carried a hedge phrase. A gate at that rate is not a gate, it is an outage, because
+      // a variant that exhausts its retries is dropped for the authored template. The list
+      // is also the loosest thing in readability.ts, holding "often", "usually" and
+      // "typically", which are ordinary words in a sentence about what is typical of a
+      // population, which is exactly what a bridge is required to be.
       const readability = readabilityScore(text, WRITER_MAX_SENTENCE_WORDS)
       for (const sentence of readability.longSentences) {
         const n = sentence.trim().split(/\s+/).filter(Boolean).length
