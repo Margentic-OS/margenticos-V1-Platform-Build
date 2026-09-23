@@ -320,3 +320,107 @@ Content is injected into the prompt after uploaded files and before web research
 - If `fetch_status = 'failed'`, check `error_message`: `timeout`, `http_403`, `fetch_error`, `invalid_url`
 - Many sites block headless fetches with 403. This is non-fatal — agents proceed without it.
 - Re-saving the `company_url` field in the intake form triggers a re-fetch.
+
+---
+
+## Getting back into intake after it is finished
+
+**What this does.** The client dashboard sidebar carries a permanent "Your answers" entry
+that opens `/intake`. It is on every client route, in every dashboard state.
+
+**Why it exists.** Until 2026-09-23 the only link to `/intake` anywhere in the product lived
+inside `IntakeIncompleteState`, the overview card shown while critical answers are still
+missing. It disappeared the moment the client crossed the completeness threshold. The route
+kept working and the answers stayed editable the whole time; there was simply nothing to
+click. A client who had finished intake could not reach their own answers.
+
+**Why the sidebar and not the overview cards.** The sidebar is the only chrome rendered on
+every client route in every state. Putting the link back on the overview would have meant one
+copy per state card, and the next state added to `DashboardState` would silently have none.
+The sidebar entry does not read the state, so it cannot go missing for one.
+
+**Nothing about permissions changed.** It is a link. Who may edit intake, and when, is
+exactly what it was.
+
+**The one subtlety: it does not carry `?client=`.** `/intake` resolves the CALLER's own
+organisation and ignores the query string (`src/app/intake/page.tsx` goes through
+`loadIntakeResponses` and `loadBuyerProfile`, both of which read the caller's own row in
+`users`). So an operator using "View as client" is sent to
+`/dashboard/operator/clients/<id>/intake`, the read-only view of that client's answers,
+instead. Carrying the param would have shown the operator their OWN editable intake form
+under the client's name.
+
+**What to check if it breaks:** `src/components/dashboard/Sidebar.tsx`, and
+`src/components/dashboard/__tests__/Sidebar.intake-link.test.tsx`, which asserts the entry
+renders in all three dashboard states and resolves the operator destination.
+
+---
+
+## The operator is told when a client changes an answer
+
+**What this does.** When a client changes an answer they had ALREADY GIVEN, on either intake
+path, the operator gets one email saying what moved, from what to what, and which live
+strategy documents are now flagged as possibly out of date.
+
+**It regenerates nothing.** The email says so in as many words. An intake edit marks
+documents and stops, per ADR-047 and the header of
+`src/lib/intake/flag-stale-documents.ts`. Replacing copy a client has already seen with copy
+they have not is the failure the whole mechanism exists to avoid.
+
+**A first save is not an edit and does not notify.** The form saves on blur, so a client
+filling it in for the first time produces a save per question. Notifying on those would email
+the operator once per question and send them to look at documents nothing had invalidated,
+and an operator sent to look at documents that are fine learns to stop looking. Both paths
+already made that decision for the staleness flagging and the notification rides the same
+decision: `isIntakeAnswerEdit` returns false for a null previous, and
+`changedBuyerProfileFields` returns nothing for a null previous ROW (not an empty profile,
+which is a different state).
+
+**What connects to what:**
+
+| Piece | File |
+|---|---|
+| Intake answers save path | `src/app/intake/actions.ts` |
+| Buyer-targeting save path | `src/app/intake/buyer-profile-actions.ts` |
+| Flagging, and what it flagged | `src/lib/intake/flag-stale-documents.ts` |
+| Rendering a change for a human | `src/lib/intake/answer-change.ts` |
+| Resolving recipient and sending | `src/lib/intake/notify-intake-edit.ts` |
+| The email itself | `src/lib/email/templates/client-revision-notify.ts` |
+
+`flagDocumentsStaleForIntakeEdit` RETURNS the documents it moved from live to stale, and the
+email reports that. It is deliberately not recomputed from `documentsAffectedBy()` at the
+call site: that would be a second answer to one question and would name documents that were
+already stale, or that do not exist for the client.
+
+**It goes through `sendTransactionalEmailWithDedup`**, so it inherits the claim-and-release
+behaviour fixed in `af594db` on 2026-09-21: a failed send gives its claim back instead of
+blocking its own retry for ever.
+
+**The dedup key is derived from the CONTENT of the change**, not from the field key. Keying
+on the field would send one email per question for ever. `intake_responses.version` looks
+like the right key and is not: it is `DEFAULT 1` and nothing increments it (verified on the
+live catalog 2026-09-23, where the only trigger on that table is `set_updated_at`).
+Accepted consequence: a client who changes an answer A to B, back to A, and to B again
+derives the first key a second time and the third notification is suppressed. By then the
+documents are already stale from the first edit, so the suppressed email is the one that
+would have said "nothing was newly flagged".
+
+**No value in this email may render as the word "null".** `validateEmailContent` refuses any
+email containing `null`, `undefined` or `NaN`, and the operator audience is exempt from the
+STYLE rules only, never from those RENDERING checks. `BuyerProfile` holds real nulls that are
+not bugs: `signoff_required` is `boolean | null` where null means "not answered" and is a
+different state from false. Everything is pre-rendered by `answer-change.ts`, which spells
+them out in words.
+
+**Known limit.** A client whose own free-text answer contains the word "null", "undefined" or
+"NaN" produces an email the validator refuses. It fails closed and loudly: the send is
+recorded in `email_delivery_failures` and MON-030 reads that table on every sweep, and the
+document flagging has already happened, so the flag is not lost with the mail. Rewriting the
+client's own words inside a quote would be worse.
+
+**What to check if the operator is not getting these:**
+- Is there a row in `users` with `role = 'operator'` and an email? The recipient comes from
+  that lookup, not from `RESEND_OPERATOR_EMAIL`.
+- `email_delivery_failures` for a refused send, and the MON-030 tile on the operator monitor.
+- `notifications_log` for `notification_type = 'client_intake_answer_changed'`. A row means a
+  claim was taken; a failed send should have deleted it again.
