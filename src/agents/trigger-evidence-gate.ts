@@ -75,16 +75,53 @@ const RECORD_FIGURE_LABELS: ReadonlySet<string> = new Set([
  * detector that has never been wrong yet has also never been tested.
  */
 const EVIDENCE_ABSENCE_PATTERNS: ReadonlyArray<{ pattern: RegExp; label: string }> = [
-  { pattern: /\bno\s+(?:\w+\s+){0,3}(?:posts?|content|updates?|announcements?|roles?|listings?|mentions?|activity|change|wins?|news)\b/i, label: 'says there is none of something' },
-  { pattern: /\blists?\s+no\b/i,                                    label: 'says a page lists nothing' },
-  { pattern: /\bwith\s+no\s+\w+/i,                                 label: 'says something is missing' },
-  { pattern: /\bnot\s+(?:been\s+)?(?:updated|active|listed|published|posted)\b/i, label: 'says something has not happened' },
-  { pattern: /\b(?:no\s+longer|never)\s+\w+/i,                     label: 'says something stopped or never happened' },
-  { pattern: /\b(?:stale|absent|missing|dormant|inactive)\b/i,       label: 'names something as stale or absent' },
-  { pattern: /\bmarked\s+(?:closed|expired|filled)\b/i,             label: 'says a listing closed' },
+  // WIDENED 2026-09-23 AFTER MISSING THREE. The first version listed the NOUNS an absence
+  // could attach to (posts, content, roles...), built from the six examples on hand. It then
+  // missed "but no clear call-to-action", "but no visible lead capture" and "have no system
+  // converting that attention" — the same claim with nouns nobody had thought of.
+  //
+  // A closed noun list is the wrong shape for this: "no" followed by a noun phrase is an
+  // absence whichever noun it is. Verified against every clean evidence item on file, none
+  // of which contains the word "no" at all, so the wider pattern costs nothing.
+  { pattern: /\bno\s+\w+/i,                                          label: 'says there is none of something' },
+  { pattern: /\bwithout\s+\w+/i,                                     label: 'says something is missing' },
+  { pattern: /\bnot\s+(?:been\s+)?(?:updated|active|listed|published|posted|visible)\b/i, label: 'says something has not happened' },
+  { pattern: /\b(?:no\s+longer|never)\s+\w+/i,                      label: 'says something stopped or never happened' },
+  { pattern: /\b(?:stale|absent|missing|dormant|inactive)\b/i,        label: 'names something as stale or absent' },
+  { pattern: /\bmarked\s+(?:closed|expired|filled)\b/i,              label: 'says a listing closed' },
   { pattern: /\b(?:more than|over|at least)\s+\w+\s+(?:months?|years?)\s+ago\b/i, label: 'dates something by how long since it happened' },
-  { pattern: /\bsince\b[^.]{0,30}\b(?:nothing|none)\b/i,           label: 'says nothing since a date' },
+  { pattern: /\bsince\b[^.]{0,30}\b(?:nothing|none)\b/i,            label: 'says nothing since a date' },
 ]
+
+/**
+ * Record FIELDS named without a number.
+ *
+ * ═══ WHY findFirmographicFigures CANNOT DO THIS ══════════════════════════════
+ * Its headcount pattern is /\bheadcount\b[^.]{0,60}?\b\d+/ — the word NEAR A NUMBER. That
+ * is right for outbound copy, where a bare "headcount" is unwriteable anyway and only a
+ * figure can leak. It is wrong for evidence, where "a recent headcount reduction" names the
+ * field as the thing to go and look at, which is exactly the dependency the rule bans.
+ *
+ * MEASURED on the run of 2026-09-23 with the section hidden: the figure gate passed with
+ * zero faults, and two evidence items still told a researcher to read headcount.
+ */
+const RECORD_FIELD_PATTERNS: ReadonlyArray<{ pattern: RegExp; label: string }> = [
+  { pattern: /\bheadcount\b/i,                     label: 'names headcount' },
+  { pattern: /\brevenue\b/i,                       label: 'names revenue' },
+  { pattern: /\bfunding\b|\braised\b/i,            label: 'names funding' },
+  { pattern: /\bgrowth\s+rate\b|\bgrowth\s+%/i,    label: 'names a growth rate' },
+  { pattern: /\bstaff\s+count\b|\bemployee\s+count\b/i, label: 'names a staff count' },
+]
+
+/** Record fields named in one evidence line, with or without a number. */
+export function findRecordFields(text: string): Array<{ label: string; matched: string }> {
+  const out: Array<{ label: string; matched: string }> = []
+  for (const { pattern, label } of RECORD_FIELD_PATTERNS) {
+    const m = text.match(pattern)
+    if (m) out.push({ label, matched: m[0] })
+  }
+  return out
+}
 
 /** Absence hits in one evidence line. Report only: nothing acts on these. */
 export function findEvidenceAbsences(text: string): Array<{ label: string; matched: string }> {
@@ -103,8 +140,12 @@ export interface EvidenceFault {
   trigger: string
   /** The offending evidence item, verbatim. */
   evidence: string
-  /** 'figure' or 'absence'. */
-  kind: 'figure' | 'absence'
+  /**
+   * 'figure'       a number off the company record
+   * 'absence'      says there is none of something
+   * 'record_field' names a record field to go and read, with or without a number
+   */
+  kind: 'figure' | 'absence' | 'record_field'
   /** What matched: a firmographic label, or the span the absence detector found. */
   detail: string
 }
@@ -127,8 +168,20 @@ export function findEvidenceFaults(triggers: unknown): EvidenceFault[] {
         if (!RECORD_FIGURE_LABELS.has(label)) continue
         faults.push({ trigger_index: i + 1, trigger: triggerText, evidence: raw, kind: 'figure', detail: label })
       }
-      // ABSENCES ARE COUNTED, NOT BLOCKED. They are collected by findEvidenceAbsenceReport
-      // below rather than pushed here, so nothing downstream can act on them by accident.
+      // ABSENCES BLOCK SINCE 2026-09-23. They ran in report mode for one generation, which
+      // is what report mode is for: the counter was new and unmeasured, and the run it
+      // watched is what earned it a blocking role. It caught 9 of 9 real absence items on
+      // file with no false positive across every clean evidence item.
+      for (const hit of findEvidenceAbsences(raw)) {
+        faults.push({ trigger_index: i + 1, trigger: triggerText, evidence: raw, kind: 'absence', detail: hit.matched })
+      }
+      // RECORD FIELDS BLOCK. findFirmographicFigures needs the word near a NUMBER, which is
+      // right for copy and wrong for evidence: "a recent headcount reduction" names the
+      // field to go and read, and that is the dependency being banned. Measured on the
+      // hidden-section run, the figure gate passed clean while two items said exactly that.
+      for (const hit of findRecordFields(raw)) {
+        faults.push({ trigger_index: i + 1, trigger: triggerText, evidence: raw, kind: 'record_field', detail: hit.label })
+      }
     }
   })
   return faults
@@ -143,8 +196,13 @@ export function findEvidenceFaults(triggers: unknown): EvidenceFault[] {
  */
 export function evidenceFaultFeedback(faults: EvidenceFault[]): string {
   if (faults.length === 0) return ''
+  const WHAT: Record<string, string> = {
+    figure:       'a figure from the company record',
+    absence:      'an absence',
+    record_field: 'a field from the company record',
+  }
   const lines = faults.map(f =>
-    `  trigger ${f.trigger_index}, evidence "${f.evidence}" — names ${f.kind === 'figure' ? 'a figure from the company record' : 'an absence'} (${f.detail})`)
+    `  trigger ${f.trigger_index}, evidence "${f.evidence}" — names ${WHAT[f.kind]} (${f.detail})`)
   return [
     `${faults.length} evidence item(s) in the trigger list break a ban stated in HOW TO WRITE TRIGGERS.`,
     'Rewrite tier_1.triggers so none of them does. Everything else in the document stays as it is.',
