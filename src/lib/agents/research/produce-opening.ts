@@ -62,6 +62,8 @@ export interface ProduceOpeningInput {
    */
   selectedCandidateId?: string | null
   relevanceReason?: string | null
+  /** Why the selected finding beat the runner-up, from synthesis. One sentence. */
+  selectionReason?: string | null
   messagingContent: MessagingContent
   variantId: string
   /**
@@ -231,6 +233,7 @@ export async function produceOpening({
   candidates,
   selectedCandidateId,
   relevanceReason,
+  selectionReason,
   messagingContent,
   variantId,
   icpBuyerTitle,
@@ -390,6 +393,7 @@ export async function produceOpening({
     findings: buildFindingsBlock(candidates, {
       selectedCandidateId: selectedCandidateId ?? null,
       relevanceReason: relevanceReason ?? null,
+      selectionReason: selectionReason ?? null,
     }),
     findingsEvidence: buildFindingsEvidence(candidates),
     reference,

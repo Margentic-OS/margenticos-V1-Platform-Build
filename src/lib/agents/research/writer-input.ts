@@ -1,5 +1,5 @@
-// The three fields synthesis hands the writer: the candidates, the one it selected, and why
-// its material was judged relevant.
+// The four fields synthesis hands the writer: the candidates, the one it selected, why its
+// material was judged relevant, and why that candidate beat the runner-up.
 //
 // ONE MAPPING FOR EVERY CALLER: the inline agent, phase 2 of the batch path and
 // scripts/export-writer-run.ts. Three call sites spelling it out separately is how the export
@@ -13,11 +13,16 @@ import type { ProduceOpeningInput } from './produce-opening'
 import type { SynthesisOutput } from './types'
 
 export function writerInputFromSynthesis(
-  synthesis: Pick<SynthesisOutput, 'candidates' | 'selected_candidate_id' | 'relevance_reason'>,
-): Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason'> {
+  synthesis: Pick<SynthesisOutput, 'candidates' | 'selected_candidate_id' | 'relevance_reason'> &
+    Partial<Pick<SynthesisOutput, 'selection_reason'>>,
+): Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason' | 'selectionReason'> {
   return {
     candidates: synthesis.candidates,
     selectedCandidateId: synthesis.selected_candidate_id,
     relevanceReason: synthesis.relevance_reason,
+    // OPTIONAL ON THE INPUT, not on the output. A caller that predates the field passes a
+    // synthesis without it and gets null, which is what a run that recorded no choice looks
+    // like. Required here would have meant every test fixture growing a field to say nothing.
+    selectionReason: synthesis.selection_reason ?? null,
   }
 }

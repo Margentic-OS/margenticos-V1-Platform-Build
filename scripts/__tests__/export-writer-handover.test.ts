@@ -60,6 +60,8 @@ const stored = (relevance_reason: string | null, selectedCandidateId: string | n
   signal_observation: null,
   relevance_reason,
   selected_candidate_id: selectedCandidateId,
+  selection_reason: null,
+  selection_basis: null,
 })
 
 describe('the export hands the writer what a production reuse run hands it', () => {

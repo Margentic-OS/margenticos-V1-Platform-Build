@@ -351,18 +351,22 @@ interface ProspectRecord {
 export interface WriterHandover {
   selected_candidate_id: string | null
   relevance_reason: string | null
+  /** Why the chosen candidate beat the runner-up. Null on a run that recorded no choice. */
+  selection_reason: string | null
   findings_block: string
 }
 
 export function describeHandover(
-  input: Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason'>,
+  input: Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason' | 'selectionReason'>,
 ): WriterHandover {
   const selectedCandidateId = input.selectedCandidateId ?? null
   const relevanceReason = input.relevanceReason ?? null
+  const selectionReason = input.selectionReason ?? null
   return {
     selected_candidate_id: selectedCandidateId,
     relevance_reason: relevanceReason,
-    findings_block: buildFindingsBlock(input.candidates, { selectedCandidateId, relevanceReason }),
+    selection_reason: selectionReason,
+    findings_block: buildFindingsBlock(input.candidates, { selectedCandidateId, relevanceReason, selectionReason }),
   }
 }
 
@@ -381,7 +385,7 @@ export async function writerInputForStored(
   stored: NonNullable<Awaited<ReturnType<typeof loadStoredFindings>>>,
   ctx: ProspectContext,
   clientId: string,
-): Promise<Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason'>> {
+): Promise<Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason' | 'selectionReason'>> {
   return writerInputFromSynthesis(await synthesisFromStored(stored, ctx, clientId))
 }
 

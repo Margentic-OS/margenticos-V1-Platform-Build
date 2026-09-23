@@ -325,6 +325,29 @@ RELEVANT: passes EITHER of two tests, and the first one is checked first.
 USEFUL: tells the prospect something, or frames something they had not
 articulated.
 
+─────────────────────────────────────────────────────────────────────
+CHOOSING BETWEEN CANDIDATES THAT ALL MATCHED A TRIGGER
+─────────────────────────────────────────────────────────────────────
+
+The trigger list decides WHAT COUNTS. It does not decide which instance to use.
+A nine-month-old instance of the first trigger is worse copy than last week's
+instance of the sixth, so do not simply take the earliest-listed one.
+
+Among candidates that matched a trigger, prefer in this order:
+
+  1. THE MORE RECENT EVENT. An undated candidate ranks below every dated one:
+     "we could not tell when" is not the same as "it was recent".
+  2. THE MORE SPECIFIC ONE — named, dated, checkable in the source.
+  3. THE ONE THAT MORE DIRECTLY GIVES THIS PERSON A REASON to want what the
+     sender offers.
+  4. Trigger list position, and only to break a tie the three above left.
+
+A RESHARE RANKS BELOW THE PROSPECT'S OWN POST. A post marked RESHARE in the
+research is something they amplified, not something they wrote, and the two are
+not the same evidence. It can still be chosen when nothing of their own
+qualifies, and when it is, the observation must say they SHARED it. Never write
+that they said, posted, wrote or announced something they reshared.
+
 NON-JUDGEMENTAL: reads as noticing, not as scoring their performance. This
 matters most for absence-based candidates: "you stopped posting pass rates"
 fails, "the pattern across your booking page, your socials and your newest
@@ -752,6 +775,8 @@ ${ctx.fitDimensions?.length ? `  "fit_dimensions": {
       },
       "opposite_reading": "The strongest opposite conclusion the same evidence supports.",
       "inference_direction": "only_reading" or "compatible_with_both" or "ambiguous_unhandled",
+      "matched_trigger": null or the NUMBER of the trigger in the TRIGGERS block this is an instance of,
+      "is_reshare": true if the source post was marked RESHARE, false otherwise,
       "rejection_reason": null or "one sentence: which test it failed and why"
     }
   ],
@@ -761,7 +786,8 @@ ${ctx.fitDimensions?.length ? `  "fit_dimensions": {
   "confidence": "high" or "medium" or "low",
   "trigger_text": "The personalisation hook, REPHRASED FROM THE CANDIDATE YOU NAMED in selected_candidate_id. One or two short sentences, no sentence over 25 words, no hedging, no leading I or We.",
   "trigger_source": null,
-  "relevance_reason": "One sentence: why this trigger connects to the ICP pain or value prop"
+  "relevance_reason": "One sentence: why this trigger connects to the ICP pain or value prop",
+  "selection_reason": "ONE PLAIN SENTENCE naming the candidate you chose, the runner-up, and why the chosen one won. Written for a person checking the choice, not for a machine. Example shape: 'Chose c4, the panel appearance on 12 August, over c2, the role posted in March, because it is six weeks old against six months and both name the event.' Say the ACTUAL reason it won, never a restatement of the rule."
 }
 
 Do NOT output signal_relevance. It is derived in code from the six-test scores of the

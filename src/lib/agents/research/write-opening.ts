@@ -307,12 +307,19 @@ First, the observation: the thing you noticed about this specific person. You ca
 they posted, what they published, who they hired, where they spoke, what roles they have
 held and when. Say one of those.
 
+A FINDING MARKED [SHARED, NOT THEIRS] IS SOMETHING THEY PASSED ON, NOT SOMETHING THEY
+WROTE. Say they shared it. Never write that they said it, posted it, wrote it, announced it
+or argued it. Attributing somebody else's words to the reader is the one mistake in this
+email they are certain to notice, and they will be right.
+
 Second, the bridge: its own paragraph and ONE sentence, stating THE REASON the observation
 gives this person to want what the sender offers.
 
 THE REASON IS SUPPLIED TO YOU. Synthesis names it in the ASSIGNMENT block, derived from the
-client's own documents. Your job is to state it in a sentence this reader would accept, not
-to work out for yourself what the fact implies.
+client's own documents. Where a WHY THIS ONE line appears under the findings, it says what
+made the selected finding the one worth writing about, and that is the reason your bridge
+states. Your job is to put it in a sentence this reader would accept, not to work out for
+yourself what the fact implies.
 
 IT MUST BE TRUE WHATEVER THEIR SITUATION. This is the whole test for the sentence. Write it
 as something that follows from the observation for anyone it describes, and never as a claim
@@ -1601,6 +1608,13 @@ export function buildFindingsBlock(
     selectedCandidateId?: string | null
     /** Why synthesis judged this prospect's material relevant. One sentence, per result. */
     relevanceReason?: string | null
+    /**
+     * Why the selected finding beat the runner-up. One sentence, per result. Empty where
+     * there was only one candidate to choose from, and empty on rows written before the
+     * field existed, in which case the writer sees the relevance reason alone as it always
+     * did rather than a line saying a choice was not recorded.
+     */
+    selectionReason?: string | null
   } = {},
 ): string {
   const ranked = [...candidates].sort((a, b) => b.score_total - a.score_total)
@@ -1609,10 +1623,14 @@ export function buildFindingsBlock(
   const body = ranked
     .map((c, i) => {
       const mark = c.id === opts.selectedCandidateId ? ' [SELECTED BY SYNTHESIS]' : ''
+      // A reshare is somebody else's post that this person amplified. The writer cannot tell
+      // that from the observation text, and getting it wrong puts another person's words in
+      // the reader's mouth, so it is marked rather than left to be inferred.
+      const shared = c.is_reshare ? ' [SHARED, NOT THEIRS]' : ''
       const counter = c.opposite_reading
         ? `\n   counter-reading (${c.inference_direction}): ${c.opposite_reading}`
         : '\n   counter-reading: none supplied, so this finding\'s conclusion is unhandled'
-      return `${i + 1}.${mark} ${c.observation}\n   source: ${c.source} | ${c.provenance || 'no provenance'}${counter}`
+      return `${i + 1}.${mark}${shared} ${c.observation}\n   source: ${c.source} | ${c.provenance || 'no provenance'}${counter}`
     })
     .join('\n')
 
@@ -1620,7 +1638,11 @@ export function buildFindingsBlock(
     ? `\n\nWhy this material was judged relevant to what the client solves: ${opts.relevanceReason.trim()}`
     : ''
 
-  return `${body}${reason}`
+  const chose = opts.selectionReason?.trim()
+    ? `\nWHY THIS ONE: ${opts.selectionReason.trim()}`
+    : ''
+
+  return `${body}${reason}${chose}`
 }
 
 // ─── Model calls ─────────────────────────────────────────────────────────────
@@ -1841,6 +1863,8 @@ export interface WriteAndJudgeParams {
   selectedCandidateId?: string | null
   /** Synthesis's one-sentence reason this material connects to what the client solves. */
   relevanceReason?: string | null
+  /** Why the selected finding beat the runner-up. One sentence. Optional; see buildFindingsBlock. */
+  selectionReason?: string | null
   p3: string
   cta: string
   /**
@@ -1992,6 +2016,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // the gates substring-match the written opening against their corpus, so the counter-
   // readings must not be in it or a name appearing only there becomes traceable.
   const findings = buildFindingsBlock(params.candidates, {
+    selectionReason: params.selectionReason ?? null,
     selectedCandidateId: params.selectedCandidateId ?? null,
     relevanceReason:     params.relevanceReason ?? null,
   })

@@ -123,6 +123,27 @@ export interface CandidateReadability {
   reasons: string[]
 }
 
+/** What the deterministic ordering actually did, recorded beside what the model said about it. */
+export interface SelectionBasis {
+  chosen_id: string
+  runner_up_id: string | null
+  /** The ranked order of every hook-eligible candidate, best first. */
+  ranked_ids: string[]
+  /** What pure trigger-list position would have chosen. null when nothing matched a trigger. */
+  position_only_id: string | null
+  /** True when the ordering chose something list position alone would not have. */
+  differs_from_position_only: boolean
+  chosen_basis: {
+    matched: boolean
+    own_post: boolean
+    days_old: number | null
+    specificity: number
+    reason_strength: number
+    trigger_position: number | null
+  }
+  runner_up_basis: SelectionBasis['chosen_basis'] | null
+}
+
 export interface ObservationCandidate {
   /** Stable id within this run: c1, c2, ... */
   id: string
@@ -139,6 +160,26 @@ export interface ObservationCandidate {
   date: string | null
   /** True when the candidate combines several smaller items into one pattern. */
   is_composite: boolean
+  /**
+   * 1-based position in THIS CLIENT'S trigger list, when the model judged the candidate an
+   * instance of one. null when it matched none, which is not a rejection: a candidate can
+   * still be relevant through the push forces.
+   *
+   * NEVER stored as the trigger's text. The list is per client and changes when the ICP is
+   * revised, so a position recorded against one version means nothing against the next. It is
+   * used to break ties within one run and not read back afterwards.
+   *
+   * OPTIONAL BECAUSE STORED CANDIDATES PREDATE IT. Rows in prospect_research_results written
+   * before 2026-09-23 have neither field, and the reuse path reads those rows back through
+   * this same type. Missing reads as "matched none" and "their own post", which is how those
+   * candidates were ranked when they were written.
+   */
+  matched_trigger?: number | null
+  /**
+   * True when the underlying post was somebody else's, amplified by the prospect. It is not
+   * their event, so it ranks below their own, and the observation has to say they SHARED it.
+   */
+  is_reshare?: boolean
   scores: CandidateScores
   /** Derived in code from scores, never trusted from the model. */
   passes_all: boolean
@@ -263,6 +304,20 @@ export interface SynthesisOutput {
   candidates:            ObservationCandidate[]
   /** id of the selected candidate, or null when nothing cleared the bar. */
   selected_candidate_id: string | null
+  /**
+   * ONE PLAIN SENTENCE naming the chosen candidate, the runner-up, and why the chosen one
+   * won. For a person checking the choice, so it is written by the model rather than
+   * assembled from the ordering: the ordering is already recorded in selection_basis, and a
+   * sentence that only restated it would tell a reader nothing they could not see.
+   * Empty when there was no choice to make (no candidates, or only one).
+   */
+  selection_reason: string
+  /**
+   * What the ORDER was, measured here rather than claimed. Says which candidate won, which
+   * came second, and the rank basis of each, so a selection_reason that does not match the
+   * arithmetic is visible instead of believed.
+   */
+  selection_basis: SelectionBasis | null
   /** Deterministic readability verdict on trigger_text, the string that reaches the email. */
   trigger_readability:   CandidateReadability
   /**
@@ -498,6 +553,9 @@ export interface ResearchResult {
   recorded_source_failures: Array<{ source: string; error: string }>
   candidates: ObservationCandidate[]
   selected_candidate_id: string | null
+  /** The sentence about the choice, and the ordering behind it. Null when there was no choice. */
+  selection_reason: string | null
+  selection_basis: SelectionBasis | null
   trigger_readability: CandidateReadability
   demotion_reason: string | null
   /**

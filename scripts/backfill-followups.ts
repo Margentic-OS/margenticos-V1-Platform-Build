@@ -224,6 +224,7 @@ async function main() {
       findings: buildFindingsBlock(writerInput.candidates, {
         selectedCandidateId: writerInput.selectedCandidateId ?? null,
         relevanceReason: writerInput.relevanceReason ?? null,
+        selectionReason: writerInput.selectionReason ?? null,
       }),
       findingsEvidence: buildFindingsEvidence(writerInput.candidates),
       reference,

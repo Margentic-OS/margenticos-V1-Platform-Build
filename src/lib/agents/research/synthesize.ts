@@ -18,13 +18,14 @@ import {
   FIT_CHECKS, FIT_CHECK_RESULTS, unknownFitChecks, readTokenUsage, addTokenUsage,
 } from './types'
 import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
+import { rankCandidates, byTriggerPositionOnly, type RankedCandidate } from './rank-candidates'
 import {
   readStoredFitDimensions, readDimensionAnswers, gradeFromDimensions, type FitDimension,
 } from './fit-dimensions'
 import type {
   IcpFit, FitChecks, ProspectContext, RawSourceData, SynthesisOutput,
   ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
-  CandidateReadability, InferenceDirection, TriggerSource,
+  CandidateReadability, InferenceDirection, TriggerSource, SelectionBasis,
 } from './types'
 
 const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
@@ -648,6 +649,14 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
     provenance,
     date: typeof o.date === 'string' && o.date.trim() ? o.date.trim() : null,
     is_composite: asBool(o.is_composite) || source === 'composite',
+    // POSITION, never the trigger's text. See ObservationCandidate.matched_trigger: the list
+    // is per client and per ICP version, so the text would be meaningless once it changes.
+    // Out-of-range or non-integer reads as "matched none" rather than being clamped: a
+    // position we cannot place is not a match we can rank on.
+    matched_trigger: Number.isInteger(o.matched_trigger) && (o.matched_trigger as number) >= 1
+      ? (o.matched_trigger as number)
+      : null,
+    is_reshare: asBool(o.is_reshare),
     scores,
     passes_all,
     score_total,
@@ -662,6 +671,46 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
   }
 }
 
+/**
+ * Whether two candidates are indistinguishable to the ordering. Used so the model's own
+ * preference can only break a tie the arithmetic left, never overturn it.
+ */
+function sameRankBasis(a: RankedCandidate['rank_basis'], b: RankedCandidate['rank_basis']): boolean {
+  return a.matched === b.matched
+    && a.own_post === b.own_post
+    && a.days_old === b.days_old
+    && a.specificity === b.specificity
+    && a.reason_strength === b.reason_strength
+    && a.trigger_position === b.trigger_position
+}
+
+/**
+ * RECORDS WHAT THE ORDERING DID, so the model's sentence about it can be checked rather
+ * than believed. position_only_id is what the client's list order alone would have picked,
+ * computed over the SAME eligible set, which is the only fair comparison: the point is what
+ * the new criteria changed, not what a different eligibility rule would have admitted.
+ */
+function buildSelectionBasis(
+  winner: RankedCandidate,
+  ranked: RankedCandidate[],
+  eligible: ObservationCandidate[],
+): SelectionBasis {
+  const runnerUp = ranked.find(c => c.id !== winner.id) ?? null
+  const positionOnly = byTriggerPositionOnly(eligible)[0] ?? null
+  return {
+    chosen_id: winner.id,
+    runner_up_id: runnerUp?.id ?? null,
+    ranked_ids: ranked.map(c => c.id),
+    position_only_id: positionOnly?.id ?? null,
+    // No candidate matched a trigger at all means list position had no opinion, which is
+    // not the same as agreeing with the ordering. Reported as no difference, and the null
+    // position_only_id beside it says why.
+    differs_from_position_only: positionOnly != null && positionOnly.id !== winner.id,
+    chosen_basis: winner.rank_basis,
+    runner_up_basis: runnerUp?.rank_basis ?? null,
+  }
+}
+
 // Selection rule, per FIX A3, extended with the readability and inference-direction
 // gates. Returns the winner, the relevance grade it earns, and why anything was demoted.
 //
@@ -673,7 +722,13 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
 function selectCandidate(
   candidates: ObservationCandidate[],
   modelPreferredId: string | null,
-): { winner: ObservationCandidate | null; relevance: SignalRelevance; demotionReason: string | null } {
+  now: Date = new Date(),
+): {
+  winner: ObservationCandidate | null
+  relevance: SignalRelevance
+  demotionReason: string | null
+  basis?: SelectionBasis | null
+} {
   if (candidates.length === 0) {
     return { winner: null, relevance: 'no_signal', demotionReason: null }
   }
@@ -688,16 +743,27 @@ function selectCandidate(
     // how those candidates were selected when they were written. Complete candidates, which is
     // every freshly parsed one, are unaffected.
     .filter(c => !c.readability?.hard_fail && c.inference_direction !== 'ambiguous_unhandled')
-    // Lower readability penalty first: of two legal sentences, the plainer one wins.
-    .sort((a, b) => (a.readability?.penalty ?? 0) - (b.readability?.penalty ?? 0))
 
   if (hookEligible.length > 0) {
-    const preferred = hookEligible.find(c => c.id === modelPreferredId)
-    // Honour the model's pick only when it is no less readable than the best alternative.
-    const winner = preferred && (preferred.readability?.penalty ?? 0) === (hookEligible[0].readability?.penalty ?? 0)
+    // THE TRIGGERS DECIDED WHAT COUNTS; THIS DECIDES WHICH ONE. rankCandidates orders by
+    // recency, then specificity, then how directly the event gives this person a reason,
+    // with the client's list position as a tie-break only. Readability penalty is the last
+    // tie-break below all of that: "of two legal sentences the plainer one wins" is still
+    // true, it is just no longer allowed to outrank a fresher event.
+    const ranked = rankCandidates(hookEligible, now, c => c.readability?.penalty ?? 0)
+    const preferred = ranked.find(c => c.id === modelPreferredId)
+    // Honour the model's pick only when the arithmetic cannot separate it from the winner.
+    // Anything looser lets the model overturn the ordering, which is the defect this
+    // replaces rather than a preference to respect (ADR-018).
+    const winner = preferred && sameRankBasis(preferred.rank_basis, ranked[0].rank_basis)
       ? preferred
-      : hookEligible[0]
-    return { winner, relevance: 'use_as_hook', demotionReason: null }
+      : ranked[0]
+    return {
+      winner: hookEligible.find(c => c.id === winner.id) ?? null,
+      relevance: 'use_as_hook',
+      demotionReason: null,
+      basis: buildSelectionBasis(winner, ranked, hookEligible),
+    }
   }
 
   // Every six-out-of-six candidate was blocked by a gate. Record why before falling through.
@@ -711,10 +777,21 @@ function selectCandidate(
     .filter(c => c.scores?.specific && c.scores?.verifiable && c.scores?.relevant)
     .sort((a, b) => b.score_total - a.score_total)
   if (partial.length > 0) {
-    const preferred = partial.find(c => c.id === modelPreferredId)
-    // Prefer the model's pick only when it is at least as strong as the best partial.
-    const best = preferred && preferred.score_total === partial[0].score_total ? preferred : partial[0]
-    return { winner: best, relevance: 'mention_only', demotionReason }
+    // Same ordering among the partials that tie on score_total. Score total leads here
+    // because a mention_only winner is chosen for being the strongest thing we have, and
+    // the ranking then separates equals the way it does at tier 1.
+    const top = partial.filter(c => c.score_total === partial[0].score_total)
+    const rankedPartial = rankCandidates(top, now, c => c.readability?.penalty ?? 0)
+    const preferred = rankedPartial.find(c => c.id === modelPreferredId)
+    const best = preferred && sameRankBasis(preferred.rank_basis, rankedPartial[0].rank_basis)
+      ? preferred
+      : rankedPartial[0]
+    return {
+      winner: partial.find(c => c.id === best.id) ?? null,
+      relevance: 'mention_only',
+      demotionReason,
+      basis: buildSelectionBasis(best, rankedPartial, partial),
+    }
   }
 
   // Nothing cleared the bar. Failing closed is correct.
@@ -910,8 +987,16 @@ function parseSynthesisResponse(
     ? parsed.selected_candidate_id.trim()
     : null
 
-  const { winner, relevance: selectedRelevance, demotionReason } =
+  const { winner, relevance: selectedRelevance, demotionReason, basis } =
     selectCandidate(candidates, modelPreferredId)
+
+  // The model's sentence about the choice, kept only when there WAS a choice and only when
+  // the ordering actually reached a winner. A sentence explaining a selection that did not
+  // happen would read as a decision on the reading file where there was none.
+  const selection_reason = basis && basis.runner_up_id
+    && typeof parsed.selection_reason === 'string' && parsed.selection_reason.trim()
+    ? parsed.selection_reason.trim()
+    : ''
 
   const qualification_status = (['qualified', 'flagged_for_review', 'disqualified'] as const)
     .find(s => s === parsed.qualification_status) ?? 'qualified'
@@ -983,6 +1068,8 @@ function parseSynthesisResponse(
     reasoning,
     candidates,
     selected_candidate_id: winner?.id ?? null,
+    selection_reason,
+    selection_basis: basis ?? null,
     trigger_readability,
     demotion_reason,
   }
@@ -1048,6 +1135,8 @@ function buildFallbackSynthesis(
     reasoning,
     candidates: [],
     selected_candidate_id: null,
+    selection_reason: '',
+    selection_basis: null,
     // Measured on the proxy so the audit row still records its readability.
     trigger_readability: toCandidateReadability(readabilityScore(icp_pain_proxy)),
     demotion_reason: null,
