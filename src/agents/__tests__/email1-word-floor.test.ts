@@ -13,7 +13,7 @@ const COMPANY = 'MargenticOS'
 
 // Ordinary words: no firmographics, no jargon, no banned AI words, no demonstratives
 // binding a noun, no ampersands.
-const FILLER = 'pipeline work slows when the founder runs every conversation without help'.split(' ')
+const FILLER = 'work slows down when the boss runs every call with help'.split(' ')
 
 /** A sentence of exactly `n` words, under the 25-word cap at every size used here. */
 function sentenceOf(n: number): string {

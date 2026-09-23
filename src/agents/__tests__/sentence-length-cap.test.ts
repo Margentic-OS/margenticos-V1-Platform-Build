@@ -17,8 +17,11 @@ const SENDER = 'Doug'
 const COMPANY = 'MargenticOS'
 
 // Words that trip nothing else in the validator: no firmographic figures, no jargon, no
-// banned AI words, no ampersands, no demonstratives binding a noun.
-const FILLER = 'pipeline work slows down when the founder runs every conversation without help'.split(' ')
+// banned AI words, no ampersands, no demonstratives binding a noun. Also deliberately
+// PLAIN: the reading-grade gate rejects an email over grade 5, so a filler carrying
+// "pipeline", "founder" and "conversation" would fail this fixture on vocabulary and
+// break the pair below for a reason that has nothing to do with sentence length.
+const FILLER = 'work slows down when the boss runs every call with no help'.split(' ')
 
 /** One sentence of exactly `n` words, ending in a full stop. */
 function sentenceOf(n: number): string {
@@ -40,7 +43,7 @@ function emailWithSentence(n: number): EmailRecord {
     '',
     // ONE offer paragraph. Two would make this a five-paragraph document, and the second
     // would be read as the slot's consequence and gated for being one sentence.
-    'Referrals still land but the gaps between quarters grow wider. Nothing runs in the background while delivery takes over. Pipeline builds ahead of the gap instead of after it.',
+    'Work builds ahead of the gap instead of after it. Nothing runs in the back while the team ships. New calls turn up before the gap, not after it.',
     '',
     'Worth a look?',
     '',
@@ -135,7 +138,7 @@ describe('the scanned surface excludes the merge tag and the sign-off', () => {
     expect(prose).not.toContain('{{first_name}}')
     expect(prose.split('\n').map(l => l.trim())).not.toContain(SENDER)
     expect(prose.split('\n').map(l => l.trim())).not.toContain(COMPANY)
-    expect(prose).toContain('Pipeline builds ahead of the gap')
+    expect(prose).toContain('Work builds ahead of the gap')
   })
 
   it('a 25-word sentence would fail if the greeting were left attached to it', () => {
