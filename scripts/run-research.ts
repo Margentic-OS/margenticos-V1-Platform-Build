@@ -54,6 +54,8 @@ function usage(message: string): never {
   console.error('  --ids                       comma-separated prospect ids. Overrides --scope.')
   console.error('  --fresh                     fetch every source again instead of reusing findings on file.')
   console.error('  --allow-overwrite-trigger   permit overwriting copy that already exists. Read the header.')
+  console.error('  --runtime-budget <seconds>  raise the 240s admission budget. CLI only; the 240s default')
+  console.error('                              guards a Vercel 300s limit a command line does not have.')
   console.error('')
   console.error(`  At most ${RESEARCH_MAX_PROSPECTS} prospects per run, and fewer when sources must be fetched.`)
   console.error('')
@@ -77,6 +79,15 @@ async function main() {
 
   const useStoredFindings = !flag('fresh')
   const allowOverwriteTrigger = flag('allow-overwrite-trigger')
+
+  // CLI-ONLY RUNTIME BUDGET. See ResearchBatchEntryInput.runtime_budget_seconds: the 240s
+  // default guards a Vercel 300s function limit that a command line does not have. Same
+  // shape as --allow-overwrite-trigger above, and for the same reason.
+  const budgetRaw = arg('runtime-budget')
+  const runtimeBudgetSeconds = budgetRaw === undefined ? undefined : Number(budgetRaw)
+  if (runtimeBudgetSeconds !== undefined && (!Number.isFinite(runtimeBudgetSeconds) || runtimeBudgetSeconds <= 0)) {
+    usage(`--runtime-budget must be a positive number of seconds, got "${budgetRaw}".`)
+  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -108,6 +119,7 @@ async function main() {
     scope,
     prospect_ids: prospectIds,
     use_stored_findings: useStoredFindings,
+    ...(runtimeBudgetSeconds !== undefined ? { runtime_budget_seconds: runtimeBudgetSeconds } : {}),
     allow_overwrite_trigger: allowOverwriteTrigger,
   })
 

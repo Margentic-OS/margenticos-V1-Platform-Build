@@ -80,9 +80,36 @@ export const OPENING_MAX_WORDS = 67
  */
 export const OPENING_BUDGET = {
   observation: 22,
-  bridge:      22,
+  bridge:      15,
   question:    14,
 } as const
+
+/**
+ * The writer's OWN per-sentence cap, for the observation and the bridge only.
+ *
+ * NOT MAX_SENTENCE_WORDS. That one is 25, it lives in readability.ts, and synthesis and
+ * the messaging agent both read it; moving it would change three things at once. This is
+ * the writer's, and readabilityScore already takes the cap as a parameter, so the writer
+ * gets its own limit without touching the shared one.
+ *
+ * WHY A WRITER CAP AT ALL. Measured on the 84-prospect cohort of 2026-09-21: 135 sentences
+ * across the 58 stored observations, mean 16.8 words, none over 25, and 40 of 135 sitting at
+ * 21 to 25, directly under the ceiling. The writer treats the budget as a target, and words
+ * per sentence is the term the Flesch-Kincaid grade turns on, so the ceiling is what moves it.
+ *
+ * WHY 18 AND NOT 15. 15 was tried first and MEASURED END TO END on 2026-09-22, on that same
+ * 84. It was too tight: the template rate went to 31 to 38 percent, there were 135
+ * sentence-length rejections, and good bridges of 17 and 19 words were lost to it. A prospect
+ * that exhausts its retries ships the approved template instead of personalised copy, so a
+ * cap that rejects at that rate buys grade by spending the thing the writer exists to produce.
+ * 18 was the agreed fix: still well under the 25 the writer was treating as a target, and
+ * above the 16.8-word mean it actually writes at.
+ *
+ * THE PROMPT STATES THIS SAME NUMBER. A gate the prompt contradicts spends retries on a
+ * rule the writer was never told, and a prospect that exhausts its retries ships the
+ * approved template instead.
+ */
+export const WRITER_MAX_SENTENCE_WORDS = 18
 
 /** The sum of the per-part targets. What the prompt aims at, not what the gate enforces. */
 export const OPENING_TARGET_WORDS =
@@ -269,20 +296,12 @@ The approved question for this particular variant is named in the ASSIGNMENT blo
 there to show you REGISTER AND LENGTH: one question, about ${OPENING_BUDGET.question} words,
 answerable yes or no, about the problem in the reader's own terms. It is not a menu.
 
-Your default is to WRITE a question for this prospect. Using the approved question verbatim
-is permitted only when it genuinely is the right question for this person, which will be
-rare, because a question written for the problem you just named will almost always beat a
-generic one. Twelve prospects came back and six of them carried the same approved question
-word for word. That is what happens when register anchors get read as a shortlist, and it
-undoes the work the observation and the bridge just did.
-
-And no two prospects in this batch may get the same closing question. If you are told your
-question is already taken, do not reword it slightly. Ask about a different aspect of the
-problem.
-
-THE QUESTION MUST ASK ABOUT THE PROBLEM YOU JUST NAMED. This is where a fixed question
-used to go wrong, and the failure is worth reading:
-
+Your default is to WRITE a question for this prospect. Using the approved question
+verbatim is permitted only when it genuinely is the right question for this person,
+which will be rare.
+And no two prospects in this batch may get the same closing question. If you are told
+yours is already taken, ask about a different aspect of the problem.
+THE QUESTION MUST ASK ABOUT THE PROBLEM YOU JUST NAMED.
 FAILING, three rewrites running:
   bridge: "The product side builds an audience of browsers before it builds a pipeline of
    buyers."
@@ -296,20 +315,8 @@ CORRECTED, same bridge, asking about what was actually named:
   "Is turning browsers into the right kind of buyer something you're working on?"
 Same register, same length, and now it asks about the problem the email just described.
 
-THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT.
-
-This is the rule that matters most and the one most easily broken. You can see what they
-did. You cannot see their pipeline, their calendar, their marketing results, or whether
-any of it is working. Writing as though you can is presumptuous, it is frequently wrong,
-and anyone who reads a wrong claim about their own business stops reading.
-
-So the bridge may say what is TYPICALLY true of firms in this position. It may never say
-what IS true of this prospect's pipeline, diary, marketing or results.
-
-And never tell them something they are doing is not working. Their network, their events,
-their content, their brand may all be working perfectly. You have no way of knowing, and
-that is precisely the sentence that earns a defensive reply instead of a meeting.
-
+THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT. Say what is TYPICALLY true of
+firms in this position, never what IS true of this prospect, and never that they are failing.
 VERDICT, and this one is not just presumptuous but wrong:
   observation: "The hiring post for a new delivery role says the client load is real and
    growing."
@@ -324,10 +331,6 @@ PATTERN, corrected, and deliberately about a PRINT SHOP:
 Nothing here claims anyone's network has failed. It states what is true and stops, and it
 leaves the reader to decide whether it is happening to them.
 
-The corrected version used to be about a hire and a network, written from a real prospect's
-observation. A prospect in the next batch returned it almost word for word, which is the
-seventh time an example in this prompt has been copied. Presses and quotes belong to nobody
-in your batch, so the words cannot travel. Take the move.
 
 VERDICT again, invented outright:
   "Eleven years in, a firm that size fills its diary through relationships, and
@@ -347,12 +350,13 @@ waved away. A belief put in their mouth can only be argued with.
 
 THE BRIDGE STATES ONE TRUE THING. IT NEVER EXPLAINS WHY.
 
-The observations are finished. Every remaining problem in these emails is in the bridge, and
-they all have one cause: the bridge EXPLAINS when it should STATE.
-
-WORKS, and both of these say one true thing and then stop:
+WORKS, and it says one true thing and then stops:
   "The founders who need you next are not reading your feed yet."
-  "The next qualified sales conversation tends to wait for the next event."
+
+There was a second example here. It was DELETED on 2026-09-21, not lost: four of 84
+prospects shipped a bridge on its exact frame and six more on a one-clause variant of it.
+A worked example the writer copies verbatim stops being an example and becomes a template.
+A test pins it ABSENT so it cannot return silently.
 
 FAILS, and all three are causal constructions the reader has to assemble before they can
 agree with anything:
@@ -361,55 +365,20 @@ agree with anything:
    pipeline has to run on something else."
   "the follow-up after a public appearance rarely gets its own slot."
 
-NO CAUSAL CONSTRUCTIONS. No "when X, that tends to be Y". No "because". No condition the
-reader has to hold in their head while they resolve the consequence. Say the consequence
-flat, in a sentence of its own.
-
-ONE PLAIN SENTENCE BEATS ONE CONDITIONAL. The observation above has already stated the fact.
-The bridge does not state it again. The bridge states what follows, in ONE sentence, with no
-condition in front of it and no until, before, while or when clause trailing after it.
-
-DO NOT BUILD A CAUSAL CHAIN BACK TO THE OBSERVATION. The observation is sitting directly
-above the bridge, and the reader joins them without any help from you. Explaining the join
-is what produces the sentences nobody can parse.
+NO CAUSAL CONSTRUCTIONS. No "when X, that tends to be Y". No "because". The bridge is ONE
+sentence stating what follows, with no condition in front of it and no until, before, while
+or when clause trailing after it. Do not build a causal chain back to the observation.
 
 NEVER POINT BACK. NAME THE THING AGAIN.
-
-This is not the rule above wearing different words, and reading it as one is why the fault
-keeps shipping. The rule above is about sentence LENGTH and causal shape. This one is about
-REFERENCE, and a short sentence breaks it exactly as easily as a long one.
 
 NO SENTENCE MAY DEPEND ON THE READER CARRYING A REFERENCE BACK FROM A PREVIOUS SENTENCE. If
 the subject was named above, NAME IT AGAIN. Do not point at it.
 
 Pointing is any word standing in for something already named instead of naming it: a
 demonstrative binding a noun, a bare pronoun, and "one" or "ones" used in place of the thing
-itself. All three ask the reader to hold the earlier sentence in their head and resolve a
-pointer against it before your sentence means anything. At the speed this is read, they will
-not do it. They will skim the sentence, get nothing from it, and move on.
+itself. A MISSING VERB IS A POINTER TOO, and so is a noun phrase with no demonstrative in it.
 
-A MISSING VERB IS A POINTER TOO. "does not", "is not", "never does", with the verb itself
-left out, sends the reader back to the previous sentence to fetch it. It is the same fault
-as a pronoun and it is harder to see, because nothing in the sentence looks like a pointer.
-Say the verb again.
-
-AND A NOUN PHRASE POINTS WITHOUT ANY DEMONSTRATIVE IN IT. "whichever one", "each one", "the
-next one", "the last one", "the opening", "the feed". Every one of them stands in for
-something named in an earlier sentence. If the reader has to work out WHICH one, or WHOSE
-feed, or WHAT opening, you have pointed at it rather than named it.
-
-The cost of naming it again is one or two words. The cost of pointing is the whole sentence.
-
-THIS APPLIES INSIDE THE OBSERVATION TOO, not only between the observation and the bridge. An
-observation sentence pointing back at the one before it is the same fault. The bridge is one
-sentence. The only thing it could point back at is the observation, and it must not.
-
-THE TEST, AND IT IS MECHANICAL. Cover every sentence above the one you are reading. Does
-that sentence still say who and what it is about? If a word in it now has nothing to attach
-to, that word is a pointer. Put the thing itself there instead.
-
-NO EXAMPLE IS GIVEN, AND THE ABSENCE IS DELIBERATE. The shapes are named above, naming them
-is the whole instruction, and a worked example here would be a ready-made sentence to copy.
+THIS APPLIES INSIDE THE OBSERVATION TOO, not only between the observation and the bridge.
 
 READ THE OBSERVATION AND THE BRIDGE TOGETHER BEFORE YOU RETURN THEM. THEY MUST NOT
 CONTRADICT EACH OTHER. This shipped:
@@ -425,28 +394,11 @@ follow-up. He probably has people. Claiming to know their CAPACITY, or what thei
 and is not getting to, is the same error as claiming to know their pipeline. Say what tends
 to happen. Never say who is or is not doing it.
 
-THE ABSENCE BAN. IT COVERS THE OBSERVATION AND THE BRIDGE, BOTH.
-
-"Opening" in these instructions means the observation and the bridge together. This ban is
-written about the opening, so it governs BOTH paragraphs. A bridge names what they lack
-just as easily as an observation does, and nothing here exempts it.
-
-NEVER NAME WHAT THEY LACK. No "there is no", no "nothing about", no "with no case
-studies", no lists of what is missing from their site or their feed. A senior seller does
-not tell the reader their website is thin. Notice something that IS there instead.
-
-WHAT THE BAN IS ACTUALLY ABOUT. It is not a ban on absence, and reading it as one is what
-drives bridges back to the generic. The fault is DELIVERING A VERDICT ON THE READER.
-
-An absence stated as a fact about a THING is permitted. An absence that implies a
-conclusion about their JUDGEMENT is not.
-
-The same is true of something PRESENT. A sentence about what they do post, who they did
-hire or where they did speak carries a verdict just as readily. Being built on something
-visible exempts nothing.
-
-SO, IN ONE LINE: the bridge states a consequence, never a judgement, whether it is built on
-something present or something absent.
+THE ABSENCE BAN, COVERING THE OBSERVATION AND THE BRIDGE BOTH. Never name what they lack:
+no "there is no", no "nothing about", no lists of what is missing. Notice something that IS
+there instead. The fault is DELIVERING A VERDICT ON THE READER, so the same test applies to
+something PRESENT. State a consequence, never a judgement, whether it is built on something
+present or something absent.
 
 THE BAN COVERS IMPLIED CHOICE.
 This shipped: "When your feed points elsewhere, the people who might hire you do not know
@@ -499,31 +451,18 @@ NEVER ASSERT WHAT THE FINDINGS DO NOT EVIDENCE.
 Never name a channel, a source of work, or a way of operating that the observation does not
 evidence.
 
-THAT LINE HAS BEEN HERE AND IT HAS NOT HELD, so it is stated at category level rather than
-left as a coda to the rule above it.
-
 ANY CLAIM ABOUT HOW THEIR WORK ARRIVES MUST BE TRACEABLE TO A FINDING. How they win clients,
-where the work comes from, who sends it to them, how they get found. If the findings do not
-say it, you do not know it, and the bridge may not imply it.
+where the work comes from, who sends it to them, how they get found.
 
-ANY CLAIM ABOUT WHAT THEY ARE OR ARE NOT DOING MUST BE TRACEABLE TO A FINDING. This is the
-half that keeps failing, and it fails in one specific direction. A finding showing one kind
-of activity is evidence of THAT ACTIVITY AND OF NOTHING ELSE. It is never evidence that
-something else is absent. Seeing what somebody published tells you what they published. It
-tells you nothing about what else they run, what their team runs, or what is already under
-way somewhere you cannot see.
+ANY CLAIM ABOUT WHAT THEY ARE OR ARE NOT DOING MUST BE TRACEABLE TO A FINDING. A finding
+showing one kind of activity is evidence of THAT ACTIVITY AND OF NOTHING ELSE.
+It is never evidence that something else is absent.
 
-IMPLYING IT COUNTS AS ASSERTING IT. The sentence does not have to make the claim outright.
-If the reader would have to accept an unevidenced claim about their own business for your
-sentence to be true, your sentence makes that claim, and hedging the verb does not repair it.
-
-THE TEST: point at the finding that makes your sentence true. Not the finding that makes it
-plausible. The one that makes it TRUE. If you cannot put your finger on it, the sentence is
-not yours to write, and the fix is a different sentence rather than a softer one.
+IMPLYING IT COUNTS AS ASSERTING IT. If the reader would have to accept an unevidenced claim
+about their own business for your sentence to be true, your sentence makes that claim.
 
 If no consequence follows from an observation, that observation was the wrong one to choose.
 Move to another finding. This is one of the reasons that outranks the mark.
-
 ONE FINDING MAY BE MARKED [SELECTED BY SYNTHESIS]. That is the finding the analyst who
 produced this material would build on, judged against tests you do not run and cannot see.
 START THERE.
@@ -575,30 +514,17 @@ FAILING: "Outreach for the new-business side sits until it does not."
 "Until it does not" is a shape where a fact should be. Nothing is named: not when, not what
 changes it, not what happens in the meantime. Say the thing that happens.
 
-AND KEEP IT INSIDE THE BUDGET. The longest bridge in the last batch was 32 words and it was
-also the one still explaining:
-FAILING: "the advisory work fills the diary, and the question of who to go after next stays
- unresolved long after the call ends."
-One sentence carrying a clause, a second clause and a trailing qualifier. The fix is not two
-sentences. The fix is the one clause that matters, said plainly, inside the bridge budget.
+AND KEEP IT INSIDE THE BUDGET. Keep the one clause that matters, said plainly.
 
-NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME.
-
-"Firms that X often find Y" is one construction. It is not the only one, and it used to be
-the shape of nearly every worked example on this page. Twelve prospects came back with
-eleven bridges built on that frame, three of them close to word-identical. When every
-bridge in a batch has the same skeleton the personalisation is decorative: two recipients
-comparing notes see one template with the nouns swapped.
+NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME. Your bridge must not share a sentence
+shape with another prospect in this batch. Vary the CONSTRUCTION, not just the nouns.
 
 So your bridge must not share a sentence shape with another prospect in this batch. Vary
 the CONSTRUCTION, not just the nouns.
 
 EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY TO YOUR PROSPECT'S, DELIBERATELY. THE
-SHAPE IS WHAT TRANSFERS. EVERY WORD IN THEM IS UNUSABLE HERE, because a sentence about
-tenders or wedding photos pasted into this email is obviously wrong on sight. That is
-the point: the last two batches lifted the examples almost verbatim and the batch gate
-threw the attempts away. Read them for structure and then write your own sentence out of
-your own prospect's facts.
+SHAPE IS WHAT TRANSFERS. EVERY WORD IN THEM IS UNUSABLE HERE. Read them for structure
+and then write your own sentence out of your own prospect's facts.
 
 Every shape below is ONE sentence, and so is every bridge you write.
 
@@ -625,9 +551,7 @@ The point is that you choose the shape AFTER you know the observation, instead o
 the same one every time.
 
 The bridge is NEVER a question. The email gets exactly one question mark and it is the
-closing question, because the CTA is the question and a second one splits the ask. This is
-a house rule, enforced in code, and an opening carrying its own question mark is rejected
-before anyone reads it.
+closing question.
 
 PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC.
 
@@ -652,11 +576,6 @@ thing, in one sentence: if you have two, keep the one that matters and cut the o
 join facts with appositives. Do not bury a list mid-sentence. Never separate a subject from
 its verb with clauses. Your reader is scanning between meetings, and a sentence they go back
 over has already lost.
-
-The old version of this line asked for something an eleven year old could read. It was here
-for two batches and it stopped nothing, because a reading age measures how hard the WORDS
-are and the problem is figurative language. "Hours shrink before they grow" is eight easy
-words and it describes nothing. The test that catches that is the camera test, below.
 
 CRAMPED:
   "The latest Friday post. A fig sourdough, rye, spelt, goes up on your shop page at seven."
@@ -775,16 +694,7 @@ where it hides, because a sentence can be built entirely out of real things and 
 describe nothing that happens.
 
 PLAIN VERBS. The verb must be something a PERSON DOES or something that PLAINLY HAPPENS.
-  Use: waits. stops. gets skipped. goes to someone else. never gets made. sits there.
-       nobody calls. you find out later.
-  Not: moves. shrinks. becomes. converts. translates. materialises.
-A person cannot become a conversation and an hour cannot shrink. If your subject is not
-capable of doing the verb in the physical world, the sentence is a picture, not a fact.
-
-FINISH ON A CONCRETE THING, NOT A CATEGORY. The last few words are what the reader is left
-holding, and a category leaves them holding nothing.
-  "goes to whoever was in the room last" beats "rather than from anything systematic".
-
+FINISH ON A CONCRETE THING, NOT A CATEGORY.
 Two more. Both have concrete nouns throughout and both fail:
 
 FAILING: "A few drivers convert into cider buyers after passing your orchard sign."
@@ -801,9 +711,7 @@ camera at.
 
 POINT EVERY SENTENCE AT THE PERSON.
 
-The camera test fixed the ENDINGS and every bridge now films. It never reached the OPENINGS,
-and the same fault is sitting in them untouched. Four from the last batch, all of which
-shipped:
+Four openings that shipped, each with the same fault:
 
   "Every LinkedIn post in the last two months is Merrow Institute content or personal
    reflection."  The subject is a category and the verb is "is".
@@ -863,12 +771,6 @@ PLAIN:   "You sell mugs from one of twenty potters' stalls at a weekend craft fa
 Three fixes at once: the subject is the reader, the compressed phrase became the sentence
 it was hiding, and "the diary" became the twenty stalls around yours.
 
-THESE THREE ARE ABOUT AN EXECUTIVE-EDUCATION ROLE, TWO CEO ROLES AND A POTTER AT A CRAFT FAIR. Those facts
-belong to two specific people and a potter, and to nobody else in your batch. Lifting a
-phrase from them into an email about a different prospect is wrong on sight, and the
-uniqueness gate will throw the whole attempt away. It has already happened five times: one
-earlier plain rewrite ended "nobody gets to it", and two prospects in the same batch both
-ended on it. Take the move. Write your own words from the findings in front of you.
 
 THE AIM TEST, run it on every draft. Read your observation, your bridge, the offer line
 and your question as one message. If the reader could answer that question with "that is
@@ -934,24 +836,20 @@ Second person and still wrong. It recites his own CV back at him. He knows all o
 
 LENGTH. A BUDGET PER PART, NOT ONE TOTAL.
 
-  observation   about ${OPENING_BUDGET.observation} words
-  bridge        about ${OPENING_BUDGET.bridge} words
+  observation   about ${OPENING_BUDGET.observation} words, usually two sentences
+  bridge        ONE sentence, about ${OPENING_BUDGET.bridge} words
   closing question  about ${OPENING_BUDGET.question} words
                     ${OPENING_TARGET_WORDS} words in total
+
+EVERY SENTENCE IN THE OBSERVATION AND THE BRIDGE IS AT MOST ${WRITER_MAX_SENTENCE_WORDS} WORDS.
+A sentence over it is rejected before a human sees it. Two short sentences beat one long one,
+so when a fact will not fit, split the sentence rather than cutting the fact.
 
 These are TARGETS. The HARD LIMIT is ${OPENING_MAX_WORDS} words for all three together, and
 anything over it is rejected before a human sees it. Aim at ${OPENING_TARGET_WORDS} and you
 will never meet the limit.
 
-EACH PART HAS ITS OWN BUDGET AND CANNOT BORROW FROM ANOTHER. A 35-word observation paid for
-by a 15-word bridge is not within budget, it is two parts wrong. The bridge is the part
-carrying the reason to reply, so it is the worst possible place to economise.
 
-Aim below the limit deliberately. Given one number to hit, the last four batches wrote past
-it every time: told 62, they returned 70 and 75; told ${OPENING_MAX_WORDS}, they returned
-74, 75, 77 and 78. Four prospects lost their personalised email to length alone, and each
-had already been shown its exact word count and rewritten anyway. Write short first. It is
-far easier to add a word than to find ten to cut.
 
 CONSTRAINTS, and there are only four:
   At most five sentences across all three parts, inside the budget above. The bridge is
@@ -964,22 +862,11 @@ CONSTRAINTS, and there are only four:
 
 THE SUBJECT LINE. YOU WRITE IT, AND YOU WRITE IT LAST.
 
-Last, because it comes out of the observation. Until now it was written before anyone knew
-what the observation would say, so it routinely named a framing the email then never
-mentioned. The subject is the first thing they read, and a subject the first line does not
-answer reads as a template, whatever the first line says.
 
 So read your own observation back and name the thing it is about.
 
-  It comes from your observation. Not from the offer line, not from a finding you did not use.
-  All lower case.
-  No full stop, no question mark and no exclamation mark at the end.
-  Never their first name and never their company's name.
-  At most ${EMAIL_SUBJECT_LIMITS.email1MaxChars} characters, spaces included.
-  Nothing in it that is not in the findings, on the same terms as the observation.
-  No figure from their record: no revenue, no headcount, no funding, no money amount.
-  The same ban that applies to the body applies here, and harder, because the subject is
-  read by everyone the email reaches, including everyone who never opens it.
+  From your observation, all lower case, no end punctuation, never their first name or
+  company name, at most ${EMAIL_SUBJECT_LIMITS.email1MaxChars} characters, nothing in it that is not in the findings.
 
 A subject breaking any of those is thrown away and the client's approved subject ships in
 its place. Nothing else about your answer is affected, so do not spend words defending it.
@@ -1498,17 +1385,37 @@ export function checkOpeningGates(
       const logContext = { prospectId: context?.prospectId ?? 'unknown', part }
       failures.push(...checkFiniteVerbs(text, logContext))
 
-      // LOG ONLY, PUSHING NOTHING. readabilityScore already gates candidate SELECTION
-      // upstream, where a hard fail ranks a candidate out. Nothing has ever scored the
-      // writer's own output, so there is no evidence about what it would reject here, and
-      // adding a hard gate without that evidence is how a good variant gets thrown away.
-      // Accumulate first, decide later.
-      const readability = readabilityScore(text)
-      logger.info('writer-readability: scored, not gated', {
+      // SENTENCE LENGTH IS NOW GATED AT THE WRITER'S OWN CAP. The evidence this was
+      // waiting for arrived: the 2026-09-21 cohort put 40 of 135 sentences at 21 to 25
+      // words with none over, which is a writer treating the ceiling as the target, and
+      // the resulting Email 1 reads at grade 9.5 against a target of 3 to 5.
+      //
+      // ONLY the sentence-length half gates. Hedges and nominalisation density are still
+      // log-only: the hedge list collides with the prompt's own permitted frames and
+      // nominalisation has known false positives, so gating either would be a second
+      // change wearing the same commit.
+      //
+      // THE NUMBER THAT SETTLES HEDGES, kept from the version this replaced so nobody
+      // re-litigates it from scratch: on the same batch of 84 shipped openings, THIRTY-NINE
+      // carried a hedge phrase. A gate at that rate is not a gate, it is an outage, because
+      // a variant that exhausts its retries is dropped for the authored template. The list
+      // is also the loosest thing in readability.ts, holding "often", "usually" and
+      // "typically", which are ordinary words in a sentence about what is typical of a
+      // population, which is exactly what a bridge is required to be.
+      const readability = readabilityScore(text, WRITER_MAX_SENTENCE_WORDS)
+      for (const sentence of readability.longSentences) {
+        const n = sentence.trim().split(/\s+/).filter(Boolean).length
+        failures.push(
+          `the ${part} has a sentence of ${n} words, and the writer cap is ` +
+          `${WRITER_MAX_SENTENCE_WORDS}: split it into two shorter sentences rather than ` +
+          `cutting the fact out`,
+        )
+      }
+      logger.info('writer-readability: sentence length gated, the rest scored only', {
         ...logContext,
-        hardFail: readability.hardFail,
+        cap: WRITER_MAX_SENTENCE_WORDS,
+        longSentences: readability.longSentences.length,
         penalty: readability.penalty,
-        reasons: readability.reasons,
         hedges: readability.hedges,
       })
     }

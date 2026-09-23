@@ -90,3 +90,10 @@ dogfood-prospects-batch-1.csv
 # scripts/export-writer-run.ts for before-and-after comparison. Local measurement
 # artifacts, and prospect-identifying content that has no business in the repository.
 .writer-export/
+
+# Throwaway analysis harnesses for the 2026-09-21 copy audit. They import @/lib/style/*
+# so they must sit at the repo root to resolve, but they are not project code and must not
+# ship. Two of them reached a commit via `git add -A` before this line existed.
+/faults-lib.ts
+/measure.ts
+/compare.ts

@@ -198,23 +198,39 @@ CANDIDATE GENERATION — do this before anything else
 
 Do NOT evaluate a single pre-selected item. Generate EVERY candidate observation
 the research supports, then score them all. A strong observation is routinely
-buried in employment history or spread across sources, not sitting in the most
-recent post.
+spread across sources rather than sitting in the most recent post.
+
+PREFER OBSERVABLE ACTIVITY: something they DID that leaves a public trace, and
+that a reader would recognise as a thing they chose to do. Posts, events, talks,
+hires and job listings, partnerships, launches, publications. These make an
+observation the reader experiences as noticed rather than looked up.
 
 Sweep all four sources exhaustively:
 
   LINKEDIN — every post in the window, not just the newest. Also the profile
   headline, the About text, and connection count if it tells you something.
 
-  EMPLOYMENT HISTORY (Apollo, and LinkedIn positions) — this is the most
-  under-used source and often the strongest. Look specifically for:
-    • Concurrent roles: running their own firm while holding a role elsewhere
-    • Recent transitions: a role that started or ended in the last 18 months
-    • Role-end announcements, including ones the prospect made themselves
-    • Long tenure with flat headcount
-    • Gaps, or a return to employment after founding
-  A concurrent or recently-ended second role is a strong inference about the
-  founder's revenue and pipeline situation. Always generate it as a candidate.
+  EMPLOYMENT HISTORY (enrichment records, and LinkedIn positions) — THE FALLBACK, never
+  the first choice, and never discarded when it is all there is. Sweep it every time.
+  Rank every candidate it produces BELOW any usable candidate from observable activity,
+  and select one only when nothing from activity is usable.
+
+  WHEN IT IS ALL YOU HAVE, USE IT. A prospect with a thin public trail is exactly who this
+  is for. Returning nothing because the only material was their work history is worse than
+  an observation built from it: nothing means the generic template ships, and the template
+  knows nothing about them at all.
+
+  WHAT YOU DO WITH IT IS THE WHOLE DIFFERENCE. State the INSIGHT the history supports, not
+  the history. They already know their own roles, dates and titles, and reciting those back
+  is a dossier entry.
+    GOOD: running two firms at once
+    BAD:  you have been CEO of X and Y since 2018
+  Same fact. The first names a situation they are living in and can recognise; the second
+  reads it off a record. Write the situation. Drop the titles, drop the dates, drop the
+  company list.
+
+  Headcount is NOT job history and is not usable either way: it is a figure from a data
+  provider, it is banned from email content outright, and it is wrong the day they hire.
 
   WEBSITE — services and positioning statements, but also anything DATED:
   blog or insights posts and their dates, case study dates, copyright year,

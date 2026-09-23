@@ -55,6 +55,26 @@ export const RESEARCH_MAX_PROSPECTS = 40
 export type ResearchScope = 'unresearched' | 'researched'
 
 export interface ResearchBatchEntryInput {
+  /**
+   * Override the runtime budget, in seconds. CLI ONLY, and the default is what every
+   * HTTP caller gets.
+   *
+   * RUNTIME_BUDGET_SECONDS is 240 for ONE stated reason: the dashboard surface is a Vercel
+   * function capped at 300s. It is a guard against an HTTP timeout, not against spend, not
+   * against load, and not against a batch being too large. A run from scripts/run-research.ts
+   * has no such ceiling, so on that path the guard rejects work it cannot actually protect.
+   *
+   * SAME SHAPE AS allow_overwrite_trigger, deliberately. That flag exists because
+   * overwriting shipped copy is "a legitimate thing to want and a bad thing to do by
+   * accident". So is a two-hour batch. Both live behind a flag the CLI can set and no
+   * dashboard control can reach, rather than behind a loosened default that every caller
+   * inherits silently.
+   *
+   * THE OTHER TWO CAPS STILL APPLY AND ARE NOT OVERRIDABLE: RESEARCH_MAX_PROSPECTS caps
+   * the batch at 40 whatever this says, and the spend confirmation still fires. This
+   * widens the time estimate only.
+   */
+  runtime_budget_seconds?: number
   /** Service-role client. Supplied by the caller so the route and the CLI share one client. */
   supabase: SupabaseClient
   organisation_id: string
@@ -122,6 +142,7 @@ export async function runResearchBatchForOrg({
   prospect_ids,
   use_stored_findings = true,
   allow_overwrite_trigger = false,
+  runtime_budget_seconds = RUNTIME_BUDGET_SECONDS,
   concurrency = 5,
 }: ResearchBatchEntryInput): Promise<ResearchBatchEntryResult> {
   // ── Organisation must exist and be active ──────────────────────────────────
@@ -205,14 +226,14 @@ export async function runResearchBatchForOrg({
 
   const estimate = await estimateSeconds(supabase, organisation_id, prospects, use_stored_findings)
 
-  if (estimate.seconds > RUNTIME_BUDGET_SECONDS) {
-    const admissible = maxAdmissible(estimate.freshCount, prospects.length)
+  if (estimate.seconds > runtime_budget_seconds) {
+    const admissible = maxAdmissible(estimate.freshCount, prospects.length, runtime_budget_seconds)
     return {
       ok: false,
       error:
         `Refused: ${prospects.length} prospects would take about ${Math.round(estimate.seconds)}s ` +
         `(${estimate.storedCount} reusing stored findings, ${estimate.freshCount} fetching every source), ` +
-        `over the ${RUNTIME_BUDGET_SECONDS}s budget for a single request. ` +
+        `over the ${runtime_budget_seconds}s budget for a single request. ` +
         `At this mix the limit is about ${admissible} prospects. ` +
         (estimate.freshCount > 0 && !use_stored_findings
           ? 'Fetching every source is what costs the time. Leave stored findings enabled to reuse what is on file.'
@@ -469,11 +490,11 @@ async function estimateSeconds(
 }
 
 /** How many prospects fit the budget at the mix this batch actually has. */
-function maxAdmissible(freshCount: number, total: number): number {
+function maxAdmissible(freshCount: number, total: number, budgetSeconds: number = RUNTIME_BUDGET_SECONDS): number {
   const freshShare = total > 0 ? freshCount / total : 1
   const perProspect =
     freshShare * FRESH_SECONDS_PER_PROSPECT + (1 - freshShare) * STORED_SECONDS_PER_PROSPECT
-  return Math.max(1, Math.floor(RUNTIME_BUDGET_SECONDS / perProspect))
+  return Math.max(1, Math.floor(budgetSeconds / perProspect))
 }
 
 /** The start time of a research run still in flight for this organisation, if there is one. */
