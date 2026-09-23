@@ -21,7 +21,7 @@ import {
   validateEmails,
   authoredProse,
   buildHeldParagraphsBlock,
-  EMAIL1_MAX_SENTENCE_WORDS,
+  EMAIL_SENTENCE_WORD_CAP,
   type EmailRecord,
   type HeldParagraph,
 } from '../messaging-generation-agent'
@@ -206,56 +206,73 @@ describe('the prompt and the gate agree about what is held', () => {
   })
 })
 
-describe('the grade violation names the lever, because it IS the retry instruction', () => {
+describe('the grade violation names WHAT THE GRADE NEEDS, never a cap', () => {
   // buildPriorAttemptBlock renders these strings verbatim into the next attempt's prompt,
   // so anything absent here is absent from the correction the model is asked to make.
   //
-  // MEASURED. On the run of 2026-09-22 the message carried the grade and its three inputs
-  // and nothing else, and 6 of 7 Email 1 retries came back at the SAME four sentences as
-  // the attempt they were correcting. A model told "grade 8.0, 59 words, 4 sentences, 1.51
-  // syllables per word" can only see that splitting would help by rederiving the formula.
+  // THE BUG THIS REPLACES. The message used to quote the email's SENTENCE CAP beside
+  // "break it". For Email 1 the cap was binding and it worked. For emails 2 to 4 the cap
+  // was 25 and not binding, so the message contradicted itself: "Your longest sentence is
+  // 19 words ... against a cap of 25 ... break it." Every failure in the run of 2026-09-23
+  // was an email 2 or 3 whose longest sentence ran 17 to 24 words: inside the cap, too long
+  // for the grade. The target is now derived from the formula instead.
   const issue = () => gradeIssues(emailOf(DENSE_PARAGRAPHS))[0]
 
-  it('names sentence length as the lever, not just the grade', () => {
-    expect(issue()).toContain('THE LEVER IS SENTENCE LENGTH')
+  it('NEVER quotes a sentence cap', () => {
+    // The regression is specifically re-introducing a non-binding number. Asserted as an
+    // absence, because that is the shape the defect took.
+    expect(issue()).not.toContain('cap of')
+    expect(issue()).not.toContain(`cap is ${EMAIL_SENTENCE_WORD_CAP}`)
   })
 
-  it('gives the average words per sentence and the cap to compare it against', () => {
-    // 37 words across 5 sentences is 7.4, against Email 2's cap of 25.
-    expect(issue()).toContain('averages 7.4 words per sentence')
-    expect(issue()).toContain('against a cap of 25')
+  it('gives the average words per sentence the grade actually requires', () => {
+    // DENSE is 37 words across 5 sentences at 1.54 syllables per word, ceiling 5.
+    //   wps = (5 + 15.59 - 11.8*spw) / 0.39
+    const r = fleschKincaidGrade(authoredProse(emailOf(DENSE_PARAGRAPHS).body, SENDER, COMPANY, []))!
+    const needed = (MAX_READING_GRADE + 15.59 - 11.8 * r.syllablesPerWord) / 0.39
+    expect(issue()).toContain(`average ${needed.toFixed(1)} words per sentence or fewer`)
+  })
+
+  it('converts that into a sentence count the model can count to', () => {
+    const r = fleschKincaidGrade(authoredProse(emailOf(DENSE_PARAGRAPHS).body, SENDER, COMPANY, []))!
+    const needed = (MAX_READING_GRADE + 15.59 - 11.8 * r.syllablesPerWord) / 0.39
+    const sentences = Math.ceil(r.words / needed)
+    expect(issue()).toContain(`AT LEAST ${sentences} sentences`)
+    // And the count must actually be MORE than it wrote, or the instruction is vacuous.
+    expect(sentences).toBeGreaterThan(r.sentences)
+  })
+
+  it('reports what it measured, so the model can check the arithmetic', () => {
+    const r = fleschKincaidGrade(authoredProse(emailOf(DENSE_PARAGRAPHS).body, SENDER, COMPANY, []))!
+    expect(issue()).toContain(`${r.words} words are split across ${r.sentences} sentences`)
+    expect(issue()).toContain(`averages ${r.wordsPerSentence.toFixed(1)} words each`)
   })
 
   it('quotes a longest sentence, so the correction has a target', () => {
-    // Asserted against the MEASURED maximum rather than a guessed string. Three sentences
-    // in this fixture tie at 9 words, so pinning one by hand makes the test a statement
-    // about sort stability instead of about the message.
     const text = issue()
-    expect(text).toContain('Your longest sentence is')
     const prose = authoredProse(emailOf(DENSE_PARAGRAPHS).body, SENDER, COMPANY, [])
     const sentences = splitSentencesFk(prose)
     const longest = Math.max(...sentences.map(x => x.split(/\s+/).length))
-    const quoted = sentences.filter(x => x.split(/\s+/).length === longest)
-    expect(quoted.some(x => text.includes(x))).toBe(true)
     expect(text).toContain(`Your longest sentence is ${longest} words`)
+    expect(sentences.filter(x => x.split(/\s+/).length === longest).some(x => text.includes(x))).toBe(true)
   })
 
-  it('still reports syllables per word, which is the second lever', () => {
+  it('still names syllables per word as the second lever', () => {
     expect(issue()).toContain('syllables per word')
-  })
-
-  it('cites Email 1 cap of 12 when the email is Email 1, and 25 when it is not', () => {
-    // THE PAIR on the SENTENCE cap quoted inside the grade message. Uses the fixture that
-    // fails at BOTH ceilings, so a grade violation exists at either position to read.
-    const one = gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 1)
-    expect(one).toHaveLength(1)
-    expect(one[0]).toContain(`against a cap of ${EMAIL1_MAX_SENTENCE_WORDS}`)
-    expect(gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 2)[0]).toContain('against a cap of 25')
   })
 
   it('cites the grade ceiling of its own position', () => {
     expect(gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 1)[0]).toContain('above the maximum of 6')
     expect(gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 2)[0]).toContain('above the maximum of 5')
+  })
+
+  it('says SPLITTING WILL NOT FIX IT when the vocabulary alone puts it over', () => {
+    // VERY_DENSE is 18.8 at 2.4 syllables per word. The required words-per-sentence goes
+    // negative, so instructing a split would be an instruction the model cannot carry out.
+    // Telling it to split anyway is how a retry gets burned for nothing.
+    const text = gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 2)[0]
+    expect(text).toContain('SPLITTING SENTENCES WILL NOT FIX IT')
+    expect(text).not.toContain('AT LEAST')
   })
 })
 
@@ -278,13 +295,20 @@ describe('the grade GATE reads the per-position ceiling, not one constant', () =
 
 describe('the system prompt states the same cap the code enforces', () => {
   // THE TWO COPIES OF THE FRAME CANNOT INTERPOLATE INTO EACH OTHER. The TypeScript prompt
-  // renders ${EMAIL1_MAX_SENTENCE_WORDS}; docs/prompts/messaging-agent.md is a flat file
-  // and hardcodes the number. That is exactly the drift CLAUDE.md warns about for the word
-  // limits, so it gets a test rather than a reminder.
-  it('messaging-agent.md names the current Email 1 cap', () => {
+  // renders ${EMAIL_SENTENCE_WORD_CAP}; docs/prompts/messaging-agent.md is a flat file and
+  // hardcodes the number. That is exactly the drift CLAUDE.md warns about for the word
+  // limits, so it gets a test rather than a reminder. It has already caught one stale
+  // number, when the cap moved from 12 to 15.
+  it('messaging-agent.md names the current cap', () => {
     const md = readFileSync(join(process.cwd(), 'docs', 'prompts', 'messaging-agent.md'), 'utf-8')
-    expect(md).toContain(`EMAIL 1'S SENTENCE CAP IS ${EMAIL1_MAX_SENTENCE_WORDS} WORDS`)
-    expect(md).toContain(`${EMAIL1_MAX_SENTENCE_WORDS}-word cap`)
+    expect(md).toContain(`THE SENTENCE CAP IS ${EMAIL_SENTENCE_WORD_CAP} WORDS IN EVERY EMAIL`)
+    expect(md).toContain(`${EMAIL_SENTENCE_WORD_CAP}-word cap`)
+  })
+
+  it('messaging-agent.md no longer says the cap is Email 1 only', () => {
+    const md = readFileSync(join(process.cwd(), 'docs', 'prompts', 'messaging-agent.md'), 'utf-8')
+    expect(md).not.toContain('25-word\ncap')
+    expect(md).not.toContain("Email 1's 15-word cap")
   })
 
   it('messaging-agent.md no longer offers the withdrawn two-sentence permission', () => {
