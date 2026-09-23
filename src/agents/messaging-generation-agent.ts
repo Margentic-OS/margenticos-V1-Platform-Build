@@ -32,6 +32,7 @@ import { EMAIL1_FRAME_TAIL_PARAGRAPHS, EMAIL1_FRAME_SLOT_PARAGRAPHS } from '@/li
 import { BANNED_FIRMOGRAPHIC } from '@/lib/style/firmographic'
 import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-frames'
 import { readabilityScore, MAX_SENTENCE_WORDS, splitSentences } from '@/lib/style/readability'
+import { fleschKincaidGrade, MAX_READING_GRADE } from '@/lib/style/reading-grade'
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
@@ -1382,6 +1383,10 @@ function renderWordCountReminder(): string {
     // it. Measured across four runs before the fix: every first pass produced a 27 to 38
     // word sentence in Email 1, and every repair then put two sentences in the observation
     // paragraph.
+    // THE READING GRADE, stated once, from the same constant the gate enforces. Placed
+    // last because word choice is the thing the model is most likely to drift on once it
+    // is concentrating on word counts and sentence caps.
+    `- Every email must read at FLESCH-KINCAID GRADE ${MAX_READING_GRADE} OR UNDER, measured on the paragraphs you write, with the {{first_name}} line and the sign-off excluded. This is a hard gate and it rejects the variant. The reason is not style: a cold email is read in a hurry, on a phone, by someone who never asked for it, and anything that needs a second read gets none. Two things move this number, sentence length and syllables per word, and since the sentence cap above already holds the first, WORD CHOICE is what you control here. Industry words are the usual cause: "qualified", "prospecting", "consistency", "conversations", "opportunities", "capacity". Say the everyday thing instead. "Meetings" not "qualified meetings", "work" not "engagements", "find clients" not "prospecting". Short, plain, concrete words are also simply better cold-email copy, so this gate and good writing pull in the same direction.`,
     `- Email 1's observation slot is TWO paragraphs, a blank line between them, ONE SENTENCE in each, and neither over ${MAX_EMAIL_SENTENCE_WORDS} words. Paragraph 2 observes. Paragraph 3 names the consequence that follows. Count the words in both before moving on: two sentences in either paragraph, or one sentence over ${MAX_EMAIL_SENTENCE_WORDS} words, rejects the variant.`,
   ].join('\n')
 }
@@ -2086,6 +2091,47 @@ export function emailProse(body: string, senderFirstName: string, senderCompanyN
     .join('\n')
 }
 
+// ─── The authored surface, which is what the reading grade is taken on ────────
+//
+// A regeneration may HOLD a paragraph: supply it to the agent verbatim and ask it not to
+// change it. The Email 2 and Email 3 CTAs were held on 2026-09-22 because they already
+// scored grade -1.06 to 2.48, the cleanest prose in the document, and rewriting them
+// risked the only lines that were already right.
+//
+// A held paragraph must never decide an email's verdict, in EITHER direction, so it is
+// removed before the grade is taken.
+//
+// THE DIRECTION THAT SURPRISED US, MEASURED ON ALL 16 LIVE EMAILS. The held CTAs were not
+// a risk of unfair FAILURE, they were a subsidy: dropping them RAISES the measured grade
+// by +0.80 to +2.02, because a grade -1.06 question averaged in with the body was pulling
+// the whole email under the line. Scoring the full prose would have let the agent bank a
+// grade point it did not write. So this is the stricter surface as well as the honest one.
+//
+// It also makes one failure mode impossible by construction rather than by a check: since
+// a held paragraph is excluded, EDITING a held CTA can never improve an email's grade. The
+// edited text no longer matches the held string, so it is scored like anything else the
+// agent wrote. There is no route by which spending budget on a held paragraph pays.
+//
+// Matching is on trimmed text with internal whitespace collapsed. Anything else the agent
+// returns is treated as authored, which is the correct default: if it changed it, it owns it.
+function normaliseParagraph(text: string): string {
+  return text.trim().replace(/\s+/g, ' ')
+}
+
+export function authoredProse(
+  body: string,
+  senderFirstName: string,
+  senderCompanyName: string,
+  heldParagraphs: readonly string[] = [],
+): string {
+  const held = new Set(heldParagraphs.map(normaliseParagraph))
+  return emailProse(body, senderFirstName, senderCompanyName)
+    .split(/\n{2,}/)
+    .map(p => p.trim())
+    .filter(p => p.length > 0 && !held.has(normaliseParagraph(p)))
+    .join('\n\n')
+}
+
 // Replaces the model's self-reported word_count and subject_char_count with computed
 // values, before validation and before storage.
 //
@@ -2107,6 +2153,12 @@ export function validateEmails(
   emails: EmailRecord[],
   senderFirstName: string,
   senderCompanyName: string,
+  /**
+   * Paragraphs supplied to the agent verbatim rather than authored by it. Excluded from
+   * the reading grade so a held paragraph can never decide the verdict. Defaults to none,
+   * which is the ordinary generation case where the agent writes every paragraph.
+   */
+  heldParagraphs: readonly string[] = [],
 ): ValidationViolation[] {
   const violations: ValidationViolation[] = []
 
@@ -2283,6 +2335,34 @@ export function validateEmails(
       violations.push({
         email: pos,
         issue: `sentence runs ${countWords(sentence)} words, cap is ${MAX_EMAIL_SENTENCE_WORDS}. A sentence a thirteen-year-old follows on first read. Two short sentences beat one long one, so split it rather than trimming words. Offending sentence: "${sentence}"`,
+      })
+    }
+
+    // ─── Reading grade ────────────────────────────────────────────────────────
+    //
+    // HARD FAIL above grade MAX_READING_GRADE on the authored prose. Flesch-Kincaid, so
+    // the two things that move it are sentence length and syllables per word. The sentence
+    // cap above already holds one of those, which means in practice this gate is about
+    // WORD CHOICE: "qualified", "prospecting", "consistency", "conversations".
+    //
+    // Measured on the 16 live template emails of messaging v6 before this gate existed:
+    // mean 6.37, and all four Email 1s between 8.72 and 10.44. The worst single paragraph
+    // was an observation at 13.98. The benchmark line from the campaign that replied at
+    // 7 percent scores 3.68, and it is asserted as a control in reading-grade.test.ts.
+    //
+    // Taken on authoredProse, not emailProse. See authoredProse for why, and for the
+    // measurement showing that held paragraphs were flattering the grade rather than
+    // threatening it.
+    //
+    // A null grade means there was no authored prose to score, which the word-count band
+    // above has already rejected. Nothing is reported here rather than inventing a verdict
+    // on an empty string.
+    const authored = authoredProse(body, senderFirstName, senderCompanyName, heldParagraphs)
+    const reading = fleschKincaidGrade(authored)
+    if (reading !== null && reading.grade > MAX_READING_GRADE) {
+      violations.push({
+        email: pos,
+        issue: `reading grade ${reading.grade.toFixed(1)} is above the maximum of ${MAX_READING_GRADE} (${reading.words} words, ${reading.sentences} sentences, ${reading.syllablesPerWord.toFixed(2)} syllables per word). A cold email is read in a hurry by someone who did not ask for it, so it has to land on first read. Shorter sentences and plainer words both bring this down, and word choice moves it most: prefer the everyday word over the industry one.`,
       })
     }
 
