@@ -58,7 +58,9 @@ const DIMS: FitDimension[] = [
 ]
 
 const BASE_CTX: ClientDocContext = {
-  clientName: 'Placeholder Client', buyerTitle: null, icpSummary: 'Placeholder summary\n  - one',
+  // triggers empty: this fixture's client has none, so relevance falls back to push
+  // forces, which is what this test was written against.
+  clientName: 'Placeholder Client', buyerTitle: null, triggers: [], icpSummary: 'Placeholder summary\n  - one',
   positioningSummary: 'Placeholder positioning', valuePropContext: 'Placeholder value', tovRules: 'Placeholder rules',
 }
 const WITH_DIMS: ClientDocContext = { ...BASE_CTX, fitDimensions: DIMS }

@@ -447,13 +447,57 @@ It binds three things:
 
   triggers          `evidence_to_find` names signals that make a call worth asking for NOW.
                     Not signals that someone is ready to buy, and not signals they would
-                    download something.
+                    download something. HOW to write them is set out under HOW TO WRITE
+                    TRIGGERS below; that section binds, and these examples do not override
+                    it.
   disqualifiers     Tier 3's must be checkable BEFORE the call is booked, which is the same
                     line the tier model draws below. A disqualifier only detectable during
                     or after a call has not disqualified anyone.
   four_forces.pull  The outcome the buyer wants from this client's service. Do not write the
                     conversion event into it: agreeing to a call is not an outcome anyone
                     wants, it is the step they take to get one.
+
+## HOW TO WRITE TRIGGERS
+
+This is a rule about the SHAPE of a trigger. It never says what any client's triggers are.
+Those come from that client's own intake and research, and two clients in different markets
+should produce lists with nothing in common.
+
+**A trigger is ONE THING THAT HAPPENED.** On a date, visible from outside the company. Not a
+state, not a condition, not a pattern held over time. "They took on a new client" is a
+trigger. "They struggle to win new clients" is a condition, and no amount of searching will
+find the day it happened.
+
+**Cover BOTH DIRECTIONS OF CHANGE.** Some triggers must be things that EXPAND what the
+company can do or sell: taking someone on, promoting someone, opening something, launching
+something, being recognised for something. Others must be things that STRAIN it: someone
+leaving, something ending, something going wrong.
+
+A list written only from difficulty will only ever match companies in difficulty. Most
+companies worth contacting are not in difficulty on the day they are contacted, and a
+company that has just expanded has a reason to want what this client sells that is every bit
+as real as a company under strain. If every trigger in the list describes something going
+badly, the list is half-written.
+
+**`evidence_to_find` names WHERE the event would be visible and WHAT IT WOULD SAY.** A post,
+a page, a listing, an announcement, a filing. Each item must be something a reader could
+point at and say "there it is".
+
+**Two things must never appear in `evidence_to_find`:**
+
+  AN ABSENCE. "No posts since March." "No recent announcements." "Not updated in six
+  months." An absence cannot be told apart from not having looked, so it is not evidence of
+  anything about the company. It also cannot be written into an email without telling the
+  reader what they have failed to do, and no email that does that gets a reply.
+
+  A FIGURE FROM THE COMPANY RECORD. Headcount, revenue, growth percentage, funding raised.
+  Figures of that kind are banned outright in outbound copy, so evidence that depends on one
+  produces facts nobody can use. Name the EVENT, never the number attached to it: "a post
+  naming a role they are hiring for", not "headcount change in the last 90 days".
+
+**Order matters.** Put the trigger that most strongly gives the buyer a reason to want this
+client's service first. Selection reads that order.
+
 
 Do not restate this in the document. It is not a finding about this client, it is the shape
 of every campaign, and a document that explains our own mechanics back to the reader is
@@ -530,11 +574,11 @@ Return raw JSON only.
     },
     "triggers": [
       {
-        "trigger": "Specific event or situation that creates urgency to act NOW",
+        "trigger": "One thing that happened, on a date, visible from outside the company",
         "evidence_to_find": [
-          "Company-data-detectable signal: e.g. headcount change in last 90 days",
-          "Website-detectable signal: e.g. case study section not updated in 6+ months",
-          "Web search-detectable signal: e.g. recent press mention or speaking appearance"
+          "Where it would be visible and what it would say: e.g. a post naming a new role the company is hiring for",
+          "Where it would be visible and what it would say: e.g. a service page published with a start date",
+          "Where it would be visible and what it would say: e.g. an announcement naming a partner, award or accreditation"
         ]
       }
     ],

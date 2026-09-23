@@ -26,7 +26,9 @@ const SOURCES = {
 } as unknown as RawSourceData
 const SIGNAL: DetectedSignal = { has_dateable_signal: false, signal_observation: null }
 const CLIENT_CTX: ClientDocContext = {
-  clientName: 'Placeholder Client', buyerTitle: null, icpSummary: 'Placeholder summary',
+  // triggers empty: this fixture's client has none, so relevance falls back to push
+  // forces, which is what this test was written against.
+  clientName: 'Placeholder Client', buyerTitle: null, triggers: [], icpSummary: 'Placeholder summary',
   positioningSummary: 'Placeholder positioning', valuePropContext: 'Placeholder value', tovRules: 'Placeholder rules',
 }
 const PROSPECT = {

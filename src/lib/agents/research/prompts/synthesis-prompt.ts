@@ -7,8 +7,39 @@
 import { CUSTOMER_FACING_STYLE_RULES } from '@/lib/style/customer-facing-style-rules'
 import { formatFitDimensions, type FitDimension } from '../fit-dimensions'
 
+/**
+ * The client's trigger list as a numbered block, or nothing at all.
+ *
+ * NUMBERED BECAUSE THE NUMBER IS THE RANK. The ICP prompt instructs the generator to put
+ * the strongest trigger first, so position is the client's own statement of strength, and
+ * the model is told to report which number it matched. Selection reads that back.
+ *
+ * RETURNS AN EMPTY STRING WHEN THERE ARE NO TRIGGERS, and the prompt is then byte-identical
+ * to the one every client had before this existed. A client with no triggers is not a
+ * client with a broken prompt: relevance falls back to the problems the client solves,
+ * exactly as before.
+ */
+function renderTriggers(triggers?: string[]): string {
+  const list = (triggers ?? []).filter(t => typeof t === 'string' && t.trim().length > 0)
+  if (list.length === 0) return ''
+  const numbered = list.map((t, i) => '  ' + String(i + 1) + '. ' + t).join('\n')
+  return [
+    '',
+    'TRIGGERS. ' + String(list.length) + ' events this client has written down as making a',
+    "call worth asking for now. They are in the client's own order, strongest first.",
+    '',
+    numbered,
+    '',
+  ].join('\n')
+}
+
 export interface PromptContext {
   clientName:         string
+  /**
+   * The client's own trigger list, in the order their document states it. Empty when the
+   * client has none, and the prompt then reads exactly as it did before this existed.
+   */
+  triggers?:          string[]
   icpSummary:         string  // tier 1 buyer title + company type + top 3 push forces + the client's own disqualifiers
   positioningSummary: string  // positioning_summary plain text
   valuePropContext:   string  // cold outreach hook + top 2 value themes — alignment filter
@@ -51,7 +82,7 @@ hook in outbound communication. You also assess ICP fit and whether the prospect
 ## About ${ctx.clientName}
 
 ${ctx.icpSummary}
-
+${renderTriggers(ctx.triggers)}
 ${ctx.positioningSummary}
 
 ${ctx.tovRules}
@@ -257,12 +288,32 @@ VERIFIABLE: confirmable by a human in 30 seconds from the cited source.
 
 INFERENTIAL: implies something the prospect would agree with, beyond the fact.
 
-RELEVANT: connects to a problem this client solves, as the client documents
-above and the VALUE PROP ALIGNMENT FILTER below describe it. Those two are the
-only definition of relevant there is. Do not substitute your own idea of what
-this client sells, and do not widen or narrow it to a problem domain the
-documents do not name. A candidate that connects to no problem named there is
-trivia, however interesting it is.
+RELEVANT: passes EITHER of two tests, and the first one is checked first.
+
+  TEST 1, THE CLIENT'S TRIGGERS. If a TRIGGERS block appears above, a candidate
+  is relevant when it is an instance of one of those triggers. Name which one in
+  "matched_trigger" using its number. The triggers are listed strongest first,
+  so a candidate matching an earlier trigger is a better candidate than one
+  matching a later trigger, all else equal.
+
+  TEST 2, THE PROBLEMS THE CLIENT SOLVES, as the client documents above and the
+  VALUE PROP ALIGNMENT FILTER below describe them. A candidate that matches no
+  trigger can still be relevant this way.
+
+  A CANDIDATE THAT MATCHES A TRIGGER IS RELEVANT EVEN IF IT DESCRIBES SOMETHING
+  GOING WELL. This is the point of the trigger list and it is easy to get
+  backwards. The problems a client solves are, by their nature, difficulties, so
+  judging relevance on those alone means an expansion can only ever be rejected:
+  someone taking on staff, opening something, launching something or being
+  recognised for something reads as evidence they are fine. The client has
+  written down which events make a call worth asking for. If they listed
+  expansion, expansion is relevant, and a reading of the form "this signals
+  growth, not difficulty" is not a reason to reject it.
+
+  Do not substitute your own idea of what this client sells, and do not widen or
+  narrow it to a problem domain the documents do not name. A candidate that
+  matches no trigger and connects to no problem named there is trivia, however
+  interesting it is.
 
 USEFUL: tells the prospect something, or frames something they had not
 articulated.

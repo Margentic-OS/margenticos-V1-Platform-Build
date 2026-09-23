@@ -15,6 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { mergeIntakeWithQuestions } from '@/lib/intake/questions'
 import { logger } from '@/lib/logger'
 import { assertNoUnsourcedVendorNames } from '@/lib/agents/vendor-name-gate'
+import { documentContextFor } from './regenerate-section'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { parseModelJsonOrThrow, type ModelResponse } from '@/lib/agents/parse-model-json'
 import { runResearchQueries, formatResearchForPrompt, type ResearchBundle } from '@/lib/agents/tools/webSearch'
@@ -69,8 +70,26 @@ export interface IcpAgentInput {
   segment_id?: string | null
   /** Optional: notes on the rejected suggestion this run replaces. See ADR-038. */
   regeneration_notes?: RegenerationNotes
+  /**
+   * A dotted path into the document, e.g. 'tier_1.triggers', that this run is REWRITING.
+   *
+   * When set, that section is removed from the live document shown to the model. Nothing
+   * else about the context changes. See regenerate-section.ts for why telling the model to
+   * ignore the old section does not work and hiding it does.
+   */
+  regenerate_section?: string | null
 }
 
+/**
+ * A section of the document to REGENERATE, hidden from the model while it does so.
+ *
+ * See regenerate-section.ts for the measurement behind this. In short: the user message
+ * reproduces the live document under "keep what still holds", and a model shown the old
+ * section keeps it, whatever the system prompt now says about how to write one.
+ *
+ * NULL means an ordinary run, and the context is byte-identical to what it was before this
+ * option existed.
+ */
 export interface IcpAgentResult {
   suggestion_id: string
   organisation_id: string
@@ -109,6 +128,7 @@ export async function runIcpGenerationAgent(
 ): Promise<IcpAgentResult> {
   const { organisation_id, supabase, segment_id = null } = input
   const regeneration_notes = input.regeneration_notes
+  const regenerate_section = input.regenerate_section ?? null
 
   logger.info('ICP agent: starting', { organisation_id, segment_id })
 
@@ -248,6 +268,7 @@ export async function runIcpGenerationAgent(
     websitePages,
     buyerProfile,
     regeneration_notes,
+    regenerateSection: regenerate_section,
   })
 
   // Step 7: Call Claude.
@@ -643,6 +664,8 @@ export function buildResearchBlock(researchSection: string, researchSkipped: boo
  * only place the whole message is visible at once.
  */
 export function buildUserMessage(params: {
+  /** Dotted path being rewritten, hidden from the live-document block. Null for a normal run. */
+  regenerateSection?: string | null
   organisation_id: string
   intake: IntakeRow[]
   existingDocument: ExistingDocument | null
@@ -659,6 +682,7 @@ export function buildUserMessage(params: {
   regeneration_notes: RegenerationNotes | undefined
 }): string {
   const { intake, existingDocument, patterns, completeness, research, researchSkipped, refDocs, websitePages, buyerProfile } = params
+  const regenerateSection = params.regenerateSection ?? null
 
   // Group intake responses by section for readability in the prompt.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
@@ -691,7 +715,10 @@ export function buildUserMessage(params: {
       'This organisation already has a live ICP document, reproduced in full below. What you ' +
       'produce REPLACES it. Keep what still holds. Change what new intake data, or a note ' +
       'further down, requires.\n\n' +
-      (existingDocument.plain_text ?? JSON.stringify(existingDocument.content, null, 2))
+      // THE SECTION BEING REWRITTEN IS ABSENT HERE WHEN ONE IS NAMED. Re-rendered from the
+      // stripped content rather than cut out of the stored prose, so the format is the
+      // format every other run sees and the only difference is the missing section.
+      documentContextFor(existingDocument, regenerateSection)
     : ''
 
   // Pattern context: if patterns exist, include relevant ones.

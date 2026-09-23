@@ -155,6 +155,31 @@ export interface ClientDocContext {
    * NULL WHEN THE DOCUMENT NAMES NO BUYER, never a placeholder. See resolve-buyer.ts.
    */
   buyerTitle:         string | null
+  /**
+   * The client's OWN trigger list, read from tier_1.triggers at runtime, IN DOCUMENT ORDER.
+   *
+   * ═══ WHY THIS EXISTS, AND WHY ORDER IS PART OF IT ════════════════════════
+   *
+   * Until 2026-09-23 selection judged relevance against four_forces.push alone, and the
+   * synthesis prompt says so plainly: "Those two are the only definition of relevant there
+   * is." Push forces are, by their nature, statements of difficulty. So a candidate could
+   * only be relevant by connecting to something going badly.
+   *
+   * Measured on one client's 20 prospects: every observable capacity change was rejected
+   * with an opposite reading of the form "this signals growth, not scarcity" — a hiring
+   * post, two staff promotions, a new programme launch. What survived was employment
+   * tenure, which is inert enough that no opposite reading bites. 12 of 20 winners came
+   * from tenure or a composite; 2 from a dated event.
+   *
+   * tier_1.triggers is the per-client home for "what makes a call worth asking for now",
+   * and it already existed on every client's ICP. Nothing read it.
+   *
+   * ORDER IS THE RANKING. The ICP prompt instructs the generator to put the strongest
+   * first, so position in this array is the client's own statement of strength and
+   * selection uses it directly. An empty array means the client has no triggers, and
+   * relevance falls back to push forces exactly as before.
+   */
+  triggers:           string[]
   icpSummary:         string
   positioningSummary: string
   valuePropContext:   string
@@ -247,6 +272,9 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
   // the same `buyer` read below and nowhere else: two reads of one field is the drift shape
   // this codebase keeps paying for.
   let buyerTitle: string | null = null
+  // Hoisted for the same reason buyerTitle is: assigned from one read, inside the icpDoc
+  // block, and returned below. A second read would be a second source to drift.
+  let triggerList: string[] = []
   if (icpDoc) {
     const t1 = icpDoc.tier_1 as Record<string, unknown> | undefined
     const buyer  = (t1?.buyer_profile as Record<string, unknown> | undefined)?.title as string | undefined
@@ -259,6 +287,19 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     // list would have quietly changed that client's grading while looking like a tidy-up.
     const disqualifiers = ((t1?.disqualifiers as string[] | undefined) ?? [])
       .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
+
+    // THE TRIGGER LIST, IN DOCUMENT ORDER, NOT TRUNCATED. Truncating a scoring input is a
+    // silent gate removal: the same argument the disqualifier comment above makes, and the
+    // reason push is the only list here that still gets a slice(). A trigger the client
+    // wrote and selection never saw is indistinguishable from one they never wrote.
+    //
+    // Each entry may be a bare string or { trigger, evidence_to_find }. Both shapes are
+    // read, because documents written before the schema settled carry the first.
+    triggerList = ((t1?.triggers as unknown[] | undefined) ?? [])
+      .map(t => typeof t === 'string'
+        ? t
+        : ((t as Record<string, unknown> | null)?.trigger as string | undefined))
+      .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
     // NO DEFAULT VALUES FOR A MISSING BUYER OR STAGE. This line used to read
     // `${buyer ?? 'a hardcoded archetype'} at ${stage ?? 'a hardcoded stage'}`, so a thin
     // ICP did not produce a thin summary. It produced a CONFIDENT one describing a client
@@ -342,8 +383,17 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     if (parts.length) tovRules = parts.join('\n')
   }
 
+  logger.debug('research/synthesize: client context loaded', {
+    organisation_id: clientId,
+    trigger_count: triggerList.length,
+    // Said out loud because an empty list changes how relevance is judged, and a silent
+    // fallback to push forces is the condition this change exists to make visible.
+    relevance_basis: triggerList.length > 0 ? 'triggers + push forces' : 'push forces only',
+  })
+
   return {
-    clientName, buyerTitle, icpSummary, positioningSummary, valuePropContext, tovRules,
+    clientName, buyerTitle, triggers: triggerList,
+    icpSummary, positioningSummary, valuePropContext, tovRules,
     fitDimensions: storedDimensions.dimensions,
   }
 }

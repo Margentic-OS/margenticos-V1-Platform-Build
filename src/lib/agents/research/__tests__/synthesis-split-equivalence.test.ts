@@ -37,6 +37,9 @@ import type { ProspectContext, RawSourceData } from '../types'
 const CLIENT_CTX: ClientDocContext = {
   clientName:         'Northwind Advisory',
   buyerTitle:         'Operations Lead',
+  // Empty: this fixture's client has no triggers, so relevance falls back to push
+  // forces, which is what every one of these tests was written against.
+  triggers: [],
   icpSummary:         'Their ideal client: operations lead at growth stage.',
   positioningSummary: 'They shorten the gap between a signed contract and a working system.',
   valuePropContext:   'Core pain solved: "projects stall between sale and delivery"',

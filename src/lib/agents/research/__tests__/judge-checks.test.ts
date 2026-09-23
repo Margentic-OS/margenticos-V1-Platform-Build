@@ -20,6 +20,9 @@ import type { FitDimension } from '../fit-dimensions'
 const CLIENT_CTX: ClientDocContext = {
   clientName:         'Placeholder Client',
   buyerTitle:         'Placeholder Buyer',
+  // Empty: this fixture's client has no triggers, so relevance falls back to push
+  // forces, which is what every one of these tests was written against.
+  triggers: [],
   icpSummary:         'Placeholder summary of who the client sells to.',
   positioningSummary: 'Placeholder positioning, naming the placeholder channel the client sells through.',
   valuePropContext:   'Placeholder value proposition.',

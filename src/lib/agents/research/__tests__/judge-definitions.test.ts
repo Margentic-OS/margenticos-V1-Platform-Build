@@ -20,6 +20,9 @@ import { ICP_FIT_GRADES, ICP_FIT_OUTCOMES, type ProspectContext } from '../types
 const CLIENT_CTX: ClientDocContext = {
   clientName:         'Placeholder Client',
   buyerTitle:         'Placeholder Buyer',
+  // Empty: this fixture's client has no triggers, so relevance falls back to push
+  // forces, which is what every one of these tests was written against.
+  triggers: [],
   icpSummary:         'Placeholder summary of who the client sells to.',
   positioningSummary: 'Placeholder positioning.',
   valuePropContext:   'Placeholder value proposition.',
