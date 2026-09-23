@@ -30,6 +30,7 @@
 
 import type { PipelineProgress } from '@/lib/operator/pipeline-progress'
 import type { VerificationFailureMetrics } from '@/lib/operator/sourcing-metrics'
+import { ENRICHMENT_PER_PRESS_LIMIT } from '@/lib/sourcing/enrichment-trigger'
 import {
   VERIFICATION_HOLD_LABELS,
   type VerificationHoldKind,
@@ -272,21 +273,39 @@ function EnrichmentSection({ enrichment }: { enrichment: PipelineProgress['enric
         </Row>
       )}
 
-      {pressPlan && (
+      {pressPlan && pressPlan.pressesNeeded > 1 && (
         <Row label="Presses needed">
           <span className="font-medium">{pressPlan.pressesNeeded}</span>
         </Row>
       )}
 
-      {/* SAID PLAINLY, and only when it actually applies. A client whose whole backlog fits
-          in one press gains no warning, because for them there is nothing to warn about. */}
+      {/* ── WHAT ONE PRESS NOW DOES ────────────────────────────────────────────
+          A press keeps going by itself until the backlog is clear, so for most clients there
+          is nothing to warn about and this says so rather than staying silent: "it will take a
+          while" is the thing an operator watching a slow press needs to know, and its absence
+          is what made them reach for the button again.
+
+          THE OLD COPY PROMISED FIVE PRESSES FOR 500 AND IS DELETED, not softened. It described
+          a single-pass press that no longer exists. */}
+      {pressPlan && pressPlan.remainingAfter === 0 && (
+        <p className="mt-2 text-xs text-[#7A4800]">
+          One press enriches all {pressPlan.thisPress}
+          {pressPlan.passesThisPress > 1
+            ? `, in ${pressPlan.passesThisPress} passes of up to ${ENRICHMENT_PER_PRESS_LIMIT}, so give it a moment.`
+            : '.'}{' '}
+          You do not need to press it again.
+        </p>
+      )}
+
+      {/* The two cases a press still cannot finish: a backlog above the per-press ceiling, and
+          a slow provider day that runs the request out of time. Only the first is predictable
+          from here; the second is reported by the response after the fact. */}
       {pressPlan && pressPlan.remainingAfter > 0 && (
         <p className="mt-2 text-xs text-[#7A4800]">
-          Enriching runs {pressPlan.thisPress} at a time. Pressing once will enrich{' '}
-          {pressPlan.thisPress} and leave {pressPlan.remainingAfter} waiting, so you will need
-          to press it again{pressPlan.pressesNeeded > 2
-            ? ` — ${pressPlan.pressesNeeded} presses in total to clear them all.`
-            : '.'}
+          One press enriches up to {pressPlan.thisPress}, which leaves{' '}
+          {pressPlan.remainingAfter} waiting, so this backlog needs{' '}
+          {pressPlan.pressesNeeded} presses in total. Nothing is lost between them and no
+          prospect is charged twice.
         </p>
       )}
     </div>

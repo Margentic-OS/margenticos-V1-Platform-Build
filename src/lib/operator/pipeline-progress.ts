@@ -53,6 +53,7 @@ import {
 import { readCronPeriodMs, readNextRunAt } from '@/lib/sourcing/cron-schedule'
 import { getVerificationRateLimit } from '@/lib/sourcing/verification-limits'
 import { ENRICHMENT_PER_PRESS_LIMIT } from '@/lib/sourcing/enrichment-trigger'
+import { ENRICHMENT_MAX_PER_REQUEST } from '@/lib/sourcing/enrichment-continuation'
 import {
   estimateVerificationDrainMinutes,
   planEnrichmentPresses,
@@ -126,9 +127,14 @@ export interface EnrichmentProgress {
    * What one press of Enrich and tier will do, and what it will leave behind.
    *
    * ENRICHMENT IS PRESSED, NOT SCHEDULED, so "when does it next run" has no answer for it and
-   * this is the equivalent fact: how many more presses. It stops at ENRICHMENT_PER_PRESS_LIMIT
-   * and always has; nothing on the screen said so, so an operator who pressed with 240 waiting
-   * watched the number fall to 140 and had to guess whether that was the design or a failure.
+   * this is the equivalent fact: how many more presses. It used to stop at
+   * ENRICHMENT_PER_PRESS_LIMIT (100) with nothing queued, and nothing on the screen said so, so
+   * an operator who pressed with 240 waiting watched the number fall to 140 and had to guess
+   * whether that was the design or a failure.
+   *
+   * A press now continues by itself up to ENRICHMENT_MAX_PER_REQUEST, so for most backlogs this
+   * plan reports one press and the screen says nothing extra. It still reports honestly on the
+   * two cases that remain: a backlog above that ceiling, and a press that runs out of time.
    *
    * Null when nothing is waiting, so the screen gains no line when there is nothing to press.
    */
@@ -421,7 +427,7 @@ export async function getPipelineProgress(
       done: enrichmentDone,
       waiting: enrichmentWaiting,
       inFlight: enrichmentInFlight,
-      pressPlan: planEnrichmentPresses(enrichmentWaiting, ENRICHMENT_PER_PRESS_LIMIT),
+      pressPlan: planEnrichmentPresses(enrichmentWaiting, ENRICHMENT_PER_PRESS_LIMIT, ENRICHMENT_MAX_PER_REQUEST),
       // Only meaningful while the queue actually holds enrichment work. On the inline path
       // the work happens inside the press and there is no scheduled run to name.
       queueNextRunAt: enrichmentInFlight > 0 ? sweep.queueNextRunAt : null,

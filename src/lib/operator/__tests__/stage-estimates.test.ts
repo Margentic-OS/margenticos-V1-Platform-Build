@@ -126,51 +126,75 @@ describe('estimateVerificationDrainMinutes', () => {
 })
 
 describe('planEnrichmentPresses', () => {
-  // THE CASE THAT WAS INVISIBLE. An operator pressed with 240 waiting, watched it fall to
-  // 140, and had nothing on the screen saying that stopping was the design.
-  it('says what one press leaves behind', () => {
-    expect(planEnrichmentPresses(240, 100)).toEqual({
-      thisPress: 100,
-      remainingAfter: 140,
-      pressesNeeded: 3,
+  // TWO CEILINGS, AND THEY ARE DIFFERENT THINGS. perPassLimit (100) is one call to the
+  // enrichment trigger. maxPerPress (500) is what one press of the button gets through, because
+  // a press now makes as many passes as its time budget allows. pressesNeeded counts PRESSES and
+  // therefore divides by the second, not the first.
+  //
+  // THIS TEST USED TO ASSERT 3 PRESSES FOR 240 WAITING. That was right when a press was one
+  // pass; it is now one press, and asserting the old number would pin the screen to a promise
+  // the button stopped making.
+  it('reports ONE press for a 240 backlog, because a press continues by itself', () => {
+    expect(planEnrichmentPresses(240, 100, 500)).toEqual({
+      thisPress: 240,
+      remainingAfter: 0,
+      pressesNeeded: 1,
+      // Three passes of up to 100 inside that one press. Reported so the screen can explain
+      // why the press takes a while rather than leaving it looking stuck.
+      passesThisPress: 3,
     })
   })
 
-  it('reports a single press when the backlog fits', () => {
-    expect(planEnrichmentPresses(40, 100)).toEqual({
+  it('reports a single press and a single pass when the backlog is small', () => {
+    expect(planEnrichmentPresses(40, 100, 500)).toEqual({
       thisPress: 40,
       remainingAfter: 0,
       pressesNeeded: 1,
+      passesThisPress: 1,
     })
   })
 
-  it('reports exactly one press at the ceiling, not two', () => {
-    expect(planEnrichmentPresses(100, 100)).toEqual({
-      thisPress: 100,
+  it('reports exactly one press at the per-press ceiling, not two', () => {
+    expect(planEnrichmentPresses(500, 100, 500)).toEqual({
+      thisPress: 500,
       remainingAfter: 0,
       pressesNeeded: 1,
+      passesThisPress: 5,
+    })
+  })
+
+  it('still says another press is needed above the per-press ceiling', () => {
+    // The case auto-continue does NOT remove, and the one the screen must still report.
+    expect(planEnrichmentPresses(501, 100, 500)).toMatchObject({
+      thisPress: 500,
+      remainingAfter: 1,
+      pressesNeeded: 2,
     })
   })
 
   it('rounds a part-press up', () => {
-    expect(planEnrichmentPresses(101, 100)?.pressesNeeded).toBe(2)
+    expect(planEnrichmentPresses(1001, 100, 500)?.pressesNeeded).toBe(3)
   })
 
   it('is null when nothing is waiting, so the screen gains no line', () => {
-    expect(planEnrichmentPresses(0, 100)).toBeNull()
-    expect(planEnrichmentPresses(-3, 100)).toBeNull()
+    expect(planEnrichmentPresses(0, 100, 500)).toBeNull()
+    expect(planEnrichmentPresses(-3, 100, 500)).toBeNull()
   })
 
   it('is null for a nonsense ceiling rather than dividing by it', () => {
-    expect(planEnrichmentPresses(50, 0)).toBeNull()
-    expect(planEnrichmentPresses(50, Number.NaN)).toBeNull()
+    expect(planEnrichmentPresses(50, 0, 500)).toBeNull()
+    expect(planEnrichmentPresses(50, Number.NaN, 500)).toBeNull()
+    // BOTH of them, because either one divided by is a division by zero or NaN.
+    expect(planEnrichmentPresses(50, 100, 0)).toBeNull()
+    expect(planEnrichmentPresses(50, 100, Number.NaN)).toBeNull()
   })
 
-  // The ceiling is a parameter, so the screen and the route read one number. A hard-coded 100
-  // in here would be the second copy the whole change exists to remove.
-  it('follows the ceiling it is given', () => {
-    expect(planEnrichmentPresses(240, 50)?.pressesNeeded).toBe(5)
-    expect(planEnrichmentPresses(240, 250)?.pressesNeeded).toBe(1)
+  // Both ceilings are parameters, so the screen and the route read one number each. A hard-coded
+  // 100 or 500 in here would be the second copy this shape exists to remove.
+  it('follows the ceilings it is given', () => {
+    expect(planEnrichmentPresses(1200, 100, 250)?.pressesNeeded).toBe(5)
+    expect(planEnrichmentPresses(1200, 100, 2000)?.pressesNeeded).toBe(1)
+    expect(planEnrichmentPresses(1200, 50, 2000)?.passesThisPress).toBe(24)
   })
 })
 

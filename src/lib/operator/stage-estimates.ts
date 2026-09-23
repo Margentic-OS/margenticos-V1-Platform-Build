@@ -91,35 +91,53 @@ export function estimateVerificationDrainMinutes(
 // ENRICHMENT
 
 export interface EnrichmentPressPlan {
-  /** How many this press will act on. */
+  /** How many this press will act on, across however many passes it makes. */
   thisPress: number
   /** How many are left over afterwards. Zero when one press clears it. */
   remainingAfter: number
   /** Total presses to clear the backlog, including this one. */
   pressesNeeded: number
+  /** How many internal passes this press will make. One pass per perPassLimit prospects. */
+  passesThisPress: number
 }
 
 /**
  * What one press of Enrich and tier will and will not do.
  *
- * THE CEILING IS PASSED IN, never restated. It belongs to the route that enforces it, and a
- * second copy of 100 here is the shape where the screen promises one thing and the button
- * does another. That is not hypothetical for this number: the same literal 100 is written in
- * the enrich route and as the trigger's default parameter, and until this change nothing on
- * the screen mentioned it at all.
+ * ── THIS CHANGED WHEN THE PRESS STARTED AUTO-CONTINUING ─────────────────────
+ *
+ * It used to compute presses from the PER-PASS limit of 100, and the screen said "you will
+ * need to press it again, 5 presses in total". That is no longer true: one press now makes as
+ * many 100-prospect passes as its time budget allows, up to ENRICHMENT_MAX_PER_REQUEST. A
+ * screen still promising five presses would be a document asserting something that was never
+ * true of the code shipped beside it, which is the failure this project keeps paying for.
+ *
+ * So there are now TWO numbers and they are different things:
+ *   perPassLimit     one call to the enrichment trigger. Still 100. Never raised.
+ *   maxPerPress      what one press of the button will get through. The spend ceiling.
+ *
+ * BOTH ARE PASSED IN, never restated here. They belong to the modules that enforce them, and a
+ * second copy is the shape where the screen promises one thing and the button does another.
+ *
+ * pressesNeeded is computed from maxPerPress, because that is what a press achieves.
+ * passesThisPress is computed from perPassLimit, and is reported only so the screen can explain
+ * why a press with a large backlog takes a while.
  */
 export function planEnrichmentPresses(
   waiting: number,
-  perPressLimit: number,
+  perPassLimit: number,
+  maxPerPress: number,
 ): EnrichmentPressPlan | null {
   if (waiting <= 0) return null
-  if (!Number.isFinite(perPressLimit) || perPressLimit <= 0) return null
+  if (!Number.isFinite(perPassLimit) || perPassLimit <= 0) return null
+  if (!Number.isFinite(maxPerPress) || maxPerPress <= 0) return null
 
-  const thisPress = Math.min(waiting, perPressLimit)
+  const thisPress = Math.min(waiting, maxPerPress)
   return {
     thisPress,
     remainingAfter: waiting - thisPress,
-    pressesNeeded: Math.ceil(waiting / perPressLimit),
+    pressesNeeded: Math.ceil(waiting / maxPerPress),
+    passesThisPress: Math.ceil(thisPress / perPassLimit),
   }
 }
 
