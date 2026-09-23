@@ -200,3 +200,41 @@ describe('a prospect whose sources did not come back is held', () => {
     expect(integrity.failed[0].source).toBe('linkedin')
   })
 })
+
+// ─── 4. THE GUARD MUST BE REACHABLE, not merely present ──────────────────────
+//
+// The first version of the Apollo change added the fatal check BELOW that file's existing
+// 401 and 403 branches, which each logged and returned early. So the check was in the file,
+// compiled, and could only ever be reached by a 402. It read as installed and was a third
+// installed.
+//
+// These tests go through fetchApolloSource rather than calling the helper, because calling
+// the helper is exactly what could not have caught it.
+
+describe('the Apollo guard is reachable for every fatal status, not just 402', () => {
+  const realFetch = globalThis.fetch
+  beforeEach(() => { process.env.APOLLO_API_KEY = 'test-key' })
+  afterEach(() => { globalThis.fetch = realFetch; vi.restoreAllMocks() })
+
+  it.each([401, 402, 403])('status %i aborts the run', async status => {
+    globalThis.fetch = vi.fn(async () => ({
+      ...response(status, 'plan does not include enrichment'),
+      headers: new Map(),
+    })) as never
+    const { fetchApolloSource } = await import('../sources/apollo')
+    await expect(
+      fetchApolloSource({ id: 'p1', first_name: 'A', last_name: 'B', company_name: 'C' } as never),
+    ).rejects.toThrow(FatalApiError)
+  })
+
+  it('a 429 still degrades, because a rate limit clears on its own', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ...response(429, 'slow down'),
+      headers: new Map([['Retry-After', '30']]),
+    })) as never
+    const { fetchApolloSource } = await import('../sources/apollo')
+    const result = await fetchApolloSource({ id: 'p1', first_name: 'A', last_name: 'B', company_name: 'C' } as never)
+    expect(result.available).toBe(false)
+    expect(String(result.error)).toContain('429')
+  })
+})
