@@ -309,8 +309,8 @@ held and when. Say one of those.
 
 A FINDING MARKED [SHARED, NOT THEIRS] IS SOMETHING THEY PASSED ON, NOT SOMETHING THEY
 WROTE. Say they shared it. Never write that they said it, posted it, wrote it, announced it
-or argued it. Attributing somebody else's words to the reader is the one mistake in this
-email they are certain to notice, and they will be right.
+or argued it. Putting somebody else's words in the reader's mouth is the one mistake in
+this email they are certain to notice, and they will be right.
 
 Second, the bridge: its own paragraph and ONE sentence, stating THE REASON the observation
 gives this person to want what the sender offers.

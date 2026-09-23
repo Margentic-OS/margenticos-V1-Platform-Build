@@ -128,3 +128,56 @@ describe('byTriggerPositionOnly is the comparison, never the selector', () => {
     expect(byTriggerPositionOnly([c('x', { matched_trigger: null })] as never)).toEqual([])
   })
 })
+
+// ─── Recency bands and date precision ────────────────────────────────────────
+//
+// Added 2026-09-23 after measuring the ordering against the 20 prospects researched that
+// day. Comparing ages in days changed the choice for two of them and made both worse. These
+// tests pin the two things that fixed it.
+
+describe('a coarse date is read at its oldest possible day, never its midpoint', () => {
+  const now = new Date('2026-09-23T12:00:00Z')
+
+  it('a month-only date is the first of that month, so it cannot invent precision', () => {
+    expect(ageInDays('2026-07', now)).toBe(ageInDays('2026-07-01', now))
+  })
+
+  it('a year-only date is the first of that year', () => {
+    expect(ageInDays('sometime in 2025', now)).toBe(ageInDays('2025-01-01', now))
+  })
+
+  it('THE CASE THAT MOTIVATED IT: a month-only July no longer reads as newer than June 30', () => {
+    // It is still one day newer, which is why the band below is the part that fixes it.
+    // What this pins is that it is not read as mid-July and fourteen days newer.
+    expect(ageInDays('2026-07', now)! - ageInDays('2026-06-30', now)!).toBe(-1)
+  })
+})
+
+describe('recency is compared in bands, so a few days cannot overturn better copy', () => {
+  const now = new Date('2026-09-23T12:00:00Z')
+  const base = { scores: { specific: true, verifiable: true, relevant: true, useful: true }, matched_trigger: 1 }
+
+  it('six days apart counts as equally recent, and specificity decides', () => {
+    const ranked = rankCandidates([
+      { id: 'newer_vaguer', ...base, date: '2026-09-22', scores: { ...base.scores, specific: false } },
+      { id: 'older_sharper', ...base, date: '2026-09-16' },
+    ], now)
+    expect(ranked[0].id).toBe('older_sharper')
+  })
+
+  it('but a band apart still decides, which is the control for the line above', () => {
+    const ranked = rankCandidates([
+      { id: 'much_older_sharper', ...base, date: '2026-06-16' },
+      { id: 'newer_vaguer', ...base, date: '2026-09-22', scores: { ...base.scores, specific: false } },
+    ], now)
+    expect(ranked[0].id).toBe('newer_vaguer')
+  })
+
+  it('a day-precise date outranks a month-precise one in the same band, on specificity', () => {
+    const ranked = rankCandidates([
+      { id: 'month_only', ...base, date: '2026-09' },
+      { id: 'to_the_day', ...base, date: '2026-09-05' },
+    ], now)
+    expect(ranked[0].id).toBe('to_the_day')
+  })
+})
