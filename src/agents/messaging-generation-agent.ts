@@ -3042,7 +3042,7 @@ function resolveShippedAngle(key: string, recorded: Map<string, string>): string
 // Writes a single row to document_suggestions.
 // suggested_value stores: { variants: { A: { emails: [...] }, B: {...}, ... } }
 // Matches the full_document pattern used by all document generation agents.
-async function writeDocumentSuggestion(
+export async function writeDocumentSuggestion(
   supabase: SupabaseClient,
   params: {
     organisation_id: string

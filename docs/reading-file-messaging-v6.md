@@ -485,3 +485,97 @@ unable to fire on four consecutive runs, for the same structural reason each tim
 | D-retry-1 | 2 | 6.18 | 5 | 64 | 5 | 21 / 25 | grade |
 | D-retry-1 | 3 | 6.17 | 5 | 42 | 3 | 23 / 25 | grade |
 | D-retry-1 | 4 | 4.53 | 5 | 37 | 3 | 20 / 25 | clean |
+
+---
+
+## 2026-09-23, cap raised to 15 and only the missing variants repaired
+
+Two steps, no full regeneration.
+
+### Step 1: re-validating the dumped attempts at cap 15 — still 1 of 4
+
+Raising the cap removed every sentence-length violation from the stored attempts but left
+the slot ones, which is the expected result and worth stating plainly: **a raised cap cannot
+retroactively merge two sentences that were already written.** A remained the only clean
+variant, via A-retry-2.
+
+### Step 2: guarded single-variant repair on B, C and D only
+
+Six calls, 158s, through the agent's own `scheduleRepairsBreadthFirst` and
+`attemptSlotRepair`, with the sentence registry pre-seeded from A so a repaired variant
+could not duplicate its Email 1 copy. **A was not regenerated.**
+
+Result: **1 of 4.** B, C and D each took two attempts and none passed. Budget exhausted.
+
+### THE CAP RAISE WORKED, AND THE PROBLEM MOVED AGAIN
+
+| variant | Email 1 grade | Email 1 sentences | longest / cap |
+|---|---|---|---|
+| A | 5.82 | 5 | 10 / 15 |
+| B | **4.80** | 5 | 12 / 15 |
+| C | 5.80 | 4 | 14 / 15 |
+| D | 6.53 | 4 | 15 / 15 |
+
+At cap 12, three of four retries failed the slot one-sentence rule. **At 15 that is down to
+one occurrence in one attempt.** Email 1 is no longer the thing standing in the way.
+
+**What blocks the document now is EMAILS 2 AND 3**, which are held to grade 5 with a 25-word
+sentence cap:
+
+| variant | still failing | grade | longest sentence |
+|---|---|---|---|
+| A | nothing | | **CLEAN** |
+| B | Email 2, Email 3 | 5.85, 5.06 | 19, 17 words |
+| C | Email 2 only | 5.41 | 17 words |
+| D | Email 1, Email 2, Email 3 | 6.53, 5.42, 6.52 | 15, 20, 24 words |
+
+**C is one email away, by 0.41 of a grade. B's Email 3 is over by 0.06.**
+
+### A DEFECT IN THE RETRY FEEDBACK, WHICH I INTRODUCED
+
+The grade message names the sentence cap of the email's own position. For Email 1 that is
+15 and it is the binding constraint, which is why it worked. **For emails 2 to 4 the cap is
+25 and it is not binding at all**, so the message now contradicts itself:
+
+> Your longest sentence is 19 words ... **against a cap of 25** ... break it.
+
+It tells the model to break a sentence and in the same breath tells it the sentence is
+comfortably legal. Every remaining failure is an email 2 or 3 whose longest sentence is 17
+to 24 words: inside the cap, too long for grade 5.
+
+This is the same shape as the original Email 1 problem one position over, and it has the
+same two candidate answers: lower the sentence cap for emails 2 to 4, or stop quoting a
+non-binding cap in the grade message and quote the words-per-sentence the grade actually
+needs. **Neither is taken here.**
+
+### Cross-variant sentence reuse: still cannot fire
+
+One clean variant. Five consecutive runs now.
+
+### Nothing landed
+
+1 of 4 is below the agent's own minimum of **three** variants, so no suggestion row was
+written and v6 is still active. The 3-variant floor is worth noting because earlier entries
+in this file said a document needs four: it does not, it needs three, which makes B and C
+the two that matter.
+
+### Grade, words and sentences per email, best attempt per variant
+
+| attempt | email | grade | cap | words | sentences | longest sentence | verdict |
+|---|---|---|---|---|---|---|---|
+| A-retry-2 | 1 | 5.82 | 6 | 40 | 5 | 10 / 15 | clean |
+| A-retry-2 | 2 | 3.25 | 5 | 59 | 6 | 16 / 25 | clean |
+| A-retry-2 | 3 | 4.88 | 5 | 38 | 3 | 14 / 25 | clean |
+| A-retry-2 | 4 | 4.81 | 5 | 35 | 3 | 18 / 25 | clean |
+| B-retry-2 | 1 | 4.80 | 6 | 53 | 5 | 12 / 15 | clean |
+| B-retry-2 | 2 | 5.85 | 5 | 54 | 4 | 19 / 25 | grade |
+| B-retry-2 | 3 | 5.06 | 5 | 47 | 4 | 17 / 25 | grade |
+| B-retry-2 | 4 | 4.57 | 5 | 38 | 3 | 20 / 25 | clean |
+| C-retry-2 | 1 | 5.80 | 6 | 50 | 4 | 14 / 15 | clean |
+| C-retry-2 | 2 | 5.41 | 5 | 58 | 5 | 17 / 25 | grade |
+| C-retry-2 | 3 | 2.59 | 5 | 38 | 5 | 13 / 25 | clean |
+| C-retry-2 | 4 | 2.58 | 5 | 32 | 3 | 20 / 25 | clean |
+| D-retry-2 | 1 | 6.53 | 6 | 49 | 4 | 15 / 15 | grade |
+| D-retry-2 | 2 | 5.42 | 5 | 61 | 5 | 20 / 25 | grade |
+| D-retry-2 | 3 | 6.52 | 5 | 45 | 3 | 24 / 25 | grade |
+| D-retry-2 | 4 | 4.53 | 5 | 37 | 3 | 20 / 25 | clean |
