@@ -372,7 +372,12 @@ TIER CRITERIA
 ─────────────────────────────────────────────────────────────────────
 
 Classify as TIER 1 if a specific, dateable, verifiable public signal exists from any of:
-  • A LinkedIn post in the last 60 days (personal or company page)
+  • A LinkedIn post in the last 90 days (personal or company page).
+    WINDOW CORRECTED 2026-09-23, and it was never enforced before that date: the label
+    "(last 60 days)" was a hardcoded string in formatPostsData and no date filter was
+    ever sent to the actor. Measured on 2026-09-21: 936 of 1,140 posts pulled were older
+    than 90 days, and 35% of those actually shown to the model were, under that label.
+    `postedLimitDate` is now sent and the label is built from the same constant.
   • A podcast appearance they made
   • An article, case study, or guide they authored
   • A case study or piece of content in which they appear as subject or client
@@ -646,10 +651,37 @@ Option B: Soft-delete after N months. Adds complexity; provides minimal benefit 
 Research found that Apify provides dedicated LinkedIn actors callable via REST API. No LinkedIn account, no cookies, no ban risk, no MCP, no Playwright. The agent calls Apify HTTP endpoints from Vercel serverless functions exactly like any other API call.
 
 Actors:
-- `harvestapi/linkedin-profile-scraper` — full profile data, $4/1000 runs
-- `harvestapi/linkedin-profile-posts` — posts from last 60 days, $2/1000 runs
+- `harvestapi/linkedin-profile-scraper` — full profile data, $4/1000 runs.
+  DROPPED 2026-08-25 after producing 1 candidate in 147, never selected.
+- `harvestapi/linkedin-profile-posts` — the only actor still called.
 
-Cost at Doug's scale (~800–3200 prospects/month): ~$4–13/month total. Not material.
+**BOTH FIGURES ABOVE ARE SUPERSEDED. Corrected 2026-09-23.** Kept rather than deleted
+because the reasoning that follows was written against them.
+
+The posts actor left PRICE_PER_DATASET_ITEM on **2026-03-09** for PAY_PER_EVENT: $0.00005
+per actor start, **$0.002 per post returned**, $0.001 for a zero-result query. Nothing in
+the repo noticed, because a price in a document looks like a fact and nothing re-reads a
+vendor's pricing page.
+
+So the cost is set by HOW MANY POSTS ARE RETURNED, not by runs. `maxPosts` was unset until
+2026-09-23, so the actor returned up to 50 and the formatter read 5. Measured from 158
+real runs on 2026-09-21: **mean $0.0795 a prospect, median $0.098**, with 77 of 158 at
+exactly $0.10005, which is one start plus fifty posts.
+
+With `maxPosts: 5` the ceiling is **$0.01005 a prospect**. `COST_APIFY` in
+`src/lib/agents/research/cost-constants.ts` carries that figure and a test pins it to
+`START + MAX_POSTS * POST` so the two cannot drift again.
+
+Cost at Doug's scale, corrected:
+
+| | 84 prospects | 900/month |
+|---|---|---|
+| as it ran on 2026-09-21 | $6.68 | $71.59, which is 3.8x the $19 plan cap |
+| with `maxPosts: 5` | $0.84 | $9.04 |
+
+The "~$4–13/month, not material" line above was right about the conclusion and wrong about
+the number by 20x. At 900 a month the old configuration exceeded the plan cap, which is
+what produced the HTTP 402 on 50 of 84 prospects on 2026-09-21.
 
 **Decision: Integrate Apify in Phase 1.** LinkedIn moves from Phase 2 to Phase 1 (pending Apify account creation — see prerequisites table above).
 
