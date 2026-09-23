@@ -4,7 +4,7 @@
 // Never throws — returns available: false on all failure paths.
 
 import { logger } from '@/lib/logger'
-import { isFatalSourceStatus, readErrorBody, SourceHttpError, throwIfFatalSource } from './source-http'
+import { readErrorBody, SourceHttpError } from './source-http'
 import type { ProspectContext, WebsiteSourceResult, WebsitePost } from '../types'
 
 const USER_AGENTS = [
@@ -174,16 +174,17 @@ function extractText(html: string): string {
 }
 
 /**
- * A STATUS FROM THE PROSPECT'S OWN SITE IS NEVER FATAL.
+ * NOTHING IN THIS FILE CAN ABORT A RUN. Not the prospect's own site, and not Jina.
  *
- * This matters and it is easy to get backwards. 401, 402 and 403 abort the run when they
- * come from a PROVIDER WE PAY, because the account cannot make the call and the next
- * prospect will fail identically. A 403 from a prospect's website is the opposite: it is
- * Cloudflare deciding about that one site, and aborting a 900-prospect run over it would
- * turn one bot-blocked homepage into an outage.
+ * The rule follows from the TIER, not from who owns the server. Website is a
+ * record-tier source: its failure is logged, counted and continued past, and a prospect
+ * is never held for it. A source that cannot hold one prospect must not be able to stop
+ * nine hundred, and a fatal throw from the fallback of a source that does not even hold
+ * would be a bigger hammer than the source is allowed to swing.
  *
  * So this function throws SourceHttpError, which carries the status for the record, and
- * the caller catches it without ever consulting throwIfFatalSource.
+ * every caller catches it. throwIfFatalSource is not imported here at all, which is the
+ * cheapest guarantee available: the escalation is not merely unused, it is absent.
  */
 async function fetchDirect(url: string, maxChars: number): Promise<{ text: string; html: string } | null> {
   const response = await fetch(withScheme(url), {
@@ -218,9 +219,22 @@ async function fetchViaJina(url: string, maxChars: number): Promise<{ text: stri
     },
     signal: AbortSignal.timeout(15000),
   })
-  // JINA IS A PROVIDER WE CALL, so its statuses DO abort the run: unauthenticated
-  // r.jina.ai is rate limited per IP, and a 401/402/403 from it applies to every
-  // remaining prospect exactly as an Apify 402 does.
+  // JINA'S STATUSES ARE RECORDED AND NEVER FATAL. Reversed 2026-09-23.
+  //
+  // The first version made 401/402/403 from Jina abort the run, reasoning that Jina is a
+  // provider we call and its refusal applies to every remaining prospect. That reasoning
+  // is sound about Apify and wrong here, and the difference is the TIER: website is
+  // record-tier, so its failure does not even hold ONE prospect. Letting its fallback
+  // stop the whole run gave the weakest source in the system the strongest possible
+  // veto.
+  //
+  // It is not hypothetical. Measured on 2026-09-23, unauthenticated r.jina.ai allows
+  // `x-ratelimit-limit: 20, 20;w=60` — 20 requests per minute per IP — and returns 429
+  // with "Per IP rate limit exceeded". Research runs maxInFlight 20 and now fetches up to
+  // 5 pages per prospect, so bursts well past that limit are routine. 429 was always
+  // non-fatal, but a provider that switched to 403 for the same condition would have
+  // aborted production runs over a rate limit on a source that contributes nothing to a
+  // held verdict.
   if (!response.ok) {
     throw new SourceHttpError('Jina Reader', response.status, await readErrorBody(response))
   }
@@ -253,13 +267,9 @@ async function fetchPage(
     if (got && got.text.length > 100) return { ...got, method: 'jina' }
     reasons.push(`${label} jina: 200 but only ${got?.text.length ?? 0} chars of text`)
   } catch (err) {
-    // ONLY JINA'S OWN STATUSES CAN STOP THE RUN. A status from the prospect's site is
-    // Cloudflare deciding about one homepage; aborting a 900-prospect run over it would
-    // turn one bot-blocked site into an outage. Jina is a provider we call, so its
-    // refusal applies to every remaining prospect.
-    if (err instanceof SourceHttpError && isFatalSourceStatus(err.status)) {
-      throwIfFatalSource(err, 'research/website')
-    }
+    // NO ESCALATION HERE, DELIBERATELY. Every Jina failure, including 401, 402 and 403,
+    // is recorded and continued past. See the note on fetchViaJina for why the tier
+    // decides this rather than who owns the server.
     reasons.push(`${label} jina: ${err instanceof SourceHttpError ? `HTTP ${err.status}` : String(err)}`)
   }
   return null

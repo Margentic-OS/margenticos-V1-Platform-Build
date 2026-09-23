@@ -209,3 +209,82 @@ describe('the source is bounded in wall clock, so one slow site cannot eat the b
     expect(r.partial_reasons?.join(' ')).toContain('not opened')
   })
 })
+
+describe('NOTHING in the website source can abort a run', () => {
+  const realFetch = globalThis.fetch
+  afterEach(() => { globalThis.fetch = realFetch; vi.restoreAllMocks() })
+
+  // THE REVERSAL, 2026-09-23. The first version made Jina 401/402/403 fatal, reasoning
+  // that Jina is a provider we call. That is true of Apify and wrong here: website is
+  // record-tier, so its failure does not hold even ONE prospect, and letting its fallback
+  // stop the run gave the weakest source the strongest veto. Measured the same day,
+  // unauthenticated r.jina.ai allows 20 requests/minute/IP and 429s past it, so a
+  // provider switching to 403 for that condition would have aborted production runs.
+  it.each([401, 402, 403, 429, 500])(
+    'a %i from BOTH direct and Jina degrades, it does not throw',
+    async status => {
+      globalThis.fetch = vi.fn(async () => ({
+        ok: false, status, text: async () => 'refused',
+      })) as never
+      const { fetchWebsiteSource } = await import('../sources/website')
+
+      // Resolves. Any throw here is the run aborting.
+      const r = await fetchWebsiteSource({ id: 'p1', website_url: 'example.com' } as never)
+      expect(r.available).toBe(false)
+      expect(r.error).toContain(String(status))
+    },
+  )
+
+  it.each([401, 402, 403])(
+    'a %i from JINA ALONE, after direct returned a thin page, still degrades',
+    async status => {
+      // Isolates Jina: direct succeeds at the HTTP level but returns too little text, so
+      // the Jina fallback is genuinely reached and is the only thing failing.
+      globalThis.fetch = vi.fn(async (u: string) => (
+        String(u).includes('r.jina.ai')
+          ? { ok: false, status, text: async () => 'jina refused' }
+          : { ok: true, status: 200, text: async () => '<body>tiny</body>' }
+      )) as never
+      const { fetchWebsiteSource } = await import('../sources/website')
+
+      const r = await fetchWebsiteSource({ id: 'p1', website_url: 'example.com' } as never)
+      expect(r.available).toBe(false)
+      expect(r.error).toContain('jina')
+      expect(r.error).toContain(String(status))
+    },
+  )
+
+  it('a fatal Jina status on a FOLLOWED page leaves the homepage result standing', async () => {
+    // The worst shape: the homepage worked, so a throw here would discard a successful
+    // fetch AND stop the batch, over a blog page.
+    globalThis.fetch = vi.fn(async (u: string) => {
+      const url = String(u)
+      if (url.includes('/blog')) {
+        return url.includes('r.jina.ai')
+          ? { ok: false, status: 402, text: async () => 'payment required' }
+          : { ok: false, status: 402, text: async () => 'payment required' }
+      }
+      return { ok: true, status: 200, text: async () => `<body>${'home '.repeat(40)}<a href="/blog">Blog</a></body>` }
+    }) as never
+    const { fetchWebsiteSource } = await import('../sources/website')
+
+    const r = await fetchWebsiteSource({ id: 'p1', website_url: 'example.com' } as never)
+    expect(r.available).toBe(true)
+    expect(r.pages_followed).toEqual([])
+    expect(r.partial_reasons?.join(' ')).toContain('402')
+  })
+
+  it('the escalation helper is not even imported by this module', async () => {
+    // A STRUCTURAL GUARANTEE, not a behavioural one. Every test above asserts that no
+    // throw happens on the paths they exercise; this asserts there is no path at all,
+    // including ones nobody thought to write a fixture for.
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync('src/lib/agents/research/sources/website.ts', 'utf8')
+    // Strip comments: the header explains WHY it is absent and must be allowed to say so.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    expect(code).not.toContain('throwIfFatalSource')
+    expect(code).not.toContain('isFatalSourceStatus')
+    // Control: the file really was read and really does contain its own exports.
+    expect(code).toContain('fetchWebsiteSource')
+  })
+})
