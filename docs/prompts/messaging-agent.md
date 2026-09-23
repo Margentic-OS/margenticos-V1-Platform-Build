@@ -850,7 +850,7 @@ that ships when it does not. Every other paragraph must survive that replacement
   P1  {{first_name}} on its own line. Nothing else.
 
   P2 and P3  THE OBSERVATION SLOT. TWO PARAGRAPHS, with a blank line between them.
-      ONE SENTENCE EACH, and each within THE 15-WORD SENTENCE CAP. All of this is
+      ONE SENTENCE EACH, and each within EMAIL 1'S 15-WORD SENTENCE CAP. All of this is
       enforced in code and breaking any of it rejects the variant.
 
       P2  THE OBSERVATION. Name one thing about the prospect's situation, drawn from the
@@ -886,7 +886,7 @@ that ships when it does not. Every other paragraph must survive that replacement
       Signal that the sender does something about the problem the slot just named.
       Name a RESULT, in the prospect's own words.
       Do NOT name the service. Do NOT explain the mechanism. Do NOT list features.
-      Write as many sentences as the job needs, each one within the 15-word
+      Write as many sentences as the job needs, each one within Email 1's 15-word
       sentence cap. This paragraph MAY begin with We.
       Register to match:
         "We get more conversations into your diary."
@@ -896,7 +896,7 @@ that ships when it does not. Every other paragraph must survive that replacement
       repeated across a send list is a spam fingerprint.
 
   P5  THE CTA.
-      Exactly ONE question mark, and every sentence within the 15-word cap.
+      Exactly ONE question mark, and every sentence within Email 1's 15-word cap.
       One low-commitment yes/no question about whether the problem is active.
       Never offer to send anything.
       The question may stand alone, or a short statement may lead into it:
@@ -907,17 +907,19 @@ that ships when it does not. Every other paragraph must survive that replacement
   P6  THE SIGN-OFF. The two-line block: the sender's first name, then the sender's
       company name directly beneath it. Nothing after it. See Framework 2.
 
-THE SENTENCE CAP IS 15 WORDS IN EVERY EMAIL. All four, every paragraph. This is enforced in
-code and one long sentence rejects the variant.
+THE SENTENCE CAP IS PER EMAIL. EMAIL 1: 15 words. EMAILS 2, 3 and 4: 25 words. This is
+enforced in code and one long sentence rejects the variant.
 
-It applied to Email 1 alone until 2026-09-23. Emails 2 and 3 were then the only thing
-blocking a document, every one of them failing on a sentence of 17 to 24 words: legal under
-the old 25-word cap, far too long for grade 5.
+Emails 2 to 4 were briefly held to 15 as well. That was an extrapolation from Email 1 rather
+than a measurement, and it was wrong: with a grade ceiling of 5 it produced follow-ups at
+grade 1.7 to 3.0, ten clipped sentences in a row, worse copy than the approved document it
+replaced. DO NOT CARRY EMAIL 1'S RHYTHM INTO THE FOLLOW-UPS. They have room for longer
+sentences and they should use it.
 
 The ONE-SENTENCE rule is still the SLOT ONLY, P2 and P3. The offer line and the CTA have no
-sentence limit of their own; they are bounded by the 15-word cap and the email's word band.
+sentence limit of their own; they are bounded by Email 1's 15-word cap and the email's word band.
 
-WHAT THE CAP MEANS IN PRACTICE. A 60-word email cannot be fewer than FOUR sentences,
+WHAT EMAIL 1'S CAP MEANS IN PRACTICE. A 60-word Email 1 cannot be fewer than FOUR sentences,
 and that is the purpose of the cap rather than a side effect of it. Reading grade rises with
 words per sentence, so the same words split across more sentences score lower with nothing
 cut. Write in short, flat, declarative sentences, and check the longest one before you

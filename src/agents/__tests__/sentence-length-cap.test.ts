@@ -14,7 +14,9 @@ import {
   validateEmails,
   emailProse,
   EMAIL_WORD_LIMITS,
-  EMAIL_SENTENCE_WORD_CAP,
+  EMAIL1_MAX_SENTENCE_WORDS,
+  FOLLOWUP_MAX_SENTENCE_WORDS,
+  sentenceWordCapFor,
   type EmailRecord,
 } from '../messaging-generation-agent'
 import { MAX_SENTENCE_WORDS, splitSentences } from '@/lib/style/readability'
@@ -103,7 +105,9 @@ describe('the fixture itself is honest', () => {
     // messaging gate used to borrow it and now does not, so the two are asserted apart:
     // if someone re-points the email cap at it, this says so.
     expect(MAX_SENTENCE_WORDS).toBe(25)
-    expect(EMAIL_SENTENCE_WORD_CAP).not.toBe(MAX_SENTENCE_WORDS)
+    // The follow-up cap is DERIVED from it; Email 1's deliberately is not.
+    expect(FOLLOWUP_MAX_SENTENCE_WORDS).toBe(MAX_SENTENCE_WORDS)
+    expect(EMAIL1_MAX_SENTENCE_WORDS).not.toBe(MAX_SENTENCE_WORDS)
   })
 })
 
@@ -113,19 +117,19 @@ describe('sentence-length cap — the failing direction', () => {
   })
 
   it('names the measured length and the cap, so a retry is a correction', () => {
-    expect(capIssues(30)[0]).toContain(`sentence runs 30 words, cap is ${EMAIL_SENTENCE_WORD_CAP}`)
+    expect(capIssues(30)[0]).toContain(`sentence runs 30 words, cap is ${FOLLOWUP_MAX_SENTENCE_WORDS}`)
   })
 })
 
 describe('sentence-length cap — the passing direction', () => {
-  it('accepts a 12-word sentence', () => {
-    expect(capIssues(12)).toEqual([])
+  it('accepts a 20-word sentence in an email that carries the 25-word cap', () => {
+    expect(capIssues(20)).toEqual([])
   })
 
   // The whole email must survive, not just the cap check. A sentence that passes the cap
   // and fails four other gates would make the pair above meaningless.
-  it('the 12-word email passes the WHOLE validator clean', () => {
-    expect(validateEmails([emailWithSentence(12)], SENDER, COMPANY)).toEqual([])
+  it('the 20-word email passes the WHOLE validator clean', () => {
+    expect(validateEmails([emailWithSentence(20)], SENDER, COMPANY)).toEqual([])
   })
 })
 
@@ -135,7 +139,7 @@ describe('sentence-length cap — the passing direction', () => {
 // the prose, so 12 of those 72 failures would have been the {{first_name}} line.
 describe('the scanned surface excludes the merge tag and the sign-off', () => {
   it('drops the greeting and both sign-off lines, and keeps the prose', () => {
-    const prose = emailProse(emailWithSentence(12).body, SENDER, COMPANY)
+    const prose = emailProse(emailWithSentence(20).body, SENDER, COMPANY)
     expect(prose).not.toContain('{{first_name}}')
     expect(prose.split('\n').map(l => l.trim())).not.toContain(SENDER)
     expect(prose.split('\n').map(l => l.trim())).not.toContain(COMPANY)
@@ -143,43 +147,59 @@ describe('the scanned surface excludes the merge tag and the sign-off', () => {
   })
 
   it('a sentence at exactly the cap would fail if the greeting were left attached', () => {
-    const body = emailWithSentence(EMAIL_SENTENCE_WORD_CAP).body
+    const body = emailWithSentence(FOLLOWUP_MAX_SENTENCE_WORDS).body
     const rawFirst = splitSentences(body)[0]
-    expect(rawFirst.trim().split(/\s+/).length).toBe(EMAIL_SENTENCE_WORD_CAP + 1)
+    expect(rawFirst.trim().split(/\s+/).length).toBe(FOLLOWUP_MAX_SENTENCE_WORDS + 1)
     // ...and it passes, because the gate scans the prose rather than the raw body.
-    expect(capIssues(EMAIL_SENTENCE_WORD_CAP)).toEqual([])
+    expect(capIssues(FOLLOWUP_MAX_SENTENCE_WORDS)).toEqual([])
   })
 })
 
-// ─── THE CAP IS 15 IN EVERY EMAIL ────────────────────────────────────────────
+// ─── THE CAP IS PER POSITION: 15 IN EMAIL 1, 25 IN EMAILS 2 TO 4 ────────────
 //
-// POSITIVE CONTROL, BOTH DIRECTIONS, AT EVERY POSITION. The cap was per-position for two
-// days: 12 then 15 for Email 1, 25 for the rest. It is now one number for all four, so the
-// control that matters is no longer a pair across positions but the SAME boundary holding
-// at each of them. A cap that quietly stopped applying to emails 2 to 4 is exactly the
-// regression this file exists to catch, and it would be invisible from Email 1 alone.
-describe('the sentence cap is 15 and applies to every email', () => {
-  it('the cap under test is the constant, not a local number', () => {
-    expect(EMAIL_SENTENCE_WORD_CAP).toBe(15)
+// POSITIVE CONTROL, BOTH DIRECTIONS, AND ACROSS POSITIONS. This cap has been uniform at 25,
+// then 12/25, then 15/25, then 15 everywhere, and is now 15/25 again. Several of those
+// moves broke a test that pinned a literal, which is why almost nothing here pins one.
+//
+// The control that matters is the PAIR ACROSS POSITIONS: one sentence, one helper, judged
+// twice. A 20-word sentence is rejected in Email 1 and legal in Email 2. Nothing about the
+// sentence differs, so the verdict can only have come from the position.
+describe('the sentence cap is per position', () => {
+  it('the caps under test are the constants, and they DIFFER', () => {
+    expect(EMAIL1_MAX_SENTENCE_WORDS).toBe(15)
+    expect(FOLLOWUP_MAX_SENTENCE_WORDS).toBe(25)
+    // If these ever collapse to one number the pair below silently stops testing anything.
+    expect(EMAIL1_MAX_SENTENCE_WORDS).toBeLessThan(FOLLOWUP_MAX_SENTENCE_WORDS)
   })
 
-  it.each([1, 2, 3, 4])('rejects a 16-word sentence in email %i', pos => {
-    expect(capIssues(EMAIL_SENTENCE_WORD_CAP + 1, pos)).toHaveLength(1)
+  it('sentenceWordCapFor returns the Email 1 cap for 1 and the follow-up cap for the rest', () => {
+    expect(sentenceWordCapFor(1)).toBe(EMAIL1_MAX_SENTENCE_WORDS)
+    expect([2, 3, 4].map(sentenceWordCapFor)).toEqual(
+      [FOLLOWUP_MAX_SENTENCE_WORDS, FOLLOWUP_MAX_SENTENCE_WORDS, FOLLOWUP_MAX_SENTENCE_WORDS])
   })
 
-  it.each([1, 2, 3, 4])('accepts exactly 15 words in email %i', pos => {
-    expect(capIssues(EMAIL_SENTENCE_WORD_CAP, pos)).toEqual([])
+  it('THE PAIR: the SAME 20-word sentence fails in Email 1 and passes in Email 2', () => {
+    expect(capIssues(20, 1)).toHaveLength(1)
+    expect(capIssues(20, 2)).toEqual([])
   })
 
-  it('rejects a 20-word sentence at EVERY position, not just Email 1', () => {
-    // The old behaviour passed this in emails 2 to 4. Pinning all four positions is what
-    // makes the change to emails 2 to 4 a tested fact rather than a claim.
-    for (const pos of [1, 2, 3, 4]) expect(capIssues(20, pos)).toHaveLength(1)
+  it('Email 1 rejects one over its cap and accepts exactly its cap', () => {
+    expect(capIssues(EMAIL1_MAX_SENTENCE_WORDS + 1, 1)).toHaveLength(1)
+    expect(capIssues(EMAIL1_MAX_SENTENCE_WORDS, 1)).toEqual([])
   })
 
-  it('names the cap and says it applies everywhere, so a retry is a correction', () => {
-    const issue = capIssues(20, 2)[0]
-    expect(issue).toContain(`sentence runs 20 words, cap is ${EMAIL_SENTENCE_WORD_CAP}`)
-    expect(issue).toContain('in every email')
+  it.each([2, 3, 4])('email %i rejects one over the follow-up cap and accepts exactly it', pos => {
+    expect(capIssues(FOLLOWUP_MAX_SENTENCE_WORDS + 1, pos)).toHaveLength(1)
+    expect(capIssues(FOLLOWUP_MAX_SENTENCE_WORDS, pos)).toEqual([])
+  })
+
+  it('the Email 1 message says it is stricter, so a retry knows which number applies', () => {
+    const issue = capIssues(20, 1)[0]
+    expect(issue).toContain(`sentence runs 20 words, cap is ${EMAIL1_MAX_SENTENCE_WORDS}`)
+    expect(issue).toContain(`stricter than the ${FOLLOWUP_MAX_SENTENCE_WORDS} that emails 2 to 4 carry`)
+  })
+
+  it('the follow-up message does NOT claim to be stricter', () => {
+    expect(capIssues(30, 2)[0]).not.toContain('stricter')
   })
 })

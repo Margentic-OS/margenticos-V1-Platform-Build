@@ -85,12 +85,12 @@ describe('reading grade: control 4, the middle of the range', () => {
     expect(r.grade).toBeCloseTo(CONTROL_BENCHMARK_GRADE, 2)
   })
 
-  it('the benchmark passes the gate the templates are being held to', () => {
-    // The target is not arbitrary: the copy we are imitating clears it. If this ever
-    // fails, either the threshold moved or the instrument did, and both are worth
-    // stopping for.
+  it('the benchmark passes the STRICTEST gate the templates are held to', () => {
+    // The target is not arbitrary: the copy we are imitating clears it. Asserted against
+    // Email 1's ceiling, which is the tighter of the two, so a loosening of the follow-up
+    // ceiling can never make this pass by accident.
     const r = fleschKincaidGrade(CONTROL_BENCHMARK)!
-    expect(r.grade).toBeLessThanOrEqual(MAX_READING_GRADE)
+    expect(r.grade).toBeLessThanOrEqual(EMAIL1_MAX_READING_GRADE)
   })
 })
 
@@ -123,29 +123,43 @@ describe('reading grade: tokenising', () => {
 })
 
 describe('the grade ceiling is per position', () => {
-  // POSITIVE CONTROL, BOTH DIRECTIONS. Email 1 carries four fixed jobs in 40 to 90 words;
-  // emails 2 to 4 carry one idea each and no frame, which is why they were already passing
-  // at 5 while Email 1 was not. The extra grade buys structure Email 1 cannot shed.
-  it('Email 1 is allowed one grade more than the rest', () => {
+  // POSITIVE CONTROL, BOTH DIRECTIONS. The DIRECTION OF THIS PAIR FLIPPED on 2026-09-23 and
+  // that is the thing worth pinning. Email 1 used to be the LOOSER of the two, 6 against 5.
+  // It is now the STRICTER, 6 against 8, because the two ceilings answer different questions:
+  //
+  //   Email 1's 6     an IDEAL. It is read cold by a stranger with no prior message.
+  //   emails 2-4's 8  a MEASUREMENT. It is the worst grade in v6's approved copy, rounded
+  //                   up, so approved copy passes and anything worse fails.
+  //
+  // A test that just asserted "they differ" would have survived the flip without noticing.
+  it('Email 1 is the STRICTER of the two, not the looser', () => {
     expect(EMAIL1_MAX_READING_GRADE).toBe(6)
-    expect(MAX_READING_GRADE).toBe(5)
-    expect(EMAIL1_MAX_READING_GRADE).toBe(MAX_READING_GRADE + 1)
+    expect(MAX_READING_GRADE).toBe(8)
+    expect(EMAIL1_MAX_READING_GRADE).toBeLessThan(MAX_READING_GRADE)
   })
 
-  it('readingGradeCapFor returns 6 for Email 1 and 5 for the rest', () => {
+  it('readingGradeCapFor returns 6 for Email 1 and 8 for the rest', () => {
     expect(readingGradeCapFor(1)).toBe(EMAIL1_MAX_READING_GRADE)
-    expect([2, 3, 4].map(readingGradeCapFor)).toEqual([5, 5, 5])
+    expect([2, 3, 4].map(readingGradeCapFor)).toEqual([8, 8, 8])
   })
 
-  it('THE PAIR: a grade of 5.5 is legal in Email 1 and illegal in emails 2 to 4', () => {
-    const grade = 5.5
-    expect(grade).toBeLessThanOrEqual(readingGradeCapFor(1))
-    expect(grade).toBeGreaterThan(readingGradeCapFor(2))
+  it('THE PAIR: a grade of 7.0 is illegal in Email 1 and legal in emails 2 to 4', () => {
+    const grade = 7.0
+    expect(grade).toBeGreaterThan(readingGradeCapFor(1))
+    expect(grade).toBeLessThanOrEqual(readingGradeCapFor(2))
   })
 
-  it('the benchmark still clears the STRICTER of the two', () => {
-    // The looser Email 1 ceiling must not quietly become the thing the target is judged
-    // against. The 7-percent-reply line clears 5, not merely 6.
-    expect(fleschKincaidGrade(CONTROL_BENCHMARK)!.grade).toBeLessThanOrEqual(MAX_READING_GRADE)
+  it('the emails 2 to 4 ceiling admits v6 approved copy, which peaked at 7.84', () => {
+    // The whole point of 8 is that it was set FROM the approved document rather than chosen.
+    // If it ever drops below 7.84, copy the operator already approved starts failing.
+    expect(MAX_READING_GRADE).toBeGreaterThanOrEqual(7.84)
+    // And it must not be so loose it admits what v6's Email 1s looked like, 8.72 to 10.44.
+    expect(MAX_READING_GRADE).toBeLessThan(8.72)
+  })
+
+  it('the benchmark clears the STRICTER of the two', () => {
+    // The looser follow-up ceiling must not quietly become the thing the target is judged
+    // against. The 7-percent-reply line clears Email 1's 6, not merely the follow-ups' 8.
+    expect(fleschKincaidGrade(CONTROL_BENCHMARK)!.grade).toBeLessThanOrEqual(EMAIL1_MAX_READING_GRADE)
   })
 })

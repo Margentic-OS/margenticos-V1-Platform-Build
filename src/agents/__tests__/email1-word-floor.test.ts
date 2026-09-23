@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest'
 import {
   validateEmails,
   EMAIL_WORD_LIMITS,
-  EMAIL_SENTENCE_WORD_CAP,
+  EMAIL1_MAX_SENTENCE_WORDS,
   type EmailRecord,
 } from '../messaging-generation-agent'
 
@@ -39,12 +39,12 @@ function sentenceOf(n: number): string {
 function email1Of(total: number): EmailRecord {
   // The slot is ONE sentence and every sentence is capped, so the old 18 is illegal by
   // construction rather than merely long.
-  const SLOT_WORDS = EMAIL_SENTENCE_WORD_CAP
+  const SLOT_WORDS = EMAIL1_MAX_SENTENCE_WORDS
   const offerWords = total - 1 - SLOT_WORDS - 3 - 2
   const offerSentences: string[] = []
   let left = offerWords
   while (left > 0) {
-    const take = Math.min(left, EMAIL_SENTENCE_WORD_CAP)   // every sentence at or under the cap
+    const take = Math.min(left, EMAIL1_MAX_SENTENCE_WORDS)   // every sentence at or under the cap
     offerSentences.push(sentenceOf(take))
     left -= take
   }

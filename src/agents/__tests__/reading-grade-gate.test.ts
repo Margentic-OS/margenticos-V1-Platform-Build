@@ -2,10 +2,15 @@
 //
 // A gate that rejects everything is an outage and a gate that rejects nothing is
 // decoration, and neither is distinguishable from a working gate by watching it fail. So
-// the central pair here is two emails that differ by EXACTLY ONE WORD, "hard" against
-// "difficult", with the same 37 words and the same 5 sentences. One scores 4.84 and
-// passes, the other 5.47 and fails. Nothing else about them differs, so the verdict can
-// only have come from the vocabulary.
+// the central pair here is two emails that differ by EXACTLY ONE WORD, "variability"
+// against "unpredictability", with the same 34 words and the same 3 sentences. One scores
+// 7.92 and passes, the other 8.27 and fails. Nothing else about them differs, so the
+// verdict can only have come from the vocabulary.
+//
+// THE FIXTURES WERE REBUILT on 2026-09-23 when the emails 2 to 4 ceiling moved 5 -> 8. The
+// old pair straddled 5, and at 8 BOTH of its members passed. That is a fixture that has
+// stopped testing its gate while still reporting green, which is the failure this whole
+// file exists to make impossible.
 //
 // Run through the REAL validateEmails, not a copy of the rule. A test that reimplements
 // the check proves the test can do arithmetic, which is not the question.
@@ -21,11 +26,12 @@ import {
   validateEmails,
   authoredProse,
   buildHeldParagraphsBlock,
-  EMAIL_SENTENCE_WORD_CAP,
+  EMAIL1_MAX_SENTENCE_WORDS,
+  FOLLOWUP_MAX_SENTENCE_WORDS,
   type EmailRecord,
   type HeldParagraph,
 } from '../messaging-generation-agent'
-import { fleschKincaidGrade, splitSentencesFk, MAX_READING_GRADE } from '@/lib/style/reading-grade'
+import { fleschKincaidGrade, splitSentencesFk, MAX_READING_GRADE, EMAIL1_MAX_READING_GRADE } from '@/lib/style/reading-grade'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -40,9 +46,9 @@ const CTA = 'Does that sound right?'
 // ONE skeleton, TWO vocabularies. Same sentence count, same word count. The only
 // difference between PLAIN and DENSE is the single word marked below.
 const PLAIN_PARAGRAPHS = [
-  'Most firms we speak to have the same difficulty. New business arrives through established relationships.',
-  //                                                    vv this word is the whole experiment
-  'When that source goes quiet, nothing else is operating. The variation makes it hard to plan or hire.',
+  'Most firms we speak to have the same problem and it arrives through established working relationships.',
+  //                                                       vv this word is the whole experiment
+  'When that source goes quiet, nothing else is operating and the variability complicates planning.',
 ]
 // Fails even at Email 1's looser ceiling, with every sentence inside the 12-word cap, so
 // it isolates the GRADE from the sentence-length gate at position 1.
@@ -51,8 +57,8 @@ const VERY_DENSE_PARAGRAPHS = [
   'When that source deteriorates, nothing else is operational. The variability complicates recruitment decisions considerably.',
 ]
 const DENSE_PARAGRAPHS = [
-  'Most firms we speak to have the same difficulty. New business arrives through established relationships.',
-  'When that source goes quiet, nothing else is operating. The variation makes it difficult to plan or hire.',
+  'Most firms we speak to have the same problem and it arrives through established working relationships.',
+  'When that source goes quiet, nothing else is operating and the unpredictability complicates planning.',
 ]
 
 /**
@@ -93,7 +99,7 @@ describe('the fixture itself is honest', () => {
     const dense = DENSE_PARAGRAPHS.join(' ').split(/\s+/)
     expect(plain).toHaveLength(dense.length)
     const differing = plain.filter((w, i) => w !== dense[i])
-    expect(differing).toEqual(['hard'])
+    expect(differing).toEqual(['variability'])
   })
 
   it('straddles the threshold, and the threshold is where the constant says', () => {
@@ -103,8 +109,8 @@ describe('the fixture itself is honest', () => {
     const dense = fleschKincaidGrade(DENSE_PARAGRAPHS.concat(CTA).join('\n\n'))!
     expect(plain.words).toBe(dense.words)
     expect(plain.sentences).toBe(dense.sentences)
-    expect(plain.grade).toBeCloseTo(4.84, 1)
-    expect(dense.grade).toBeCloseTo(5.47, 1)
+    expect(plain.grade).toBeCloseTo(7.92, 1)
+    expect(dense.grade).toBeCloseTo(8.27, 1)
     expect(plain.grade).toBeLessThanOrEqual(MAX_READING_GRADE)
     expect(dense.grade).toBeGreaterThan(MAX_READING_GRADE)
   })
@@ -120,7 +126,7 @@ describe('the reading-grade gate, both directions', () => {
   it('FIRES on prose above the grade', () => {
     const issues = gradeIssues(emailOf(DENSE_PARAGRAPHS))
     expect(issues).toHaveLength(1)
-    expect(issues[0]).toContain('5.5')
+    expect(issues[0]).toContain('8.3')
     expect(issues[0]).toContain(`maximum of ${MAX_READING_GRADE}`)
   })
 
@@ -132,7 +138,7 @@ describe('the reading-grade gate, both directions', () => {
 describe('a held paragraph cannot decide the verdict', () => {
   it('a held CTA is EXCLUDED, and that makes the gate stricter rather than softer', () => {
     // The same email, twice, differing only in whether the CTA was authored or supplied.
-    // Counted: 4.84, passes. Held and therefore excluded: 5.86, fails.
+    // Counted: 7.92, passes. Held and therefore excluded: 10.32, fails.
     //
     // This is the direction that surprised us. Holding a paragraph was expected to protect
     // an email from a failure it could not fix; measured on the live document it was doing
@@ -142,7 +148,7 @@ describe('a held paragraph cannot decide the verdict', () => {
     expect(gradeIssues(email)).toEqual([])
     const withHeld = gradeIssues(email, [CTA])
     expect(withHeld).toHaveLength(1)
-    expect(withHeld[0]).toContain('5.9')
+    expect(withHeld[0]).toContain('10.3')
   })
 
   it('editing a held paragraph cannot buy a pass', () => {
@@ -222,12 +228,13 @@ describe('the grade violation names WHAT THE GRADE NEEDS, never a cap', () => {
     // The regression is specifically re-introducing a non-binding number. Asserted as an
     // absence, because that is the shape the defect took.
     expect(issue()).not.toContain('cap of')
-    expect(issue()).not.toContain(`cap is ${EMAIL_SENTENCE_WORD_CAP}`)
+    expect(issue()).not.toContain(`cap is ${FOLLOWUP_MAX_SENTENCE_WORDS}`)
+    expect(issue()).not.toContain(`cap is ${EMAIL1_MAX_SENTENCE_WORDS}`)
   })
 
   it('gives the average words per sentence the grade actually requires', () => {
-    // DENSE is 37 words across 5 sentences at 1.54 syllables per word, ceiling 5.
-    //   wps = (5 + 15.59 - 11.8*spw) / 0.39
+    // DENSE is 34 words across 3 sentences at 1.65 syllables per word, at the emails 2-4
+    // ceiling of 8.  wps = (ceiling + 15.59 - 11.8*spw) / 0.39
     const r = fleschKincaidGrade(authoredProse(emailOf(DENSE_PARAGRAPHS).body, SENDER, COMPANY, []))!
     const needed = (MAX_READING_GRADE + 15.59 - 11.8 * r.syllablesPerWord) / 0.39
     expect(issue()).toContain(`average ${needed.toFixed(1)} words per sentence or fewer`)
@@ -263,7 +270,7 @@ describe('the grade violation names WHAT THE GRADE NEEDS, never a cap', () => {
 
   it('cites the grade ceiling of its own position', () => {
     expect(gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 1)[0]).toContain('above the maximum of 6')
-    expect(gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 2)[0]).toContain('above the maximum of 5')
+    expect(gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 2)[0]).toContain('above the maximum of 8')
   })
 
   it('says SPLITTING WILL NOT FIX IT when the vocabulary alone puts it over', () => {
@@ -281,34 +288,38 @@ describe('the grade GATE reads the per-position ceiling, not one constant', () =
   // the flat MAX_READING_GRADE. Every other test in this file still passed under that
   // mutation, because they all measure emails at position 2 where the two agree.
   //
-  // The pair is one body at grade 5.47, judged twice. Email 1's ceiling is 6, so it is
-  // legal there. Emails 2 to 4 are held to 5, so the identical prose is rejected.
-  it('THE PAIR: prose at grade 5.5 is accepted in Email 1 and rejected in Email 2', () => {
-    expect(fleschKincaidGrade(DENSE_PARAGRAPHS.concat(CTA).join('\n\n'))!.grade)
-      .toBeGreaterThan(MAX_READING_GRADE)
-    expect(fleschKincaidGrade(DENSE_PARAGRAPHS.concat(CTA).join('\n\n'))!.grade)
-      .toBeLessThanOrEqual(6)
-    expect(gradeIssuesAt(DENSE_PARAGRAPHS, 1)).toEqual([])
-    expect(gradeIssuesAt(DENSE_PARAGRAPHS, 2)).toHaveLength(1)
+  // THE DIRECTION OF THIS PAIR FLIPPED on 2026-09-23 and the new direction is the one
+  // pinned. Email 1's ceiling of 6 used to be the LOOSER of the two; against the follow-ups'
+  // 8 it is now the STRICTER. So the pair is one body at grade 7.92, judged twice: legal in
+  // emails 2 to 4, rejected in Email 1. Written the other way round it would still have
+  // passed under the mutation this exists to kill.
+  it('THE PAIR: prose at grade 7.9 is rejected in Email 1 and accepted in Email 2', () => {
+    const grade = fleschKincaidGrade(PLAIN_PARAGRAPHS.concat(CTA).join('\n\n'))!.grade
+    expect(grade).toBeGreaterThan(EMAIL1_MAX_READING_GRADE)
+    expect(grade).toBeLessThanOrEqual(MAX_READING_GRADE)
+    expect(gradeIssuesAt(PLAIN_PARAGRAPHS, 1)).toHaveLength(1)
+    expect(gradeIssuesAt(PLAIN_PARAGRAPHS, 2)).toEqual([])
   })
 })
 
 describe('the system prompt states the same cap the code enforces', () => {
   // THE TWO COPIES OF THE FRAME CANNOT INTERPOLATE INTO EACH OTHER. The TypeScript prompt
-  // renders ${EMAIL_SENTENCE_WORD_CAP}; docs/prompts/messaging-agent.md is a flat file and
+  // renders the cap constants; docs/prompts/messaging-agent.md is a flat file and
   // hardcodes the number. That is exactly the drift CLAUDE.md warns about for the word
   // limits, so it gets a test rather than a reminder. It has already caught one stale
   // number, when the cap moved from 12 to 15.
-  it('messaging-agent.md names the current cap', () => {
+  it('messaging-agent.md names BOTH current caps', () => {
     const md = readFileSync(join(process.cwd(), 'docs', 'prompts', 'messaging-agent.md'), 'utf-8')
-    expect(md).toContain(`THE SENTENCE CAP IS ${EMAIL_SENTENCE_WORD_CAP} WORDS IN EVERY EMAIL`)
-    expect(md).toContain(`${EMAIL_SENTENCE_WORD_CAP}-word cap`)
+    expect(md).toContain(
+      `THE SENTENCE CAP IS PER EMAIL. EMAIL 1: ${EMAIL1_MAX_SENTENCE_WORDS} words. ` +
+      `EMAILS 2, 3 and 4: ${FOLLOWUP_MAX_SENTENCE_WORDS} words.`)
   })
 
-  it('messaging-agent.md no longer says the cap is Email 1 only', () => {
+  it('messaging-agent.md still warns against carrying Email 1 rhythm into the follow-ups', () => {
+    // The cap alone does not carry the reason. This sentence is why emails 2 to 4 were
+    // allowed back to 25, and losing it is how the mistake gets made again.
     const md = readFileSync(join(process.cwd(), 'docs', 'prompts', 'messaging-agent.md'), 'utf-8')
-    expect(md).not.toContain('25-word\ncap')
-    expect(md).not.toContain("Email 1's 15-word cap")
+    expect(md).toContain("DO NOT CARRY EMAIL 1'S RHYTHM INTO THE FOLLOW-UPS")
   })
 
   it('messaging-agent.md no longer offers the withdrawn two-sentence permission', () => {

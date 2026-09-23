@@ -179,16 +179,30 @@ export function fleschKincaidGrade(text: string): ReadingGrade | null {
   }
 }
 
-// The grade a template email body must not exceed. Prose only: the greeting and the two
-// sign-off lines are removed by emailProse() before the grade is taken, because they are
-// fixed text identical on every email and would flatter every email equally.
+// The grade ceiling for EMAILS 2 TO 4. Prose only: the greeting and the two sign-off lines
+// are removed by emailProse() before the grade is taken, because they are fixed text
+// identical on every email and would flatter every email equally.
 //
-// WHY 5. The benchmark below, from a campaign that replied at 7 percent, scores 3.68. The
-// live template Email 1 on 2026-09-22 scored 9.3, which is a reader who needs four more
-// years of schooling to follow a cold email they did not ask for. 5 sits above the
-// benchmark with room to write in, and below every grade the live templates reached on
-// their Email 1s.
-export const MAX_READING_GRADE = 5
+// 8, RAISED FROM 5 ON 2026-09-23, AND THE REASON IS THE POINT OF THIS CONSTANT.
+//
+// 5 was chosen against a benchmark: the line from a campaign that replied at 7 percent
+// scores 3.68. That is an IDEAL. This number is now set from what the operator has actually
+// APPROVED, which is a different and more honest question for a hard gate to answer.
+//
+// Measured on v6's twelve approved emails 2 to 4, on this exact surface: they run 3.95 to
+// 7.84, worst is B/Email 3 at 7.84, so the ceiling is 8. Every line of approved copy passes
+// and anything worse than the worst approved line fails.
+//
+// WHAT 5 DID WHEN IT WAS APPLIED HERE, and why an ideal was the wrong instrument. Together
+// with a 15-word sentence cap it drove emails 2 to 4 to grade 1.70 to 2.99, which is ten
+// clipped sentences in a row. It reads worse than the copy it replaced. Two separate costs:
+// the email itself is worse, and the FOLLOW-UP WRITER takes its tone from these templates,
+// so choppy templates produce choppy generated follow-ups for every prospect.
+//
+// Email 1 is deliberately NOT governed by this. It keeps the stricter 6, because Email 1 is
+// the one a stranger reads cold with no prior message, and it is the only one whose
+// observation slot is replaced per prospect.
+export const MAX_READING_GRADE = 8
 
 /**
  * Email 1's grade ceiling, which is ONE GRADE LOOSER than the other three carry.
@@ -210,8 +224,13 @@ export const MAX_READING_GRADE = 5
 export const EMAIL1_MAX_READING_GRADE = 6
 
 /**
- * The ceiling for one position. A function for the same reason sentenceWordCapFor is one:
- * a lookup table is a second list that has to stay in step with the four positions by hand.
+ * The ceiling for one position. A function rather than a lookup table, because a table is a
+ * second list that has to stay in step with the four positions by hand.
+ *
+ * The gap between the two is now THREE grades, not one, and that is deliberate rather than
+ * drift: 6 for Email 1 is an ideal the copy is held to, 8 for emails 2 to 4 is the measured
+ * floor of what has already been approved. They answer different questions and are allowed
+ * to be far apart.
  */
 export function readingGradeCapFor(sequencePosition: number): number {
   return sequencePosition === 1 ? EMAIL1_MAX_READING_GRADE : MAX_READING_GRADE
