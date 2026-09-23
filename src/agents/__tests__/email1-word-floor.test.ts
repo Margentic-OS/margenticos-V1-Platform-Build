@@ -6,7 +6,12 @@
 // rejected, which is complete and legal and now passes everything.
 
 import { describe, it, expect } from 'vitest'
-import { validateEmails, EMAIL_WORD_LIMITS, type EmailRecord } from '../messaging-generation-agent'
+import {
+  validateEmails,
+  EMAIL_WORD_LIMITS,
+  EMAIL1_MAX_SENTENCE_WORDS,
+  type EmailRecord,
+} from '../messaging-generation-agent'
 
 const SENDER = 'Doug'
 const COMPANY = 'MargenticOS'
@@ -32,12 +37,14 @@ function sentenceOf(n: number): string {
  * the remainder, so only ONE number varies with `total`.
  */
 function email1Of(total: number): EmailRecord {
-  const SLOT_WORDS = 18
+  // 12, not 18: Email 1's sentence cap is EMAIL1_MAX_SENTENCE_WORDS and the slot is one
+  // sentence, so 18 is now illegal by construction rather than merely long.
+  const SLOT_WORDS = EMAIL1_MAX_SENTENCE_WORDS
   const offerWords = total - 1 - SLOT_WORDS - 3 - 2
   const offerSentences: string[] = []
   let left = offerWords
   while (left > 0) {
-    const take = Math.min(left, 14)   // keeps every sentence far under the 25-word cap
+    const take = Math.min(left, EMAIL1_MAX_SENTENCE_WORDS)   // every sentence at or under Email 1's cap
     offerSentences.push(sentenceOf(take))
     left -= take
   }

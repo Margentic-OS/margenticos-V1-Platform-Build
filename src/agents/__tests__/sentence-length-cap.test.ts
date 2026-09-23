@@ -10,7 +10,14 @@
 // the check proves the test can count, which is not the question.
 
 import { describe, it, expect } from 'vitest'
-import { validateEmails, emailProse, EMAIL_WORD_LIMITS, type EmailRecord } from '../messaging-generation-agent'
+import {
+  validateEmails,
+  emailProse,
+  EMAIL_WORD_LIMITS,
+  EMAIL1_MAX_SENTENCE_WORDS,
+  sentenceWordCapFor,
+  type EmailRecord,
+} from '../messaging-generation-agent'
 import { MAX_SENTENCE_WORDS, splitSentences } from '@/lib/style/readability'
 
 const SENDER = 'Doug'
@@ -35,7 +42,7 @@ function sentenceOf(n: number): string {
  * A structurally valid Email 1 whose observation paragraph is one sentence of `n` words.
  * Everything else is held constant, so a change in the verdict can only come from `n`.
  */
-function emailWithSentence(n: number): EmailRecord {
+function emailWithSentence(n: number, pos: number = 2): EmailRecord {
   const body = [
     '{{first_name}}',
     '',
@@ -51,16 +58,17 @@ function emailWithSentence(n: number): EmailRecord {
     COMPANY,
   ].join('\n')
   return {
-    sequence_position: 1,
-    subject_line: 'quick question',
-    subject_char_count: 'quick question'.length,
+    sequence_position: pos,
+    // Only Email 1 carries a subject. Emails 2 to 4 thread under it and must be null.
+    subject_line: pos === 1 ? 'quick question' : null,
+    subject_char_count: pos === 1 ? 'quick question'.length : 0,
     body,
     word_count: body.trim().split(/\s+/).filter(Boolean).length,
   }
 }
 
-function capIssues(n: number): string[] {
-  const e = emailWithSentence(n)
+function capIssues(n: number, pos: number = 2): string[] {
+  const e = emailWithSentence(n, pos)
   return validateEmails([e], SENDER, COMPANY)
     .filter(v => v.issue.includes('cap is'))
     .map(v => v.issue)
@@ -85,10 +93,10 @@ describe('the fixture itself is honest', () => {
   // literal here is a second copy of a number that lives in one place.
   // If one fell outside it, the whole-validator assertion below would be measuring the
   // band rather than the cap, and the pair would prove nothing about sentence length.
-  it.each([20, 30])('the %i-word variant sits inside the Email 1 word band', n => {
+  it.each([20, 30])('the %i-word variant sits inside the Email 2 word band', n => {
     const wc = emailWithSentence(n).word_count
-    expect(wc).toBeGreaterThanOrEqual(EMAIL_WORD_LIMITS.email1MinWords)
-    expect(wc).toBeLessThanOrEqual(EMAIL_WORD_LIMITS.email1MaxWords)
+    expect(wc).toBeGreaterThanOrEqual(EMAIL_WORD_LIMITS.email2MinWords)
+    expect(wc).toBeLessThanOrEqual(EMAIL_WORD_LIMITS.email2MaxWords)
   })
 
   it('the cap under test is the research module constant, not a local number', () => {
@@ -103,6 +111,10 @@ describe('sentence-length cap — the failing direction', () => {
 
   it('names the measured length and the cap, so a retry is a correction', () => {
     expect(capIssues(30)[0]).toContain('sentence runs 30 words, cap is 25')
+  })
+
+  it('does not mention Email 1 when the email is not Email 1', () => {
+    expect(capIssues(30)[0]).not.toContain('Email 1')
   })
 })
 
@@ -147,5 +159,45 @@ describe('the scanned surface excludes the merge tag and the sign-off', () => {
     expect(rawFirst.trim().split(/\s+/).length).toBe(MAX_SENTENCE_WORDS + 1)
     // ...and it passes, because the gate scans the prose rather than the raw body.
     expect(capIssues(MAX_SENTENCE_WORDS)).toEqual([])
+  })
+})
+
+// ─── EMAIL 1'S CAP IS 12, AND IT IS THE SAME GATE ────────────────────────────
+//
+// POSITIVE CONTROL, BOTH DIRECTIONS, and the control that matters here is the PAIR ACROSS
+// POSITIONS: one sentence, built by one helper, judged twice. A 20-word sentence is legal
+// in Email 2 and rejected in Email 1. Nothing about the sentence differs, so the verdict
+// can only have come from the position.
+//
+// This is deliberately not a new gate and there is no second code path: the same
+// readabilityScore call now reads sentenceWordCapFor(pos) instead of one constant.
+describe('Email 1 carries a stricter cap than emails 2 to 4', () => {
+  it('the cap under test is the constant, not a local number', () => {
+    expect(EMAIL1_MAX_SENTENCE_WORDS).toBe(12)
+    expect(MAX_SENTENCE_WORDS).toBe(25)
+  })
+
+  it('sentenceWordCapFor returns 12 for Email 1 and 25 for the rest', () => {
+    expect(sentenceWordCapFor(1)).toBe(EMAIL1_MAX_SENTENCE_WORDS)
+    expect([2, 3, 4].map(sentenceWordCapFor)).toEqual([25, 25, 25])
+  })
+
+  it('THE PAIR: the SAME 20-word sentence passes in Email 2 and fails in Email 1', () => {
+    expect(capIssues(20, 2)).toEqual([])
+    expect(capIssues(20, 1)).toHaveLength(1)
+  })
+
+  it('rejects exactly 13 words in Email 1', () => {
+    expect(capIssues(EMAIL1_MAX_SENTENCE_WORDS + 1, 1)).toHaveLength(1)
+  })
+
+  it('accepts exactly 12 words in Email 1', () => {
+    expect(capIssues(EMAIL1_MAX_SENTENCE_WORDS, 1)).toEqual([])
+  })
+
+  it('says the cap is 12 and says why it is stricter, so a retry is a correction', () => {
+    const issue = capIssues(20, 1)[0]
+    expect(issue).toContain('sentence runs 20 words, cap is 12')
+    expect(issue).toContain('stricter than the 25 that emails 2 to 4 carry')
   })
 })

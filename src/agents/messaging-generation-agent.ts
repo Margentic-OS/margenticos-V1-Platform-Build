@@ -1160,9 +1160,8 @@ that specific prospect exists. Write the default that ships when it does not.
       alone, because it gets replaced. Do not pitch here. Do not name the service here.
   P3  WHAT CHANGES. The offer line. Signal that the sender does something about that
       problem and name a RESULT in the prospect's own terms. Do NOT name the service, do
-      NOT explain the mechanism, do NOT list features. UP TO TWO SENTENCES, and two short
-      ones are usually better than one long one: the reading grade counts words per
-      sentence, so splitting here is the cheapest way to bring the whole email down. This
+      NOT explain the mechanism, do NOT list features. Write as many sentences as it takes,
+      each one inside Email 1's ${EMAIL1_MAX_SENTENCE_WORDS}-word cap. This
       paragraph MAY begin with We: the I/We ban applies only to the observation slot.
       Register to match: "We get more conversations into your diary."
                          "We bring qualified prospects to you."
@@ -1183,12 +1182,12 @@ that specific prospect exists. Write the default that ships when it does not.
 
       P3 must FLEX to the pain P2 opened on, and must differ across all four variants.
       A fixed line reused across variants is a spam fingerprint, and is code-enforced.
-  P4  THE CTA. UP TO TWO SENTENCES, and still exactly ONE question mark. Low commitment.
-      The question may stand alone, or a short statement may lead into it:
+  P4  THE CTA. Exactly ONE question mark, and every sentence inside the
+      ${EMAIL1_MAX_SENTENCE_WORDS}-word cap. Low commitment. The question may stand alone,
+      or a short statement may lead into it:
         "Worth a look?"
         "No pitch, just a quick call. Worth a look?"
-      The second shape is two sentences and one question, which is legal and scores better
-      than one long question. Two question marks anywhere in the email is a hard failure.
+      Two question marks anywhere in the email is a hard failure.
   P5  THE SIGN-OFF BLOCK. Two lines, in this order, nothing after them:
         ${params.preflight.sender_first_name}
         ${params.preflight.org_name}
@@ -1276,11 +1275,10 @@ P2 back into a verdict. Take the words from elsewhere: any clause that merely re
 something is already failing the non-redundancy rule and should go. If the email will not
 fit, cut content, not the framing.
 
-DO NOT SOLVE WORD PRESSURE BY FUSING SENTENCES. This paragraph used to say P3 could be one
-sentence rather than two, and that advice is now withdrawn, because it pulls against the
-reading grade. Cutting a 60-word email from four sentences to three RAISES its grade even
-though it is shorter. Fewer words help; fewer sentences hurt. When both are tight, cut
-whole ideas and keep the sentence breaks.
+DO NOT SOLVE WORD PRESSURE BY FUSING SENTENCES. Cutting a 60-word email from five sentences
+to four RAISES its grade even though it is shorter. Fewer words help; fewer sentences hurt.
+When both are tight, cut whole ideas and keep the sentence breaks. In Email 1 fusing is not
+available anyway: the ${EMAIL1_MAX_SENTENCE_WORDS}-word cap rejects the fused sentence.
 
 Angle assignments determine how the P2 observation slot opens:
 - Variant A: Pain-led. The implied cost or consequence of the current situation.
@@ -1451,7 +1449,8 @@ function renderWordCountReminder(): string {
     `- Email 3: ${L.email3MinWords} to ${L.email3MaxWords} words, and no longer than Email 2.`,
     `- Email 4: up to ${L.email4MaxWords} words. No minimum: a short breakup is fine.`,
     '- Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds later.',
-    `- No SENTENCE anywhere may run over ${MAX_EMAIL_SENTENCE_WORDS} words. Separate from the totals above: an email inside its band still fails if one sentence is too long. Split it into two rather than trimming words.`,
+    `- SENTENCE LENGTH IS CAPPED PER EMAIL, and Email 1's cap is HALF the others. EMAIL 1: no sentence over ${EMAIL1_MAX_SENTENCE_WORDS} words. EMAILS 2, 3 and 4: no sentence over ${MAX_EMAIL_SENTENCE_WORDS} words. Separate from the word totals above: an email inside its band still fails if one sentence is too long. Split it into two rather than trimming words.`,
+    `- WHAT EMAIL 1'S ${EMAIL1_MAX_SENTENCE_WORDS}-WORD CAP MEANS IN PRACTICE. An Email 1 of 60 words cannot be fewer than FIVE sentences, and that is the point of the cap rather than a side effect. Reading grade rises with words per sentence, so the same words split across more sentences score lower with nothing cut. Write Email 1 in short, flat, declarative sentences and check the longest one before returning.`,
     // ONE CONSTRAINT, NOT TWO RULES IN TWO PLACES, and it is the LAST thing the model reads
     // before writing. This line described a ONE-paragraph slot until 2026-09-20, which is
     // the frame that was replaced when the slot became two paragraphs. The system prompt
@@ -1464,13 +1463,13 @@ function renderWordCountReminder(): string {
     // last because word choice is the thing the model is most likely to drift on once it
     // is concentrating on word counts and sentence caps.
     `- Every email must read at FLESCH-KINCAID GRADE ${MAX_READING_GRADE} OR UNDER, measured on the paragraphs you write, with the {{first_name}} line and the sign-off excluded. This is a hard gate and it rejects the variant. The reason is not style: a cold email is read in a hurry, on a phone, by someone who never asked for it, and anything that needs a second read gets none. Two things move this number, sentence length and syllables per word, and since the sentence cap above already holds the first, WORD CHOICE is what you control here. Industry words are the usual cause: "qualified", "prospecting", "consistency", "conversations", "opportunities", "capacity". Say the everyday thing instead. "Meetings" not "qualified meetings", "work" not "engagements", "find clients" not "prospecting". Short, plain, concrete words are also simply better cold-email copy, so this gate and good writing pull in the same direction.`,
-    `- Email 1's observation slot is TWO paragraphs, a blank line between them, ONE SENTENCE in each, and neither over ${MAX_EMAIL_SENTENCE_WORDS} words. Paragraph 2 observes. Paragraph 3 names the consequence that follows. Count the words in both before moving on: two sentences in either paragraph, or one sentence over ${MAX_EMAIL_SENTENCE_WORDS} words, rejects the variant.`,
-    // THE SENTENCE BUDGET, STATED WHERE THE SLOT RULE IS STATED, because the two are read
-    // together and the previous version said only the restrictive half. A reader who saw
-    // "ONE SENTENCE in each" and nothing else reasonably concluded the whole of Email 1 was
-    // one sentence per paragraph, which is how every attempt on 2026-09-22 came back at
-    // exactly four sentences.
-    `- The ONE-SENTENCE rule is the SLOT ONLY. Email 1's offer line and its CTA may each be up to TWO sentences, and the sign-off is two lines. So a legal Email 1 runs from four sentences to six. SIX IS USUALLY THE EASIER ONE TO PASS: reading grade is driven by words per sentence, so the same words split across six sentences score well below the same words in four. Splitting the offer line is the cheapest grade you will find.`,
+    `- Email 1's observation slot is TWO paragraphs, a blank line between them, ONE SENTENCE in each, and neither over ${EMAIL1_MAX_SENTENCE_WORDS} words. Paragraph 2 observes. Paragraph 3 names the consequence that follows. Count the words in both before moving on: two sentences in either paragraph, or one sentence over ${EMAIL1_MAX_SENTENCE_WORDS} words, rejects the variant.`,
+    // THE ONE-SENTENCE RULE IS THE SLOT ONLY, and this line says so because the slot rule
+    // above states its half loudly. The "up to two sentences" version of this line was
+    // PERMISSION, and permission did not move the model: on run 3, 6 of 7 Email 1 attempts
+    // declined it and came back at four sentences. The 12-word cap replaces it, because a
+    // cap is arithmetic rather than an invitation.
+    `- The ONE-SENTENCE rule is the SLOT ONLY, paragraphs 2 and 3. Email 1's offer line and its CTA have NO sentence limit of their own: write what the job needs, subject only to the ${EMAIL1_MAX_SENTENCE_WORDS}-word cap on every sentence and the email's word band.`,
   ].join('\n')
 }
 
@@ -2159,6 +2158,46 @@ const WORD_BANDS: Record<number, { min: number; max: number }> = {
 // regression in the current copy.
 const MAX_EMAIL_SENTENCE_WORDS = MAX_SENTENCE_WORDS
 
+/**
+ * Email 1's sentence cap, which is HALF the cap the other three carry.
+ *
+ * NOT A NEW GATE. This is the same sentence-length check that has always run, given a
+ * per-position number, exactly as the word bands are already per position.
+ *
+ * WHY EMAIL 1 AND WHY 12. Reading grade is
+ * `0.39 * words-per-sentence + 11.8 * syllables-per-word - 15.59`, so at a fixed word
+ * count the only structural lever is how many sentences the words are split across. Three
+ * runs measured the same thing: Email 1 is where the grade fails, and it fails because it
+ * arrives as four long sentences.
+ *
+ *   run 1, four-sentence frame       every Email 1 at 4 sentences, best grade 5.6
+ *   run 3, four to six permitted     6 of 7 STILL at 4 sentences, best 5.8
+ *
+ * Permission did not move it. The one attempt that took the permission, B's retry on run 3,
+ * came within 0.07 syllables-per-word of passing, which is why the lever is right and the
+ * instruction was wrong. A CAP is not permission, it is arithmetic the model has to satisfy,
+ * and it converts "you may split" into "you must".
+ *
+ * 12 is set from the measured failures rather than chosen. Email 1's band is 40 to 90 words
+ * and the observed attempts run 48 to 71. At 12 words a sentence, a 60-word Email 1 cannot
+ * be fewer than 5 sentences, which puts words-per-sentence at 12 or below and the grade-5
+ * requirement at 1.44 syllables per word or looser. Attempts have reached 1.31 and 1.32,
+ * so that target is inside what the model has already demonstrated.
+ *
+ * Emails 2 to 4 keep 25. They are not where the grade fails, their word bands already force
+ * shorter sentences, and halving a cap that is not failing would reject good copy for nothing.
+ */
+export const EMAIL1_MAX_SENTENCE_WORDS = 12
+
+/**
+ * The cap for one position. A FUNCTION rather than a lookup table, because a table is a
+ * second list that has to stay in step with the four positions by hand, and this file has
+ * already paid for that mistake once in the monitor sweep's parallel arrays.
+ */
+export function sentenceWordCapFor(sequencePosition: number): number {
+  return sequencePosition === 1 ? EMAIL1_MAX_SENTENCE_WORDS : MAX_EMAIL_SENTENCE_WORDS
+}
+
 // The prose surface a sentence cap applies to. Three lines are removed first, and none of
 // them is prose:
 //
@@ -2420,14 +2459,15 @@ export function validateEmails(
     }
 
     // Sentence length, measured by the research module. See MAX_EMAIL_SENTENCE_WORDS.
+    const sentenceCap = sentenceWordCapFor(pos)
     const readability = readabilityScore(
       emailProse(body, senderFirstName, senderCompanyName),
-      MAX_EMAIL_SENTENCE_WORDS,
+      sentenceCap,
     )
     for (const sentence of readability.longSentences) {
       violations.push({
         email: pos,
-        issue: `sentence runs ${countWords(sentence)} words, cap is ${MAX_EMAIL_SENTENCE_WORDS}. A sentence a thirteen-year-old follows on first read. Two short sentences beat one long one, so split it rather than trimming words. Offending sentence: "${sentence}"`,
+        issue: `sentence runs ${countWords(sentence)} words, cap is ${sentenceCap}${pos === 1 ? ' for Email 1, which is stricter than the 25 that emails 2 to 4 carry' : ''}. A sentence a thirteen-year-old follows on first read. Two short sentences beat one long one, so split it rather than trimming words. Offending sentence: "${sentence}"`,
       })
     }
 
@@ -2453,9 +2493,29 @@ export function validateEmails(
     const authored = authoredProse(body, senderFirstName, senderCompanyName, heldParagraphs)
     const reading = fleschKincaidGrade(authored)
     if (reading !== null && reading.grade > MAX_READING_GRADE) {
+      // THE MESSAGE NAMES THE LEVER, NOT JUST THE VERDICT, because this string IS the retry
+      // instruction: buildPriorAttemptBlock renders the violations verbatim into the next
+      // attempt's prompt, so anything missing here is missing from the correction.
+      //
+      // Measured on run 3, where the message carried the grade and the three inputs and
+      // nothing else: 6 of 7 Email 1 retries came back at the SAME four sentences as the
+      // attempt they were correcting. A model told "grade 8.0, 59 words, 4 sentences, 1.51
+      // syllables per word" can see that splitting would help only by rederiving the
+      // formula. Told "your average sentence is 14.8 words against a cap of 12, and here is
+      // the longest one", the correction is mechanical.
+      const longest = [...splitSentences(authored)]
+        .sort((a, b) => countWords(b) - countWords(a))[0] ?? ''
       violations.push({
         email: pos,
-        issue: `reading grade ${reading.grade.toFixed(1)} is above the maximum of ${MAX_READING_GRADE} (${reading.words} words, ${reading.sentences} sentences, ${reading.syllablesPerWord.toFixed(2)} syllables per word). A cold email is read in a hurry by someone who did not ask for it, so it has to land on first read. Shorter sentences and plainer words both bring this down, and word choice moves it most: prefer the everyday word over the industry one.`,
+        issue:
+          `reading grade ${reading.grade.toFixed(1)} is above the maximum of ${MAX_READING_GRADE}. ` +
+          `THE LEVER IS SENTENCE LENGTH: your ${reading.words} words are split across only ` +
+          `${reading.sentences} sentences, which averages ${reading.wordsPerSentence.toFixed(1)} ` +
+          `words per sentence against a cap of ${sentenceCap}. Splitting the same words across ` +
+          `more sentences lowers the grade without cutting anything. Your longest sentence is ` +
+          `${countWords(longest)} words: "${longest}" — break it. ` +
+          `Then plainer words: ${reading.syllablesPerWord.toFixed(2)} syllables per word, and ` +
+          `every everyday word you swap in brings this down further.`,
       })
     }
 

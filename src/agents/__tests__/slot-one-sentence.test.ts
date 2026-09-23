@@ -12,7 +12,7 @@ import { splitSentences } from '@/lib/style/readability'
 const SENDER = 'Doug'
 const COMPANY = 'MargenticOS'
 
-const ONE_SENTENCE  = 'Work turns up when it turns up, not when the week needs it.'
+const ONE_SENTENCE  = 'New work turns up when it turns up, not when needed.'
 // The same observation with a bridge welded on. This is the real shape: the second
 // sentence names the consequence, which is the research writer's separate paragraph.
 const TWO_SENTENCES = `${ONE_SENTENCE} When one goes quiet, nothing else is running to catch it.`
@@ -148,7 +148,7 @@ describe('the gate reads the paragraph composition replaces', () => {
 // the two-paragraph slot unwritable, which is exactly the trap the one-sentence rule fell
 // into before the word floor moved.
 const SLOT_OBSERVATION = 'Most new work still turns up through a handful of old contacts.'
-const SLOT_CONSEQUENCE = 'When those relationships go quiet, nothing else is running to catch the gap.'
+const SLOT_CONSEQUENCE = 'When those relationships go quiet, nothing else is running.'
 
 function email1WithTwoParagraphSlot(consequence: string): EmailRecord {
   const body = [
