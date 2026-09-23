@@ -18,7 +18,12 @@
 
 import { describe, it, expect } from 'vitest'
 import * as writeOpening from '../write-opening'
-import { parseFollowupOutput, buildFollowupSystemPrompt } from '../write-followups'
+import {
+  parseFollowupOutput,
+  buildFollowupSystemPrompt,
+  estimateTokens,
+  SONNET_MIN_CACHEABLE_TOKENS,
+} from '../write-followups'
 import {
   splitFollowupFrame,
   buildFollowupReference,
@@ -97,11 +102,38 @@ describe('the follow-up prompt is its own job, not a copy of email 1\'s', () => 
     expect(p.length).toBeLessThan(writeOpening.buildWriterPrompt().length / 3)
   })
 
-  it('is large enough to be cacheable', () => {
-    // Sonnet ignores a cache breakpoint below ~1,024 tokens, silently. The floor and judge
-    // prompts in write-opening are ~124 tokens and deliberately not cached for this
-    // reason. This one must clear the bar or its breakpoint is decorative.
-    expect(p.length).toBeGreaterThan(4500)
+  it('clears the cache floor, with a stated margin', () => {
+    // ═══ THIS TEST PROTECTS A COST, NOT A BEHAVIOUR ═══
+    //
+    // The prompt is sent with a cache_control breakpoint. Sonnet ignores a breakpoint on a
+    // prefix below SONNET_MIN_CACHEABLE_TOKENS, SILENTLY: no error, no warning, nothing in
+    // the response to read. The only symptom is that every call pays full uncached input
+    // instead of a cache read, at roughly four times the rate, and a run that costs four
+    // times as much still looks completely normal.
+    //
+    // So a future trim cannot be allowed to cross the floor unnoticed. The old version of
+    // this test asserted a raw character count with no stated relationship to the floor it
+    // was protecting, which meant it fired ~725 characters early and its failure message
+    // said nothing about why.
+    const tokens = estimateTokens(p)
+    const margin = tokens - SONNET_MIN_CACHEABLE_TOKENS
+
+    expect(
+      margin,
+      `The follow-up system prompt is ~${tokens} estimated tokens against Sonnet's ` +
+      `${SONNET_MIN_CACHEABLE_TOKENS}-token minimum cacheable prefix, a margin of ` +
+      `${margin}. Below the floor the cache_control breakpoint is SILENTLY IGNORED and ` +
+      'every follow-up call pays full uncached input, roughly four times the rate, with ' +
+      'no error and no symptom but the bill. If this prompt genuinely needs to be ' +
+      'shorter, remove the cache breakpoint in the same commit and say so.',
+    ).toBeGreaterThan(0)
+  })
+
+  it('THE CONTROL: the estimator can detect a prompt that is too short', () => {
+    // A guard that always passes is not a guard. This proves the assertion above would
+    // actually fail on a trimmed prompt, rather than on a threshold nothing can reach.
+    expect(estimateTokens('a short prompt')).toBeLessThan(SONNET_MIN_CACHEABLE_TOKENS)
+    expect(estimateTokens(p)).toBeGreaterThan(SONNET_MIN_CACHEABLE_TOKENS)
   })
 
   it('tells the writer to explain the mechanism, which email 1 forbids', () => {

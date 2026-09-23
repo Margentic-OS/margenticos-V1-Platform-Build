@@ -82,6 +82,32 @@ const MAX_ATTEMPTS = 2
  */
 const MAX_OUTPUT_TOKENS = 700
 
+/**
+ * Sonnet's minimum cacheable prefix, in tokens. Below this a cache_control breakpoint is
+ * SILENTLY IGNORED: no error, no warning, and the only symptom is the input cost of every
+ * call roughly quadrupling from a cache read to a full uncached read.
+ *
+ * This is why the floor and judge prompts in write-opening.ts are deliberately NOT cached:
+ * at ~124 tokens each a breakpoint on them would be ignored while still consuming one of
+ * the four allowed per request.
+ */
+export const SONNET_MIN_CACHEABLE_TOKENS = 1024
+
+/**
+ * Characters per token, for estimating prompt size without a tokeniser.
+ *
+ * DELIBERATELY CONSERVATIVE. English prose runs about 4 characters per token; 3.7 makes
+ * the estimate report FEWER tokens than the real count, so the guard fires before the real
+ * floor is reached rather than after it. An optimistic divisor would let the prompt cross
+ * the floor while the test still passed, which is the one outcome the test exists to stop.
+ */
+export const CHARS_PER_TOKEN = 3.7
+
+/** Estimated tokens in a prompt string. See CHARS_PER_TOKEN for why this errs low. */
+export function estimateTokens(text: string): number {
+  return Math.round(text.length / CHARS_PER_TOKEN)
+}
+
 export interface FollowupResult {
   email2: FollowupOutcome
   email3: FollowupOutcome

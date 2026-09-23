@@ -214,9 +214,19 @@ export const QUEUE_CONFIG: Record<JobType, JobTypeConfig> = {
   // stored. Only the writer and judge calls repeat, at roughly a fifth of the cost of
   // a full run, so a third attempt is cheap insurance against a transient failure
   // throwing away a batch we have already waited a day for.
+  // WORST CASE 170, RAISED FROM 120, AND THE LEASE WITH IT. The follow-up call runs on
+  // this job type and adds up to two Sonnet calls after the writer, floor and judge have
+  // finished. Leaving 120 would have left a number that no longer describes the job, which
+  // is the same shape as a monitor that exists and is never queried: the claim guard would
+  // keep admitting jobs it cannot finish, and nothing would say so.
+  //
+  // LEASE 300, RAISED FROM 240, FOR A DIFFERENT REASON THAN THE BUDGET. A job that outlives
+  // its lease is reclaimed and re-run, and a re-run re-buys the writer and the follow-up
+  // calls. At worst case 170 a 240s lease left 1.4x headroom; 300 restores it to ~1.8x.
+  // The two numbers are not the same guard and must not be reasoned about as one.
   research_collect: {
-    leaseSeconds: 240,
-    worstCaseSeconds: 120,
+    leaseSeconds: 300,
+    worstCaseSeconds: 170,
     claimBatchSize: 10,
     maxInFlight: 40,
     maxAttempts: 3,

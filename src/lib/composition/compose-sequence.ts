@@ -20,6 +20,12 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import {
+  assignFollowupArm,
+  fingerprintEmail1,
+  followupsMatchEmail1,
+} from './followup-assignment'
+import { composeFollowupBody } from '@/lib/agents/research/followup-frame'
 import { findStandaloneOpeningFaults } from '@/lib/style/standalone-opening'
 import { generateBridge, countWords } from './personalization'
 import { OPT_OUT_FOOTER } from './opt-out-footer'
@@ -41,10 +47,32 @@ export interface ComposedEmail {
   word_count: number
 }
 
+/**
+ * What a composed sequence recorded about its follow-ups.
+ *
+ * BOTH THE ASSIGNMENT AND THE OUTCOME. `arm` is what this prospect was assigned and is the
+ * comparison group; `mode` is what it actually received. They differ whenever generated
+ * follow-ups were rejected by their gates or their Email 1 moved underneath them, and
+ * counting only the outcome would move exactly those prospects into the template group,
+ * which is not a random sample of it.
+ */
+export interface FollowupRecord {
+  arm: 'template' | 'generated'
+  mode: 'template' | 'generated'
+  /** Why the generated follow-ups did not ship, when they did not. Null when they did. */
+  fell_back_reason: 'not_assigned' | 'none_stored' | 'email1_changed' | null
+  /** The fingerprint that was checked, or the one recomputed when none was stored. */
+  email1_fingerprint: string
+}
+
 export interface ComposedSequence {
   prospect_id: string
   client_id: string
   variant_id: string
+  /** The document this sequence was composed from. Recorded so a stored send can be read
+   *  against the copy that produced it, rather than against whatever is live later. */
+  messaging_doc_id: string
+  followups: FollowupRecord
   emails: ComposedEmail[]
 }
 
@@ -76,6 +104,9 @@ interface ProspectRow {
   segment_id: string | null
   variant_id: string | null
   personalisation_trigger: string | null
+  followup_email2: string | null
+  followup_email3: string | null
+  followup_email1_fingerprint: string | null
   /**
    * The written closing question, replacing the variant's approved CTA. NULL keeps the
    * approved one. Written only when the personalised version wins the judge, alongside
@@ -337,7 +368,83 @@ export async function composeSequence({
 
   // Step 5. Append the opt-out footer to every email, last.
   // Runs after word_count and after the bridge headroom check so neither ever sees it.
-  const emailsWithFooter = appendOptOutFooter(composedEmails)
+  //
+  // ═══ THE FOOTER IS APPENDED TWICE, AND THE ORDER IS LOAD-BEARING ═══
+  //
+  // appendOptOutFooter is idempotent: it returns the email untouched when the footer is
+  // already present. That is what lets this run here, to get the Email 1 body the
+  // fingerprint is taken over, and again at the end after the follow-up substitution.
+  //
+  // WHY THE SUBSTITUTION MUST NOT SEE A FOOTERED BODY. splitFollowupFrame reads the LAST
+  // paragraph as the sign-off. With the footer already appended the last paragraph is the
+  // footer, so the real sign-off block falls inside the "middle" and is REPLACED by the
+  // generated prose. The email then ships with no sender name and no company name, which
+  // fails the sign-off rule outright, and nothing errors: the body is well formed, the
+  // word count is right, and only the recipient sees an email signed by nobody.
+  //
+  // Caught by a test, not by reading. See followup-composition.test.ts.
+  const withFooter = appendOptOutFooter(composedEmails)
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Step 5a. THE GENERATED FOLLOW-UPS, IF THEY ARE STILL THE RIGHT ONES
+  //
+  // INSIDE THE RESEARCHED BRANCH ONLY, and gated on `trigger.source` rather than on the
+  // follow-up columns having content. That distinction is the whole rule: a generated
+  // Email 2 opens with a callback to a specific observation, and under a TEMPLATE Email 1
+  // that observation was never sent. Reading the columns' own presence would produce
+  // exactly that pairing on any prospect holding stale follow-up copy, with no error, the
+  // right word counts, and nobody to notice but the recipient.
+  //
+  // AND THEN THE FINGERPRINT, WHICH IS THE PART THAT SURVIVES OTHER SESSIONS. The
+  // follow-ups were written against one Email 1. Another session re-running research, or a
+  // new version of the messaging document, changes the Email 1 this prospect will actually
+  // receive. Hashing the composed body folds every one of those inputs into one value, so
+  // the check needs no knowledge of what changed or who changed it.
+  //
+  // HERE, AFTER THE FOOTER, because this is the last point at which Email 1 exists in the
+  // form the prospect receives it, and the research path fingerprinted the same artifact.
+  // A check run earlier would compare a string neither side sends.
+  //
+  // FAILS CLOSED IN EVERY DIRECTION: no arm, no stored copy, no fingerprint, or any
+  // mismatch, all ship the client's approved template follow-ups, which is the behaviour
+  // that shipped before this feature existed.
+  const arm = assignFollowupArm(prospect.id)
+  const email1Body = withFooter.find(e => e.sequence_position === 1)?.body ?? ''
+  const email1Fingerprint = fingerprintEmail1(email1Body)
+
+  const fellBackReason: FollowupRecord['fell_back_reason'] =
+    trigger.source !== 'research' || arm !== 'generated' ? 'not_assigned'
+    : !prospect.followup_email2 || !prospect.followup_email3 ? 'none_stored'
+    : !followupsMatchEmail1(prospect.followup_email1_fingerprint, email1Body) ? 'email1_changed'
+    : null
+
+  if (fellBackReason === 'email1_changed') {
+    // LOGGED AT WARN, because this is the guard doing its job on real copy and the
+    // operator should be able to see how often it fires. A silent discard would make a
+    // feature that never ships look identical to one that ships correctly.
+    logger.warn('compose-sequence: generated follow-ups discarded, Email 1 changed since they were written', {
+      prospect_id: prospect.id,
+      client_id,
+      variant_id: variantId,
+      stored_fingerprint: prospect.followup_email1_fingerprint,
+      composed_fingerprint: email1Fingerprint,
+    })
+  }
+
+  // Substituted into the PRE-FOOTER bodies, then footered once at the end. See above.
+  const emailsWithFooter = appendOptOutFooter(
+    fellBackReason === null
+      ? applyGeneratedFollowups(composedEmails, prospect.followup_email2!, prospect.followup_email3!)
+      : composedEmails,
+  )
+
+  const followups: FollowupRecord = {
+    arm,
+    // THE OUTCOME, not the intent. 'generated' only where the copy actually shipped.
+    mode: fellBackReason === null ? 'generated' : 'template',
+    fell_back_reason: fellBackReason,
+    email1_fingerprint: email1Fingerprint,
+  }
 
   // Step 5b. One question per composed Email 1. REPORT ONLY.
   //
@@ -368,8 +475,50 @@ export async function composeSequence({
     prospect_id,
     client_id,
     variant_id: variantId,
+    messaging_doc_id: messagingDocId,
     emails: emailsWithFooter,
+    followups,
   }
+}
+
+/**
+ * Swap the generated middles into emails 2 and 3, keeping each template's own frame.
+ *
+ * THE GREETING AND THE SIGN-OFF COME FROM THE TEMPLATE, NOT THE MODEL. The sign-off is two
+ * mandatory lines read per client from the organisation record, and an email ending with
+ * only a first name fails validation. Handing those lines to a model that has already been
+ * measured reproducing its own reference material would put a house rule inside the thing
+ * the house rule polices.
+ *
+ * The footer is already appended by the time this runs, so it is preserved by composing
+ * into the frame and re-appending nothing: composeFollowupBody rebuilds greeting + prose +
+ * sign-off, and the footer paragraph is carried through from the template body it reads.
+ */
+function applyGeneratedFollowups(
+  emails: ComposedEmail[],
+  prose2: string,
+  prose3: string,
+): ComposedEmail[] {
+  return emails.map(email => {
+    const prose = email.sequence_position === 2 ? prose2
+                : email.sequence_position === 3 ? prose3
+                : null
+    if (prose === null) return email
+
+      // The body here has NO footer yet: this runs before the final append, so the last
+    // paragraph really is the sign-off block and the frame reads correctly.
+    const body = composeFollowupBody(email.body, prose)
+    // A template whose frame cannot be read keeps its approved copy. Failing closed here
+    // matters as much as it does in the gate: there is no partial substitution that leaves
+    // a sendable email.
+    if (body === null) {
+      logger.warn('compose-sequence: template follow-up has no readable frame, approved copy kept', {
+        sequence_position: email.sequence_position,
+      })
+      return email
+    }
+    return { ...email, body, word_count: countWords(body) }
+  })
 }
 
 // Replaces Email 1's CTA paragraph with a written question.
@@ -732,7 +881,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, personalisation_subject, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name')
+    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, personalisation_subject, followup_email2, followup_email3, followup_email1_fingerprint, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()
