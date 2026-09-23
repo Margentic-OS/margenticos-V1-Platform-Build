@@ -164,16 +164,31 @@ export async function runProspectResearchSources({
     // Before the batch submission, so an incomplete prospect never reaches the Batch API
     // and is never paid for.
     const integrity = assessSourceIntegrity(rawData)
+
+    // RECORDED FAILURES ARE LOGGED EVEN THOUGH THE RUN CONTINUES. Website and web search
+    // do not hold a prospect, and that must not make them silent: a source degrading
+    // quietly while runs report success is the whole of the 2026-09-21 incident, and the
+    // tier that does not stop anything is the tier where it would happen again unnoticed.
+    if (integrity.recorded.length > 0) {
+      logger.warn('prospect-research-sources: a non-holding source did not come back, continuing', {
+        prospect_id,
+        client_id,
+        recorded: integrity.recorded,
+        successful: integrity.successful,
+      })
+    }
+
     if (!integrity.complete) {
       logger.error('prospect-research-sources: research incomplete, prospect held — not submitted', {
         prospect_id,
         client_id,
-        failed_sources: integrity.failed.map(f => f.source),
-        failures: integrity.failed,
+        holding_sources: integrity.holding.map(f => f.source),
+        holding_failures: integrity.holding,
+        also_failed_but_not_holding: integrity.recorded,
         successful: integrity.successful,
         skipped: integrity.skipped,
       })
-      throw new ResearchIncompleteError(prospect_id, integrity.failed)
+      throw new ResearchIncompleteError(prospect_id, integrity.holding)
     }
 
     // Builds the request WITHOUT sending it, and hands back the two things that cannot be

@@ -12,7 +12,7 @@ import {
   SourceHttpError, raiseForStatus, throwIfFatalSource, isFatalSourceStatus,
   FATAL_SOURCE_STATUSES, readErrorBody, ERROR_BODY_CHARS,
 } from '../sources/source-http'
-import { assessSourceIntegrity, ResearchIncompleteError, isDeliberateSkip } from '../source-integrity'
+import { assessSourceIntegrity, ResearchIncompleteError, isDeliberateSkip, HOLDING_SOURCES } from '../source-integrity'
 import { SOURCE_SKIPPED_REUSE } from '../source-skip'
 import type { RawSourceData } from '../types'
 
@@ -142,15 +142,72 @@ describe('a prospect whose sources did not come back is held', () => {
     expect(integrity.successful).toHaveLength(4)
   })
 
+  // RETARGETED 2026-09-23, NOT DELETED. This test used `website` when any failure held.
+  // Website no longer holds, so the same assertion against the same source would now be
+  // asserting the opposite policy. It keeps its job (one failed HOLDING source is enough,
+  // and the reason travels with it) against a source the policy still holds on, and the
+  // website case it used to cover is the test immediately below.
   it('FORCED single-source failure: incomplete, and it names the source', () => {
     const integrity = assessSourceIntegrity(raw({
-      website: { available: false, error: 'Website fetch failed for x.com — direct: HTTP 403; jina: HTTP 429' },
+      linkedin: { available: false, error: 'Apify actor returned HTTP 403: forbidden' },
     }))
     expect(integrity.complete).toBe(false)
-    expect(integrity.failed.map(f => f.source)).toEqual(['website'])
+    expect(integrity.holding.map(f => f.source)).toEqual(['linkedin'])
     // The reason travels with it. A held prospect that cannot say why is the old
     // "Both direct and Jina fetch failed" with a new name.
-    expect(integrity.failed[0].error).toContain('403')
+    expect(integrity.holding[0].error).toContain('403')
+  })
+
+  it.each(HOLDING_SOURCES)('a %s failure holds the prospect', source => {
+    const integrity = assessSourceIntegrity(raw({ [source]: { available: false, error: 'HTTP 500' } }))
+    expect(integrity.complete).toBe(false)
+    expect(integrity.holding.map(f => f.source)).toEqual([source])
+    expect(integrity.recorded).toEqual([])
+  })
+
+  it.each(['website', 'web_search'])('a %s failure is RECORDED and the prospect continues', source => {
+    // THE 68-OF-84 CASE. Under the first version of this policy the website fetcher's
+    // 81% failure rate would have held 68 of 84 prospects over a defect that had nothing
+    // to do with any of them.
+    const integrity = assessSourceIntegrity(raw({ [source]: { available: false, error: 'HTTP 429' } }))
+    expect(integrity.complete).toBe(true)
+    expect(integrity.holding).toEqual([])
+    expect(integrity.recorded.map(f => f.source)).toEqual([source])
+    // AND IT IS STILL REPORTED. Not holding must not mean not counted: `failed` carries
+    // every failure so the batch tally and MON-034 both still see it.
+    expect(integrity.failed.map(f => f.source)).toEqual([source])
+  })
+
+  it('both non-holding sources down at once still does not hold', () => {
+    const integrity = assessSourceIntegrity(raw({
+      website:    { available: false, error: 'HTTP 429' },
+      web_search: { available: false, error: 'provider timeout' },
+    }))
+    expect(integrity.complete).toBe(true)
+    expect(integrity.recorded).toHaveLength(2)
+  })
+
+  it('a holding failure alongside a recorded one holds, and names only the holding source', () => {
+    const integrity = assessSourceIntegrity(raw({
+      linkedin: { available: false, error: 'HTTP 402' },
+      website:  { available: false, error: 'HTTP 429' },
+    }))
+    expect(integrity.complete).toBe(false)
+    expect(integrity.holding.map(f => f.source)).toEqual(['linkedin'])
+    expect(integrity.recorded.map(f => f.source)).toEqual(['website'])
+    // The prospect is not held "because of website", and the message must not say so.
+    expect(new ResearchIncompleteError('p1', integrity.holding).message).not.toContain('website')
+  })
+
+  it('A PROSPECT WITH NO LINKEDIN URL IS NOT HELD, though linkedin is a holding source', () => {
+    // The distinction lives in the source, which is the only place that knows. If this
+    // ever goes red, every prospect without a LinkedIn profile is held forever.
+    const integrity = assessSourceIntegrity(raw({
+      linkedin: { available: false, error: 'No LinkedIn URL for this prospect' },
+    }))
+    expect(integrity.complete).toBe(true)
+    expect(integrity.skipped).toEqual(['linkedin'])
+    expect(integrity.failed).toEqual([])
   })
 
   it('the held error names the prospect, the sources, and says nothing was written', () => {
@@ -188,6 +245,8 @@ describe('a prospect whose sources did not come back is held', () => {
     expect(integrity.complete).toBe(true)
     expect(integrity.skipped).toHaveLength(4)
     expect(integrity.failed).toEqual([])
+    expect(integrity.holding).toEqual([])
+    expect(integrity.recorded).toEqual([])
   })
 
   it('reproduces the 2026-09-21 shape: LinkedIn 402, three sources fine, prospect held', () => {
@@ -197,7 +256,7 @@ describe('a prospect whose sources did not come back is held', () => {
     // On the day, this exact shape produced a stored research row, a shipped opening built
     // on employment history, and a batch summary reading `completed 84, failed 0`.
     expect(integrity.complete).toBe(false)
-    expect(integrity.failed[0].source).toBe('linkedin')
+    expect(integrity.holding[0].source).toBe('linkedin')
   })
 })
 

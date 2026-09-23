@@ -42,6 +42,36 @@ const APIFY_POSTS_ACTOR   = 'harvestapi~linkedin-profile-posts'
 const APIFY_TIMEOUT_SEC   = 90
 const APIFY_FETCH_TIMEOUT = 100_000 // ms — slightly longer than actor timeout
 
+/**
+ * How many posts the actor returns, and therefore HOW MANY WE PAY FOR.
+ *
+ * ═══ THE 2026-09-21 COST MEASUREMENT ═════════════════════════════════════════
+ * This was unset, so the actor returned up to 50 posts per prospect. formatPostsData
+ * read the first five and discarded the rest. Measured from 158 runs that day: mean
+ * $0.0795 a prospect, median $0.098, and 77 of the 158 cost exactly $0.10005, which is
+ * one actor start plus fifty charged post events. About 90% of the spend bought posts
+ * nothing ever read.
+ *
+ * It is set to the number the formatter actually reads. If POSTS_SHOWN ever changes,
+ * this changes with it, which is why the formatter reads this constant rather than its
+ * own literal: two numbers that must agree, kept as one.
+ * ═════════════════════════════════════════════════════════════════════════════
+ */
+export const MAX_POSTS = 5
+
+/**
+ * The recency window, in days, enforced by the PROVIDER rather than asserted by us.
+ *
+ * The output used to be labelled "Recent LinkedIn posts (last 60 days)" as a hardcoded
+ * string while no date filter was ever sent. Measured on 2026-09-21: of 1,140 posts
+ * pulled, 936 (82%) were older than 90 days, and 35% of the posts actually shown to the
+ * model were older than 90 days under that label. The model was told a recency the data
+ * did not have, which is how so many candidates came back asserting "recent" with no date.
+ *
+ * 90 days, matching the window the research is judged against.
+ */
+export const POSTED_WITHIN_DAYS = 90
+
 async function runApifyActor(
   actorId: string,
   input: Record<string, unknown>,
@@ -67,17 +97,58 @@ async function runApifyActor(
   return await response.json() as Array<Record<string, unknown>>
 }
 
+/**
+ * The date a post was published, as a plain YYYY-MM-DD string.
+ *
+ * ═══ WHY THIS FUNCTION EXISTS ════════════════════════════════════════════════
+ * `postedAt` is an OBJECT: { date, timestamp, postedAgoText }. The old formatter
+ * interpolated it straight into a template literal, so every line the model read said
+ *
+ *     Post ([object Object]): <text>
+ *
+ * Every one of the 1,140 posts measured on 2026-09-21 carried a real ISO date. The
+ * information was there the whole time and the formatter destroyed it on the way past,
+ * which is why so many research candidates came back with `date: null` and had to assert
+ * recency from a label instead.
+ *
+ * Returns null rather than a placeholder: a post whose date cannot be read must not be
+ * given a plausible-looking one.
+ * ═════════════════════════════════════════════════════════════════════════════
+ */
+export function postedDate(post: Record<string, unknown>): string | null {
+  const candidates: unknown[] = [
+    (post.postedAt as Record<string, unknown> | undefined)?.date,
+    (post.postedAt as Record<string, unknown> | undefined)?.timestamp,
+    post.postedDate,
+    post.date,
+    post.postedAt,
+  ]
+  for (const c of candidates) {
+    if (c == null) continue
+    // A timestamp arrives as a number of milliseconds; anything else is tried as a date
+    // string. `new Date(object)` yields Invalid Date rather than throwing, so the
+    // isNaN check below is what rejects the shape that caused the original defect.
+    const d = typeof c === 'number' ? new Date(c) : new Date(String(c))
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+  }
+  return null
+}
+
 function formatPostsData(posts: Array<Record<string, unknown>>): string {
   if (!posts.length) return ''
 
-  const recent = posts.slice(0, 5)
-  const lines = ['Recent LinkedIn posts (last 60 days):']
+  const recent = posts.slice(0, MAX_POSTS)
+  // THE LABEL NAMES THE FILTER THAT WAS ACTUALLY SENT. It is built from the same constant
+  // passed to the actor, so the two cannot drift: a label describing a window nobody
+  // requested is what the old "(last 60 days)" string was.
+  const lines = [`Recent LinkedIn posts (provider filtered to the last ${POSTED_WITHIN_DAYS} days):`]
   for (const post of recent) {
     const text = post.text ?? post.content ?? post.commentary
     if (!text) continue
-    const date = post.postedAt ?? post.date ?? ''
+    const date = postedDate(post)
     const reactions = post.reactions ?? post.totalReactionCount ?? ''
-    const dateStr = date ? ` (${date})` : ''
+    // An undated post says so rather than being silently presented as dated.
+    const dateStr = date ? ` (${date})` : ' (date not given)'
     const reactStr = reactions ? ` — ${reactions} reactions` : ''
     lines.push(`  Post${dateStr}${reactStr}: ${[...String(text)].slice(0, 300).join('')}`)
   }
@@ -112,7 +183,20 @@ export async function fetchLinkedInSource(prospect: ProspectContext): Promise<Li
     ? prospect.linkedin_url
     : `https://www.linkedin.com/in/${prospect.linkedin_url}`
 
-  const input = { profileUrls: [linkedinUrl] }
+  // maxPosts caps what we are CHARGED for; postedLimit is the provider-side recency
+  // filter. Both were absent, which is the whole of the cost and recency finding.
+  // `profileUrls` is kept: the actor's published schema names `targetUrls`, but every one
+  // of the 158 successful runs on 2026-09-21 sent `profileUrls` and returned posts, so it
+  // is accepted. Changing it is a separate, testable question and not this commit's.
+  const postedLimitDate = new Date(Date.now() - POSTED_WITHIN_DAYS * 86_400_000)
+    .toISOString()
+    .slice(0, 10)
+
+  const input = {
+    profileUrls: [linkedinUrl],
+    maxPosts: MAX_POSTS,
+    postedLimitDate,
+  }
 
   try {
     // ONE actor. Promise.allSettled is gone with it: a single rejection is just a throw,

@@ -58,12 +58,13 @@ SELECT
     WHEN (SELECT linkedin_ok::numeric   / rows_total FROM counts) < 0.50 THEN 'PROBLEM'
     WHEN (SELECT apollo_ok::numeric     / rows_total FROM counts) < 0.50 THEN 'PROBLEM'
     WHEN (SELECT web_search_ok::numeric / rows_total FROM counts) < 0.50 THEN 'PROBLEM'
-    -- The website fetcher sits at 19% and is a KNOWN open defect, not news. Holding it to
-    -- the same threshold would pin this check red permanently, and a monitor that is
-    -- always red is a monitor nobody reads. It gets its own floor, deliberately low, so
-    -- this reports the day it gets WORSE rather than the fact that it is already bad.
-    -- Raise this to 0.50 in the same commit that fixes the fetcher.
-    WHEN (SELECT website_ok::numeric    / rows_total FROM counts) < 0.10 THEN 'PROBLEM'
+    -- RAISED TO 0.50 ON 2026-09-23, in the commit that fixed the fetcher, exactly as the
+    -- earlier version of this comment said it should be. It was 0.10 for one day, while
+    -- the fetcher was known broken and a common threshold would have pinned this check
+    -- permanently red. The defect was a missing URL scheme: fetch('example.com') throws
+    -- rather than requesting, so the direct path made zero network calls and everything
+    -- fell through to unauthenticated Jina. Re-probed: 63 of 67 of those sites answer.
+    WHEN (SELECT website_ok::numeric    / rows_total FROM counts) < 0.50 THEN 'PROBLEM'
     ELSE 'OK'
   END AS state,
   CASE

@@ -611,16 +611,31 @@ export async function runProspectResearchAgentV2({
     // SOURCE_SKIPPED_REUSE, which assessSourceIntegrity counts as skipped rather than
     // failed. It made no calls, so it has nothing to be incomplete about.
     const integrity = assessSourceIntegrity(rawData)
+
+    // RECORDED FAILURES ARE LOGGED EVEN THOUGH THE RUN CONTINUES. Website and web search
+    // do not hold a prospect, and that must not make them silent: a source degrading
+    // quietly while runs report success is the whole of the 2026-09-21 incident, and the
+    // tier that does not stop anything is the tier where it would happen again unnoticed.
+    if (integrity.recorded.length > 0) {
+      logger.warn('prospect-research-v2: a non-holding source did not come back, continuing', {
+        prospect_id,
+        client_id,
+        recorded: integrity.recorded,
+        successful: integrity.successful,
+      })
+    }
+
     if (!integrity.complete) {
       logger.error('prospect-research-v2: research incomplete, prospect held — no row written', {
         prospect_id,
         client_id,
-        failed_sources: integrity.failed.map(f => f.source),
-        failures: integrity.failed,
+        holding_sources: integrity.holding.map(f => f.source),
+        holding_failures: integrity.holding,
+        also_failed_but_not_holding: integrity.recorded,
         successful: integrity.successful,
         skipped: integrity.skipped,
       })
-      throw new ResearchIncompleteError(prospect_id, integrity.failed)
+      throw new ResearchIncompleteError(prospect_id, integrity.holding)
     }
 
     // Synthesize. The six tests now RANK the raw material; they no longer choose what
@@ -761,6 +776,7 @@ export async function runProspectResearchAgentV2({
       synthesis_reasoning: synthesis.reasoning,
       sources_attempted,
       sources_successful,
+      recorded_source_failures: integrity.recorded,
       candidates:            stripNulls(synthesis.candidates),
       selected_candidate_id: synthesis.selected_candidate_id,
       trigger_readability:   synthesis.trigger_readability,
@@ -1002,6 +1018,13 @@ export async function runProspectResearchAgentV2Batch({
             })
           }
         }
+        // A RECORDED FAILURE ARRIVES ON THE SUCCESS PATH, which is exactly why it is
+        // counted here as well as in the catch. Website and web search do not hold a
+        // prospect, so their failures never throw; counting only thrown failures would
+        // mean the tier that stops nothing is also the tier the summary cannot see.
+        for (const f of result.recorded_source_failures ?? []) {
+          summary.source_failures[f.source] = (summary.source_failures[f.source] ?? 0) + 1
+        }
         summary.completed++
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
@@ -1011,7 +1034,7 @@ export async function runProspectResearchAgentV2Batch({
         // wrong while it is still running rather than two days later.
         if (err instanceof ResearchIncompleteError) {
           summary.held_incomplete++
-          for (const f of err.failed) {
+          for (const f of err.failed) {   // holding failures only; recorded ones are counted above
             summary.source_failures[f.source] = (summary.source_failures[f.source] ?? 0) + 1
           }
         }

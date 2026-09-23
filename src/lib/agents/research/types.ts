@@ -389,11 +389,44 @@ export interface ApolloSourceResult {
   error?: string
 }
 
+/** One dated post found on a followed page. */
+export interface WebsitePost {
+  /** The page it was found on. */
+  page_url: string
+  /** YYYY-MM-DD, as printed on the page. Never inferred. */
+  date: string
+  /** The heading or link text the date sits with. */
+  title: string
+}
+
 export interface WebsiteSourceResult {
   available: boolean
   url: string | null
   content: string | null
   fetch_method: 'direct' | 'jina' | null
+  /**
+   * Pages followed from the homepage, in the order they were fetched. Recorded so a
+   * reader can tell "we looked and the blog was empty" from "we never opened the blog",
+   * which is the distinction the single 'Both direct and Jina fetch failed' string could
+   * not make about anything.
+   */
+  pages_followed?: string[]
+  /**
+   * Dated posts found on those pages. This is the whole point of following links: a
+   * homepage carries no dates, so before this the website could not contribute a single
+   * event. Measured on the 2026-09-21 cohort: 1 website candidate in 395, 0 events.
+   */
+  posts?: WebsitePost[]
+  /**
+   * Why a FOLLOWED page did not load, on an otherwise successful fetch.
+   *
+   * Deliberately NOT folded into `error`. buildSourceTracking inspects `error` for skip
+   * markers whether or not the source succeeded, so a partial-success message landing
+   * there could drop a successful source out of sources_attempted while leaving it in
+   * sources_successful. `error` means "this source failed"; this means "it worked and
+   * something inside it did not".
+   */
+  partial_reasons?: string[]
   error?: string
 }
 
@@ -453,6 +486,16 @@ export interface ResearchResult {
   synthesis_reasoning: string
   sources_attempted: string[]
   sources_successful: string[]
+  /**
+   * Sources that were called, did not come back, and did NOT hold the prospect.
+   *
+   * Carried on the result rather than left in the logs so the batch can tally them. A
+   * held prospect reaches the batch as a thrown error and is counted there; a recorded
+   * failure reaches it as a SUCCESS, so without this field the tier that does not stop
+   * anything would also be the tier the summary cannot see, which is the 2026-09-21
+   * blind spot rebuilt one level down.
+   */
+  recorded_source_failures: Array<{ source: string; error: string }>
   candidates: ObservationCandidate[]
   selected_candidate_id: string | null
   trigger_readability: CandidateReadability

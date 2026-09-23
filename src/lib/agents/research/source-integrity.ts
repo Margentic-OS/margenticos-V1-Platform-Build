@@ -41,11 +41,53 @@ export function isDeliberateSkip(error: string | null | undefined): boolean {
   return SKIP_MARKERS.some(m => error.includes(m))
 }
 
+/**
+ * The sources whose absence makes a prospect NOT WORTH RESEARCHING, so their failure holds.
+ *
+ * ─── WHY THESE TWO AND NOT THE OTHER TWO, decided 2026-09-23 ─────────────────
+ *
+ * The first version of this file held on ANY source failure. That is the strict reading
+ * and it was measured to hold 68 of 84 prospects, because the website fetcher was failing
+ * on 81% of them for a reason that had nothing to do with the prospect. A policy that
+ * stops nearly every prospect over a defect in one fetcher is a stop-the-world switch
+ * wearing a correctness argument.
+ *
+ * So the split is by WHAT THE SOURCE CONTRIBUTES, measured on the 2026-09-21 cohort:
+ *
+ *   linkedin    58 of 58 true recent events came from it, and where it ran, 88% of
+ *               prospects had one. Where it failed, 9%. It is the difference between
+ *               research and a database lookup.
+ *   apollo      160 of 395 candidates, and 39 of the 58 shipped openings. The strongest
+ *               single contributor to copy that actually went out.
+ *   website     1 candidate in 395, 0 recent events. Contributes nothing today.
+ *   web_search  11 of 69 event-shaped candidates, 8 of the 58 true ones. Useful, not
+ *               load-bearing, and it already degrades gracefully to nothing.
+ *
+ * WEBSITE AND WEB SEARCH ARE RECORDED AND THE RUN CONTINUES. That is not a judgement that
+ * their failures do not matter. It is that their failure mode is "we learned less", while
+ * a LinkedIn or Apollo failure is "we learned nothing about this person". MON-034 watches
+ * both tiers, so a recorded failure is still visible; it just does not stop the prospect.
+ *
+ * A PROSPECT WITH NO LINKEDIN URL IS NOT HELD, and that needs no special case here: the
+ * handler returns 'No LinkedIn URL for this prospect', which is a deliberate skip. The
+ * distinction lives where it is known, which is the source, not this file.
+ */
+export const HOLDING_SOURCES: ReadonlyArray<string> = ['linkedin', 'apollo']
+
 export interface SourceIntegrity {
-  /** True when every source that was actually called came back. */
+  /** True when no HOLDING source failed. Website and web search never make this false. */
   complete: boolean
-  /** Sources called that did not come back, with the error each gave. */
+  /**
+   * EVERY source that was called and did not come back, holding or not. Kept whole so the
+   * batch's per-source counts and MON-034 see recorded failures as well as holding ones:
+   * a source silently degrading is exactly what nobody noticed on 2026-09-21, and
+   * narrowing this to holding failures would rebuild that blind spot one tier down.
+   */
   failed: Array<{ source: string; error: string }>
+  /** The subset of `failed` that holds the prospect. */
+  holding: Array<{ source: string; error: string }>
+  /** The subset of `failed` that is recorded and continued past. */
+  recorded: Array<{ source: string; error: string }>
   /** Sources deliberately not called. Never a reason to hold. */
   skipped: string[]
   /** Sources that came back. */
@@ -55,17 +97,9 @@ export interface SourceIntegrity {
 /**
  * Reads the four source results and says whether this prospect can be researched.
  *
- * NOTE ON STRICTNESS, because it is a policy and not a detail. A prospect is incomplete
- * when ANY called source failed, not when ALL of them did. That is deliberate and it is
- * what was asked for: a run that quietly proceeds on three sources of four produces copy
- * built on whatever survived, and the 2026-09-21 run is what that looks like.
- *
- * It is also the strict end of the range. Measured on that run, the website fetcher failed
- * on 68 of 84 prospects, so this rule would have held 68 of them. That is the correct
- * reading of the rule and a real consequence: the website fetcher has to be fixed, or this
- * policy relaxed to name which sources are load-bearing. The decision belongs to whoever
- * reads the website-fetcher report, not to this file, which is why the policy is one
- * exported function and not a condition buried in the orchestrator.
+ * `complete` is false only when a HOLDING source failed. Every failure is still reported
+ * in `failed`, so nothing gets quieter as a result of this policy; what changes is which
+ * failures stop a prospect.
  */
 export function assessSourceIntegrity(rawData: RawSourceData): SourceIntegrity {
   const failed: Array<{ source: string; error: string }> = []
@@ -78,7 +112,10 @@ export function assessSourceIntegrity(rawData: RawSourceData): SourceIntegrity {
     failed.push({ source, error: result.error ?? '(no error recorded)' })
   }
 
-  return { complete: failed.length === 0, failed, skipped, successful }
+  const holding  = failed.filter(f => HOLDING_SOURCES.includes(f.source))
+  const recorded = failed.filter(f => !HOLDING_SOURCES.includes(f.source))
+
+  return { complete: holding.length === 0, failed, holding, recorded, skipped, successful }
 }
 
 /**
@@ -101,6 +138,8 @@ export class ResearchIncompleteError extends Error {
       failed.map(f => `${f.source} (${f.error})`).join(', ') +
       '. Held for retry; no research row written.',
     )
+    // Constructed from the HOLDING failures by both callers. Passing every failure here
+    // would name website in the reason a prospect was held, which it never is.
     this.name = 'ResearchIncompleteError'
     this.prospect_id = prospect_id
     this.failed = failed
