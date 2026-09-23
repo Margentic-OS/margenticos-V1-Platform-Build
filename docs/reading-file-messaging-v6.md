@@ -579,3 +579,91 @@ the two that matter.
 | D-retry-2 | 2 | 5.42 | 5 | 61 | 5 | 20 / 25 | grade |
 | D-retry-2 | 3 | 6.52 | 5 | 45 | 3 | 24 / 25 | grade |
 | D-retry-2 | 4 | 4.53 | 5 | 37 | 3 | 20 / 25 | clean |
+
+---
+
+## 2026-09-23, cap 15 everywhere — the grade problem is solved and nothing landed
+
+### Step 1: re-validating the dumps under the uniform cap — 0 of 4, and it cost us A
+
+Tightening emails 2 to 4 from 25 to 15 **broke the only variant that was passing.** A was
+clean; under the new cap its Email 2 carries a 16-word sentence and its Email 4 an 18-word
+sentence. One word over and three words over. Its grades were never in question (3.25 and
+4.81).
+
+**So "A stays untouched" stopped being available the moment the cap changed**, and all four
+variants were missing rather than three. That is a direct consequence of the instruction and
+is recorded rather than worked around.
+
+### Step 2: one repair pass over all four, D capped at one round
+
+Six calls, 152s. **0 of 4 passed.** Budget exhausted.
+
+### THE GRADE PROBLEM IS ESSENTIALLY SOLVED
+
+Across the closest attempt for each variant, **15 of 16 emails now pass the reading grade**,
+and they pass it comfortably:
+
+| | E1 | E2 | E3 | E4 |
+|---|---|---|---|---|
+| A | 5.82 | 3.25 | 4.88 | 4.81 |
+| B | **7.62** | 4.37 | 2.48 | 3.71 |
+| C | 3.60 | 3.44 | 4.79 | 1.69 |
+| D | 5.96 | 1.70 | 2.04 | 3.75 |
+
+Compare the live v6 document this started from: mean 6.95 on the same surface, 14 of 16
+over. Only B's Email 1 is still over, and only there.
+
+### WHAT ACTUALLY BLOCKS EACH VARIANT NOW IS MECHANICAL
+
+| variant | closest attempt | violations | what they are |
+|---|---|---|---|
+| A | A-retry-2 | 2 | a 16-word and an 18-word sentence. Nothing else. |
+| B | r7-B-retry-1 | 1 | Email 1 grade 7.62 |
+| C | C-retry-1 | 2 | Email 1 observation AND consequence each hold 2 sentences |
+| D | r6-D-retry-1 | 2 | the word "ICP" in Email 3, and a 21-word sentence in Email 4 |
+
+**Every variant is one or two violations from clean, and three of the four are not grade
+failures at all.** A needs two sentences broken. D needs one word replaced and one sentence
+broken. Neither is a readability problem.
+
+### The new feedback is doing its job
+
+B's rejection now reads:
+
+> reading grade 7.6 is above the maximum of 6. Your 46 words are split across 4 sentences,
+> which averages 11.5 words each. To reach 6 at the vocabulary you have used, you need to
+> average **7.3 words per sentence or fewer** ...
+
+No cap is quoted anywhere in it. The old message would have said "against a cap of 15" beside
+a longest sentence of 14 words, which is legal, and told the model nothing it could act on.
+
+### Cross-variant sentence reuse: still cannot fire
+
+Zero clean variants. Six consecutive runs.
+
+### Nothing landed
+
+0 of 4 is below the agent's minimum of three, so no suggestion row was written and v6 is
+still active.
+
+### Grade, words and sentences per email, closest attempt per variant
+
+| attempt | email | grade | cap | words | sentences | longest sentence | verdict |
+|---|---|---|---|---|---|---|---|
+| A | 1 | 5.82 | 6 | 40 | 5 | 10 / 15 | clean |
+| A | 2 | 3.25 | 5 | 59 | 6 | 16 / 15 | sentence len |
+| A | 3 | 4.88 | 5 | 38 | 3 | 14 / 15 | clean |
+| A | 4 | 4.81 | 5 | 35 | 3 | 18 / 15 | sentence len |
+| B | 1 | 7.62 | 6 | 46 | 4 | 14 / 15 | grade |
+| B | 2 | 4.37 | 5 | 51 | 7 | 12 / 15 | clean |
+| B | 3 | 2.48 | 5 | 24 | 4 | 11 / 15 | clean |
+| B | 4 | 3.71 | 5 | 25 | 3 | 15 / 15 | clean |
+| C | 1 | 3.60 | 6 | 47 | 7 | 13 / 15 | slot 1-sentence, slot 1-sentence |
+| C | 2 | 3.44 | 5 | 61 | 8 | 14 / 15 | clean |
+| C | 3 | 4.79 | 5 | 44 | 4 | 13 / 15 | clean |
+| C | 4 | 1.69 | 5 | 36 | 4 | 13 / 15 | clean |
+| D | 1 | 5.96 | 6 | 41 | 4 | 11 / 15 | clean |
+| D | 2 | 1.70 | 5 | 50 | 10 | 9 / 15 | clean |
+| D | 3 | 2.04 | 5 | 41 | 6 | 10 / 15 | other |
+| D | 4 | 3.75 | 5 | 34 | 3 | 21 / 15 | sentence len |
