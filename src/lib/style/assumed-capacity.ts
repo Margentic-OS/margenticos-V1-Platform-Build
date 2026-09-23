@@ -66,6 +66,10 @@ const THEIR_TIME: RegExp[] = [
   // barely applies there. These say someone is short of capacity whoever the subject is,
   // and that is the claim being banned, not the pronoun it is made with.
   /\b(too busy|no time|not enough time|short of (?:time|hours)|stretched thin|spread thin|at capacity|already full)\b/i,
+  // A POSSESSIVE ON A ROLE, plus a noun of attention or capacity. "your attention" was
+  // already banned; "the founder's attention" is the same claim in the third person, which
+  // is the person a trigger reason is written in.
+  /\b(the\s+)?(founder|owner|principal|partner|director|team)(?:'s|s')\s+(time|attention|focus|capacity|bandwidth|hours|week|weeks|diary|calendar|schedule)\b/i,
 ]
 
 /**
@@ -116,6 +120,14 @@ const WHO_SELLS: RegExp[] = [
   new RegExp(`\\b(away from|off)\\s+(generating|doing|running|driving)\\s+(new\\s+)?${SELL_VERB}\\b`, 'i'),
   // NOBODY LEFT ON IT, stated as a shortage of people rather than with "nobody".
   new RegExp(`\\b${SELL_VERB}\\s+(generation\\s+)?has\\s+no\\s+(operator|owner|one)\\b`, 'i'),
+  // ── SECOND MEASURED WIDENING, same day, same method ───────────────────────
+  // WHO BRINGS THE WORK IN: "changing who generates new business".
+  /\bwho\s+(generates?|creates?|brings?\s+in|wins?|drives?|owns?|does|handles?|runs?|sources?)\s+(the\s+|new\s+|its\s+|their\s+)*(business|pipeline|leads?|meetings?|clients?|work|revenue|outreach|outbound|prospecting|sales)\b/i,
+  // THE ONLY ONE ON IT: "removes the only dedicated pipeline function". Asserting a company
+  // has exactly one of something is a claim about its staffing.
+  new RegExp(`\\b(the\\s+)?only\\s+(dedicated\\s+|full[- ]time\\s+)?${SELL_VERB}\\s+(function|person|resource|hire|role|capability)\\b`, 'i'),
+  // A ROLE'S OWN CHANNEL, as the thing the company sells through: "the founder's network".
+  /\b(the\s+)?(founder|owner|principal|partner|director)(?:'s|s')\s+(network|contacts|relationships|connections|referrals?)\b/i,
 ]
 
 /** Split on sentence ends, keeping it simple: this reports, it does not parse. */

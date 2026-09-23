@@ -102,6 +102,30 @@ describe('claims about a named role, or about the selling stopping', () => {
   })
 })
 
+// SECOND WIDENING, same day, same method: run the derivation, read the output, find what
+// the gate let through. These four came from the run after the first widening.
+describe('a role\'s attention, who brings the work in, and being the only one on it', () => {
+  it.each([
+    "A major engagement starting or ending resets the founder's attention away from pipeline.",
+    'Promoting from within shifts a delivery person out, changing who generates new business.',
+    'The departure removes the only dedicated pipeline function from the firm.',
+    "Full-time commitment requires revenue growth the founder's network alone cannot deliver.",
+    "The owner's diary decides when it happens.",
+    'It changes who wins the work.',
+  ])('flags %s', (sentence) => {
+    expect(hit(sentence)).not.toEqual([])
+  })
+
+  it.each([
+    'New brand assets need outbound distribution to reach prospects who will not find them organically.',
+    'Visibility without outbound creates inbound interest but no systematic way to convert it.',
+    'New credibility proof strengthens outbound messaging but only works if outbound is running.',
+    'Third-party validation is a credibility anchor that makes cold outreach convert higher.',
+  ])('leaves alone: %s', (sentence) => {
+    expect(hit(sentence)).toEqual([])
+  })
+})
+
 describe('counting', () => {
   it('counts a sentence ONCE per kind, however many ways it is phrased', () => {
     // Three time patterns in one sentence is one fault, not three: counting each would make
