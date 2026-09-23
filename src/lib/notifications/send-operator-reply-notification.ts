@@ -54,7 +54,7 @@
 // nothing retries it. What stops that being silent is MON-028, which reports the draft
 // ageing in the queue regardless of whether any email was sent.
 
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import { logger } from '@/lib/logger'
 import { sendTransactionalEmailWithDedup } from './send-transactional-with-dedup'
 import {
@@ -71,7 +71,8 @@ const FEATURE_ACTIVATION_DATE = new Date('2026-07-27').toISOString()
 const NOTIFICATION_TYPE = 'reply_needs_action'
 
 export interface SendOperatorReplyNotificationParams {
-  supabase: SupabaseClient
+  // Branded: notifications_log is service-role only. See send-transactional-with-dedup.ts.
+  supabase: ServiceRoleClient
   organisationId: string
   signalId: string
   prospectId: string | null

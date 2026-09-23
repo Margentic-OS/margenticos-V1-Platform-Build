@@ -32,6 +32,8 @@ const QUIET: PipelineProgress = {
   enrichment: { ...NO_PRESS_PLAN, done: 0, waiting: 0, inFlight: 0 },
   research: {
     stage: 'idle',
+    awaitingSubmission: 0,
+    nextSubmissionRunAt: null,
     fetchingSources: 0,
     awaitingModel: 0,
     collecting: 0,
@@ -156,11 +158,120 @@ describe('item 3 — the research stage that had no queue row', () => {
   // Measured on production 2026-09-17: phase 1 ended 19:48:31, phase 2 was created
   // 20:03:03. In between, 62 prospects were in flight with no job row anywhere and the
   // screen showed nothing, which reads as a stall.
+  // ── THE FRONT OF THAT WINDOW, WHICH THE FIRST FIX DID NOT REACH ───────────
+  //
+  // awaitingModel is counted through an OPEN BATCH, and an entry has no batch until the
+  // sweep submits it. So between phase 1 finishing and the next firing every count was
+  // zero, the stage read 'idle', and this panel rendered NOTHING AT ALL.
+  //
+  // Measured on production 2026-09-21: phase 1 finished for 107 prospects at 18:06:17, the
+  // first batch was created 18:08:01, and 7 that did not fit it waited until 18:13:01.
+  it('shows that stage one is done while nothing has been sent yet', () => {
+    renderProgress({
+      research: {
+        stage: 'awaiting_submission',
+        fetchingSources: 0,
+        awaitingSubmission: 107,
+        nextSubmissionRunAt: new Date(Date.now() + 104_000).toISOString(),
+        awaitingModel: 0,
+        collecting: 0,
+        waveDone: null,
+        waveTotal: null,
+        oldestBatchSubmittedAt: null,
+      },
+    })
+
+    expect(screen.getByText('Sources done, waiting to be sent to the model')).toBeInTheDocument()
+    expect(screen.getByText(/The sources are gathered for 107 prospects/)).toBeInTheDocument()
+    expect(screen.getByText(/nothing has stalled/)).toBeInTheDocument()
+  })
+
+  // A COUNT WITH NO TIME BESIDE IT STILL READS AS A STALL. During this stage there is no
+  // queue row, no open batch, and nothing else on the panel that moves.
+  it('says when the waiting ends', () => {
+    renderProgress({
+      research: {
+        stage: 'awaiting_submission',
+        fetchingSources: 0,
+        awaitingSubmission: 7,
+        nextSubmissionRunAt: new Date(Date.now() + 104_000).toISOString(),
+        awaitingModel: 0,
+        collecting: 0,
+        waveDone: null,
+        waveTotal: null,
+        oldestBatchSubmittedAt: null,
+      },
+    })
+    expect(screen.getByText(/go to the model on the next send, in about 2 minutes/))
+      .toBeInTheDocument()
+  })
+
+  // Null rather than a guess, on the same rule as every other caption here: an invented
+  // time rendered on an operator screen is worse than no time.
+  it('names no send time when the schedule could not be read', () => {
+    renderProgress({
+      research: {
+        stage: 'awaiting_submission',
+        fetchingSources: 0,
+        awaitingSubmission: 107,
+        nextSubmissionRunAt: null,
+        awaitingModel: 0,
+        collecting: 0,
+        waveDone: null,
+        waveTotal: null,
+        oldestBatchSubmittedAt: null,
+      },
+    })
+    expect(screen.getByText(/They go to the model on the next send\./)).toBeInTheDocument()
+    expect(screen.queryByText(/in about/)).not.toBeInTheDocument()
+  })
+
+  // THE COUNT THIS STAGE CONTRIBUTES MUST REACH THE TOTAL. Left out of `left`, the panel
+  // would appear and then report "Still to go 0" beside 107 waiting prospects.
+  it('counts the waiting prospects in what is still to go', () => {
+    renderProgress({
+      research: {
+        stage: 'awaiting_submission',
+        fetchingSources: 0,
+        awaitingSubmission: 107,
+        nextSubmissionRunAt: null,
+        awaitingModel: 0,
+        collecting: 0,
+        waveDone: null,
+        waveTotal: null,
+        oldestBatchSubmittedAt: null,
+      },
+    })
+    const row = screen.getByText('Still to go').closest('div')
+    expect(row?.textContent).toContain('107')
+  })
+
+  // The singular reads to one person about one prospect, not "1 prospects ... for them".
+  it('reads correctly for a single prospect', () => {
+    renderProgress({
+      research: {
+        stage: 'awaiting_submission',
+        fetchingSources: 0,
+        awaitingSubmission: 1,
+        nextSubmissionRunAt: null,
+        awaitingModel: 0,
+        collecting: 0,
+        waveDone: null,
+        waveTotal: null,
+        oldestBatchSubmittedAt: null,
+      },
+    })
+    expect(screen.getByText(/gathered for 1 prospect and nothing more is being bought for it/))
+      .toBeInTheDocument()
+  })
+
   it('names the wait on the model and says nothing has stalled', () => {
     renderProgress({
       research: {
         stage: 'awaiting_model',
-        fetchingSources: 0,
+        awaitingSubmission: 0,
+    nextSubmissionRunAt: null,
+    fetchingSources: 0,
         awaitingModel: 62,
         collecting: 0,
         waveDone: 0,
@@ -179,7 +290,9 @@ describe('item 3 — the research stage that had no queue row', () => {
     renderProgress({
       research: {
         stage: 'collecting',
-        fetchingSources: 0,
+        awaitingSubmission: 0,
+    nextSubmissionRunAt: null,
+    fetchingSources: 0,
         awaitingModel: 0,
         collecting: 9,
         waveDone: 53,
@@ -199,7 +312,9 @@ describe('item 3 — the research stage that had no queue row', () => {
     renderProgress({
       research: {
         stage: 'fetching_sources',
-        fetchingSources: 4,
+        awaitingSubmission: 0,
+    nextSubmissionRunAt: null,
+    fetchingSources: 4,
         awaitingModel: 0,
         collecting: 0,
         waveDone: null,

@@ -235,11 +235,27 @@ in any live config. Do not reinstate either without a concrete need and a caller
 solely because this list asked for a GitHub MCP that nobody built. It expired
 2026-05-09 and was deleted 2026-09-05. Nothing noticed, because nothing used it:
 zero references to GITHUB_TOKEN, GH_TOKEN or GITHUB_PAT anywhere in the repo, no
-GitHub credential in Vercel Production or Preview, and no `.github/` workflows at
-all. September pushes reached origin regardless of what git authenticates with.
+GitHub credential in Vercel Production or Preview, and at that date no `.github/`
+workflows at all. September pushes reached origin regardless of what git
+authenticates with.
 **A required-tools list that names a tool nobody set up produces credentials
 nobody uses**, and a standing credential with no consumer is the worst kind: when
 it leaks, nothing breaks, so nothing tells you it leaked.
+
+**The workflow half of that inventory expired on 2026-09-16, and the ARGUMENT SURVIVES
+IT. Corrected 2026-09-22.** `.github/workflows/ci.yml` landed in `ea6483a` and is the
+first CI this repository has had; see the Environments section for what it gates.
+Re-measured on 2026-09-22 at `97d25ad`: still zero references to GITHUB_TOKEN, GH_TOKEN
+or GITHUB_PAT anywhere in the repo, and the repository has **zero Actions secrets and
+zero Actions variables configured**. CI needs no standing GitHub credential, because
+Actions mints an ephemeral token per run. So the conclusion above is unchanged, and the
+deleted PAT is still a credential nobody used.
+
+Worth knowing before anyone switches the database tier on: `ci.yml` names
+`secrets.TEST_SUPABASE_URL` and `secrets.TEST_SUPABASE_SERVICE_ROLE_KEY`, and **neither
+secret exists**. The job is skipped by its `if:` gate rather than failing on the missing
+secrets, so setting the `RUN_LIVE_TESTS` variable alone would turn a quiet skip into a
+red job. Both secrets have to exist first.
 
 This is the same family as the rest of this week, a document asserting something
 that was never true. The clean tree that was 280 commits stale, the audit query
@@ -1167,14 +1183,50 @@ Contract status, engagement month, payment status: operator view only, never cli
 
 ---
 
-## Environments — three, never skip staging
+## Environments — and what actually gates a merge
 
 development:  local — Supabase local or dedicated dev project
-staging:      Vercel preview — automatic on push to any non-main branch
-production:   Vercel main — only after staging verified
+preview:      Vercel preview — automatic on push to any non-main branch
+production:   Vercel main
 
 Separate environment variables in Vercel for each environment.
-Never push to production without staging verification.
+
+**THE STAGING BRANCH IS NOT THE GATE, AND HAS NOT BEEN FOR MONTHS. Corrected
+2026-09-22.** This section used to read "three, never skip staging", with production
+defined as "only after staging verified". That described nothing anyone was doing. A
+rule that no session follows is worse than no rule: it gets read, silently skipped, and
+teaches the reader that this file can be ignored.
+
+Measured on 2026-09-22 at `97d25ad`. `origin/staging` last moved on **2026-04-22** and
+is **1,449 commits behind main**, with zero commits of its own, so it is wholly
+contained in main and five months stale. Of the **23 merges into main since
+2026-09-17**, not one involved it, and nothing has reached it since April.
+
+**What actually gates a merge, and what every session must do:**
+
+  1. Work on a branch cut from current `origin/main`. Pushing it builds a Vercel
+     preview, which is what "staging" now means in practice: a per-branch deployment,
+     not a shared long-lived environment.
+  2. **CI must be green on the FINAL commit of the branch**, not on an earlier one.
+     `.github/workflows/ci.yml` runs two jobs and only one blocks:
+       `types + deterministic tests`  BLOCKS. `tsc --noEmit` plus the unit tier.
+       `database tests (report only)` NEVER blocks. Gated on `vars.RUN_LIVE_TESTS`,
+                                      which is not set, so it reports **skipped**.
+                                      Skipped is its designed resting state, not a
+                                      failure, and it stays non-blocking until the live
+                                      tier has its own database and a zero flake rate.
+     A green unit job proves nothing unless it RAN YOUR TESTS. Confirm by name:
+     `gh run view <run-id> --log | grep -oE "src/path/to/your\.test\.ts"`.
+  3. Merge to main and push.
+  4. **Verify the deployed SHA from the SERVED PAGE**, never from Vercel's own metadata:
+     `curl -s https://margenticos-platform.vercel.app/login | grep -o 'sentry-release=[a-f0-9]*'`
+     Read it before and after so a matching SHA cannot be a constant.
+
+**Staging is to be revisited before the first paying client.** A per-branch preview
+tests the code; it does not give a place to rehearse a release against production-like
+data, and "delete the stale branch" is not the same decision as "decide we do not need
+an environment". That decision has a cost attached and has not been made. It belongs
+with the other pre-first-client items on the Notion Backlog.
 
 ---
 
@@ -1288,7 +1340,8 @@ Never return Supabase data without RLS or explicit client_id filter.
 Never show operator-only data in a client-visible component.
 Never write directly to a strategy document — always use suggestion queue.
 Never write directly to the patterns table except from the aggregation agent.
-Never skip staging for any reason.
+Never merge without CI green on the branch's final commit, and never call a deploy
+  done without reading the served SHA back.
 Never end a session without committing completed work.
 Never make an architectural decision silently — always name it to Doug.
 Never proceed past a blocker without explaining it in plain English first.

@@ -12,7 +12,7 @@ import { splitSentences } from '@/lib/style/readability'
 const SENDER = 'Doug'
 const COMPANY = 'MargenticOS'
 
-const ONE_SENTENCE  = 'Referrals arrive when they arrive, not when the diary needs them.'
+const ONE_SENTENCE  = 'New work turns up when it turns up, not when needed.'
 // The same observation with a bridge welded on. This is the real shape: the second
 // sentence names the consequence, which is the research writer's separate paragraph.
 const TWO_SENTENCES = `${ONE_SENTENCE} When one goes quiet, nothing else is running to catch it.`
@@ -24,7 +24,7 @@ function email1WithSlot(slot: string): EmailRecord {
     '',
     slot,
     '',
-    'Pipeline builds ahead of the gap instead of after it. Qualified conversations keep landing while delivery runs. Meetings land in the diary without the founder chasing a single introduction. The diary fills on a schedule.',
+    'Work builds ahead of the gap instead of after it. New calls keep coming in while the team ships. Calls land in the week without the boss chasing a single name. The week fills up on time.',
     '',
     'Worth a look?',
     '',
@@ -147,8 +147,8 @@ describe('the gate reads the paragraph composition replaces', () => {
 // two are replaced together and always ship together. A gate that rejects it would make
 // the two-paragraph slot unwritable, which is exactly the trap the one-sentence rule fell
 // into before the word floor moved.
-const SLOT_OBSERVATION = 'Most new work still arrives through a handful of long-standing relationships.'
-const SLOT_CONSEQUENCE = 'When those relationships go quiet, nothing else is running to catch the gap.'
+const SLOT_OBSERVATION = 'Most new work still turns up through a handful of old contacts.'
+const SLOT_CONSEQUENCE = 'When those relationships go quiet, nothing else is running.'
 
 function email1WithTwoParagraphSlot(consequence: string): EmailRecord {
   const body = [
@@ -158,7 +158,7 @@ function email1WithTwoParagraphSlot(consequence: string): EmailRecord {
     '',
     consequence,
     '',
-    'Pipeline builds ahead of the gap instead of after it. Meetings keep landing while delivery runs.',
+    'Work builds ahead of the gap instead of after it. Calls keep coming in while the team ships.',
     '',
     'Worth a look?',
     '',

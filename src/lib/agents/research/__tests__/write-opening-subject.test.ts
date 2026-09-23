@@ -217,16 +217,16 @@ describe('the subject instructions state a shape and show no example', () => {
 
   it('states the firmographic ban at category level', () => {
     const flat = p.replace(/\s+/g, ' ')
-    expect(flat).toContain('No figure from their record: no revenue, no headcount, no funding, no money amount.')
+    expect(flat).toContain('NEVER QUOTE A FIGURE FROM THEIR FIRMOGRAPHIC RECORD')
   })
 
   it('states each rule at category level', () => {
     const flat = p.replace(/\s+/g, ' ')
-    expect(flat).toContain('All lower case.')
-    expect(flat).toContain('No full stop, no question mark and no exclamation mark at the end.')
-    expect(flat).toContain("Never their first name and never their company's name.")
-    expect(flat).toContain(`At most ${EMAIL_SUBJECT_LIMITS.email1MaxChars} characters`)
-    expect(flat).toContain('It comes from your observation.')
+    expect(flat).toContain('all lower case')
+    expect(flat).toContain('no end punctuation')
+    expect(flat).toContain('never their first name or company name')
+    expect(flat).toContain(`at most ${EMAIL_SUBJECT_LIMITS.email1MaxChars} characters`)
+    expect(flat).toContain('From your observation')
   })
 
   it('carries no example subject line', () => {

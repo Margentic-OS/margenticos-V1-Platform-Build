@@ -134,3 +134,64 @@ export async function claimNotification(
   })
   return 'failed'
 }
+
+/**
+ * Give a claim back after the send it was taken for did not happen.
+ *
+ * WHY A CLAIM NEEDS A RELEASE AT ALL
+ *
+ * Claiming before sending is correct: an unrecorded send cannot be deduplicated, so the row
+ * has to exist before the mail goes out. The consequence is that the row means "somebody
+ * intends to send this", and when the send then fails the row is a lie that outlives the
+ * attempt. Because the row IS the dedup key, the next attempt reads it, concludes the mail
+ * already went, and the notification is suppressed for ever by its own bookkeeping. Nothing
+ * retries it and nothing anywhere records that it never arrived.
+ *
+ * Releasing closes that. Claim, send, and on failure put the claim back so the next
+ * invocation is free to try again.
+ *
+ * WHY NOT INSTEAD SEND FIRST AND RECORD AFTER
+ *
+ * Because the failure then runs the other way and is worse: a send that succeeds and a row
+ * that fails to write means the next run sends a SECOND copy, and duplicate mail to a client
+ * is not recoverable. Losing an alert is bad; mailing a prospect's reply notification twice,
+ * or a client a duplicate, is worse. Claim-then-release keeps the safe failure direction and
+ * removes the permanence.
+ *
+ * A FAILED RELEASE IS LOGGED AND SWALLOWED. If the delete itself fails, the row stays and
+ * that subject stays deduped, which is exactly the old behaviour: no worse, and there is
+ * nothing useful to do about it in the moment. It is logged at error because it is the one
+ * case where a notification is still permanently lost.
+ */
+export async function releaseNotificationClaim(
+  adminClient: ServiceRoleClient,
+  params: { organisationId: string; notificationType: string; subjectId: string },
+): Promise<void> {
+  const { organisationId, notificationType, subjectId } = params
+
+  const { error } = await adminClient
+    .from('notifications_log')
+    .delete()
+    .eq('organisation_id', organisationId)
+    .eq('notification_type', notificationType)
+    .eq('subject_id', subjectId)
+
+  if (error) {
+    logger.error(
+      'releaseNotificationClaim: could not release the claim, so this notification stays deduped and is permanently lost',
+      {
+        organisation_id: organisationId,
+        notification_type: notificationType,
+        subject_id: subjectId,
+        error: error.message,
+      },
+    )
+    return
+  }
+
+  logger.info('releaseNotificationClaim: claim released, the next attempt will retry', {
+    organisation_id: organisationId,
+    notification_type: notificationType,
+    subject_id: subjectId,
+  })
+}

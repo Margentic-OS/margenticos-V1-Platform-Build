@@ -165,7 +165,19 @@ describe('retryTruncatedSynthesis: once, and it keeps what the discarded call co
       calls,
       client: {
         messages: {
-          create: async (params: unknown) => { calls.push(params); return responses[i++] },
+          // STREAMS, AND REFUSES create(). Synthesis moved to messages.stream on
+          // 2026-09-21: the SDK rejects a non-streaming call at the 24,000-token ceiling
+          // outright. The fake THROWS on create rather than implementing both, because a
+          // fake that quietly answers a call production no longer makes cannot tell you
+          // when the code goes back to making it.
+          stream: (params: unknown) => {
+            calls.push(params)
+            const response = responses[i++]
+            return { finalMessage: async () => response }
+          },
+          create: async () => {
+            throw new Error('fake: synthesis must call messages.stream, not messages.create')
+          },
         },
       } as never,
     }
@@ -188,7 +200,11 @@ describe('retryTruncatedSynthesis: once, and it keeps what the discarded call co
 
   it('returns null only when the retry could not be made at all', async () => {
     const client = {
-      messages: { create: async () => { throw new Error('network gone') } },
+      // Throws from stream(), the call the code actually makes. Before this was updated
+      // it threw from create() and the test still passed, because `stream` being
+      // undefined produced a TypeError that looked identical from the outside: a case
+      // passing for the wrong reason and proving nothing.
+      messages: { stream: () => { throw new Error('network gone') } },
     } as never
     expect(await retryTruncatedSynthesis(client, PROSPECT, SOURCES, CLIENT_CTX, SIGNAL)).toBeNull()
   })

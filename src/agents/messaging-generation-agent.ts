@@ -32,6 +32,7 @@ import { EMAIL1_FRAME_TAIL_PARAGRAPHS, EMAIL1_FRAME_SLOT_PARAGRAPHS } from '@/li
 import { BANNED_FIRMOGRAPHIC } from '@/lib/style/firmographic'
 import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-frames'
 import { readabilityScore, MAX_SENTENCE_WORDS, splitSentences } from '@/lib/style/readability'
+import { fleschKincaidGrade, MAX_READING_GRADE, readingGradeCapFor } from '@/lib/style/reading-grade'
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
@@ -162,6 +163,21 @@ export interface MessagingAgentInput {
   segment_id?: string | null
   /** Optional: notes on the rejected suggestion this run replaces. See ADR-038. */
   regeneration_notes?: RegenerationNotes
+  /**
+   * Paragraphs this run supplies to the agent verbatim rather than asking it to write.
+   * Both halves matter and they are deliberately driven from ONE list: the prompt tells
+   * the agent to reproduce these lines, and the reading grade excludes them. Two lists
+   * would be two things to keep in step, and the failure would be silent in the direction
+   * that costs money, an agent rewriting a line nothing then scored.
+   */
+  held_paragraphs?: readonly HeldParagraph[]
+}
+
+/** A paragraph supplied to the agent rather than written by it. See held_paragraphs. */
+export interface HeldParagraph {
+  /** Which email in the sequence this paragraph belongs to, 1 to 4. */
+  sequence_position: number
+  text: string
 }
 
 export interface MessagingAgentResult {
@@ -257,6 +273,10 @@ export interface VariantGenerationContext {
   /** Notes on the rejected suggestion this run replaces. Carried into retries and
    *  fallbacks as well as the first pass, so a retry cannot quietly drop the note. */
   regeneration_notes: RegenerationNotes | undefined
+  /** See MessagingAgentInput.held_paragraphs. Carried on the context because retries and
+   *  fallbacks validate through the same path and must score the same surface as the
+   *  first pass. A retry that scored held text would fail a variant the first pass passed. */
+  heldParagraphs: readonly HeldParagraph[]
 }
 
 // Records the outcome for one variant slot after first pass + any retries/fallbacks.
@@ -345,6 +365,7 @@ export async function runMessagingGenerationAgent(
 ): Promise<MessagingAgentResult> {
   const { organisation_id, supabase, segment_id = null } = input
   const regeneration_notes = input.regeneration_notes
+  const heldParagraphs = input.held_paragraphs ?? []
 
   logger.info('Messaging agent: starting', { organisation_id, segment_id })
 
@@ -405,7 +426,7 @@ export async function runMessagingGenerationAgent(
     // two lists that must agree by hand: the day one of them learns to read a new document
     // and the other does not, the repair writes copy from context the full run would have
     // rejected, and nothing says so.
-    const context = await buildVariantGenerationContext(supabase, organisation_id, regeneration_notes)
+    const context = await buildVariantGenerationContext(supabase, organisation_id, regeneration_notes, heldParagraphs)
     const { intake, preflight, requiredDocs, completeness, existingDocument, patterns, upstreamAssumptions } = context
 
     // Step 8: Build the user message requesting four variants.
@@ -419,6 +440,7 @@ export async function runMessagingGenerationAgent(
       preflight,
       upstreamAssumptions,
       regeneration_notes,
+      heldParagraphs,
     })
 
     // Step 9: Call Claude — one API call for all four variants.
@@ -470,6 +492,8 @@ export async function runMessagingGenerationAgent(
     // then fallback angles). Only fires if variants actually failed.
     if (variantFailures.length > 0) {
       const retryContext: VariantGenerationContext = {
+        // Carried so a retry scores exactly the surface the first pass scored.
+        heldParagraphs,
         intake,
         requiredDocs,
         existingDocument,
@@ -842,6 +866,7 @@ export async function buildVariantGenerationContext(
   supabase: SupabaseClient,
   organisation_id: string,
   regeneration_notes: RegenerationNotes | undefined,
+  heldParagraphs: readonly HeldParagraph[] = [],
 ): Promise<VariantGenerationContext> {
   // Step 1: Fetch intake responses for this client only.
   const intake = await fetchIntakeResponses(supabase, organisation_id)
@@ -906,6 +931,7 @@ export async function buildVariantGenerationContext(
   ]
 
   return {
+    heldParagraphs,
     intake,
     requiredDocs,
     existingDocument,
@@ -915,6 +941,44 @@ export async function buildVariantGenerationContext(
     upstreamAssumptions,
     regeneration_notes,
   }
+}
+
+// Renders the held paragraphs into the prompt, grouped by which email they belong to.
+//
+// RENDERED FROM THE SAME LIST THE GATE EXCLUDES. If the prompt named one set of lines and
+// the scorer excluded another, the agent would be asked to reproduce a paragraph that then
+// counted against its grade, which is the exact failure the held mechanism exists to
+// prevent. One list, two consumers, no second place to edit.
+//
+// Placed in buildBaseContext so the first pass and the single-variant REPAIR path both get
+// it. A repair that did not see this block would rewrite the held lines, and a rewritten
+// line is no longer matched, so it would start being scored, and the repair would be
+// strictly harder than the attempt it was repairing.
+export function buildHeldParagraphsBlock(held: readonly HeldParagraph[]): string {
+  if (held.length === 0) return ''
+  const byPosition = new Map<number, string[]>()
+  for (const h of held) {
+    const list = byPosition.get(h.sequence_position) ?? []
+    list.push(h.text)
+    byPosition.set(h.sequence_position, list)
+  }
+  const sections = [...byPosition.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([pos, texts]) => {
+      const options = texts.map(t => `    ${t}`).join('\n')
+      return texts.length === 1
+        ? `  Email ${pos} must end with exactly this question:\n${options}`
+        : `  Email ${pos} must end with exactly ONE of these questions, whichever suits its angle:\n${options}`
+    })
+    .join('\n\n')
+
+  return `\n\n## LINES THAT ARE ALREADY WRITTEN. REPRODUCE THEM EXACTLY.\n\n` +
+    `These closing questions are not yours to rewrite. Copy one of them word for word, ` +
+    `including its punctuation, as the last line before the sign-off of the email named.\n\n` +
+    `${sections}\n\n` +
+    `They are excluded from the reading grade, so rewriting one CANNOT help you pass it. ` +
+    `It can only cost you the attempt. Every other paragraph in those emails is yours and ` +
+    `is what the grade is measured on.\n`
 }
 
 function buildBaseContext(params: VariantGenerationContext): {
@@ -1048,7 +1112,8 @@ function buildBaseContext(params: VariantGenerationContext): {
   const contextBlocks =
     `## INTAKE QUESTIONNAIRE RESPONSES\n\n${intakeSections}` +
     icpBlock + positioningBlock + tovBlock + senderContext + upstreamAssumptionsContext + refreshContext + patternContext +
-    buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument)
+    buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument) +
+    buildHeldParagraphsBlock(params.heldParagraphs)
 
   return { completenessNote, contextBlocks }
 }
@@ -1063,6 +1128,7 @@ function buildUserMessage(params: {
   preflight: PreflightContext
   upstreamAssumptions: UpstreamAssumption[]
   regeneration_notes: RegenerationNotes | undefined
+  heldParagraphs: readonly HeldParagraph[]
 }): string {
   const { completenessNote, contextBlocks } = buildBaseContext(params)
 
@@ -1094,7 +1160,8 @@ that specific prospect exists. Write the default that ships when it does not.
       alone, because it gets replaced. Do not pitch here. Do not name the service here.
   P3  WHAT CHANGES. The offer line. Signal that the sender does something about that
       problem and name a RESULT in the prospect's own terms. Do NOT name the service, do
-      NOT explain the mechanism, do NOT list features. One or two short sentences. This
+      NOT explain the mechanism, do NOT list features. Write as many sentences as it takes,
+      each one inside the ${EMAIL1_MAX_SENTENCE_WORDS}-word sentence cap. This
       paragraph MAY begin with We: the I/We ban applies only to the observation slot.
       Register to match: "We get more conversations into your diary."
                          "We bring qualified prospects to you."
@@ -1115,7 +1182,12 @@ that specific prospect exists. Write the default that ships when it does not.
 
       P3 must FLEX to the pain P2 opened on, and must differ across all four variants.
       A fixed line reused across variants is a spam fingerprint, and is code-enforced.
-  P4  The CTA question. One question. Low commitment.
+  P4  THE CTA. Exactly ONE question mark, and every sentence inside the
+      ${EMAIL1_MAX_SENTENCE_WORDS}-word cap. Low commitment. The question may stand alone,
+      or a short statement may lead into it:
+        "Worth a look?"
+        "No pitch, just a quick call. Worth a look?"
+      Two question marks anywhere in the email is a hard failure.
   P5  THE SIGN-OFF BLOCK. Two lines, in this order, nothing after them:
         ${params.preflight.sender_first_name}
         ${params.preflight.org_name}
@@ -1199,10 +1271,14 @@ sentence still lands if you guessed wrong about the details.
 WORD PRESSURE, READ THIS. Pattern framing costs more words than assertion, and Email 1 is
 ${EMAIL_WORD_LIMITS.email1MinWords} to ${EMAIL_WORD_LIMITS.email1TargetMaxWords} words
 with a hard cap of ${EMAIL_WORD_LIMITS.email1MaxWords}. Do not solve that by compressing
-P2 back into a verdict. Take the words from elsewhere: P3 can be one sentence rather than
-two, the CTA can be shorter, and any clause that merely restates something is already
-failing the non-redundancy rule and should go. If the email will not fit, cut content, not
-the framing.
+P2 back into a verdict. Take the words from elsewhere: any clause that merely restates
+something is already failing the non-redundancy rule and should go. If the email will not
+fit, cut content, not the framing.
+
+DO NOT SOLVE WORD PRESSURE BY FUSING SENTENCES. Cutting a 60-word email from five sentences
+to four RAISES its grade even though it is shorter. Fewer words help; fewer sentences hurt.
+When both are tight, cut whole ideas and keep the sentence breaks. In Email 1 fusing is not
+available anyway: the ${EMAIL1_MAX_SENTENCE_WORDS}-word cap rejects the fused sentence.
 
 Angle assignments determine how the P2 observation slot opens:
 - Variant A: Pain-led. The implied cost or consequence of the current situation.
@@ -1373,7 +1449,9 @@ function renderWordCountReminder(): string {
     `- Email 3: ${L.email3MinWords} to ${L.email3MaxWords} words, and no longer than Email 2.`,
     `- Email 4: up to ${L.email4MaxWords} words. No minimum: a short breakup is fine.`,
     '- Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds later.',
-    `- No SENTENCE anywhere may run over ${MAX_EMAIL_SENTENCE_WORDS} words. Separate from the totals above: an email inside its band still fails if one sentence is too long. Split it into two rather than trimming words.`,
+    `- SENTENCE LENGTH IS CAPPED PER EMAIL. EMAIL 1: no sentence over ${EMAIL1_MAX_SENTENCE_WORDS} words. EMAILS 2, 3 and 4: no sentence over ${FOLLOWUP_MAX_SENTENCE_WORDS} words. Separate from the word totals above: an email inside its band still fails if one sentence is too long. Split it rather than trimming words.`,
+    `- WHAT EMAIL 1'S ${EMAIL1_MAX_SENTENCE_WORDS}-WORD CAP MEANS IN PRACTICE. An Email 1 of 60 words cannot be fewer than FOUR sentences, and that is the point of the cap rather than a side effect. Reading grade rises with words per sentence, so the same words split across more sentences score lower with nothing cut.`,
+    `- DO NOT CARRY EMAIL 1'S CLIPPED RHYTHM INTO EMAILS 2 TO 4. They have room for ${FOLLOWUP_MAX_SENTENCE_WORDS}-word sentences and they should use it. A follow-up written as ten short sentences in a row reads worse than one that breathes, and the follow-up writer takes its tone from these templates.`,
     // ONE CONSTRAINT, NOT TWO RULES IN TWO PLACES, and it is the LAST thing the model reads
     // before writing. This line described a ONE-paragraph slot until 2026-09-20, which is
     // the frame that was replaced when the slot became two paragraphs. The system prompt
@@ -1382,7 +1460,17 @@ function renderWordCountReminder(): string {
     // it. Measured across four runs before the fix: every first pass produced a 27 to 38
     // word sentence in Email 1, and every repair then put two sentences in the observation
     // paragraph.
-    `- Email 1's observation slot is TWO paragraphs, a blank line between them, ONE SENTENCE in each, and neither over ${MAX_EMAIL_SENTENCE_WORDS} words. Paragraph 2 observes. Paragraph 3 names the consequence that follows. Count the words in both before moving on: two sentences in either paragraph, or one sentence over ${MAX_EMAIL_SENTENCE_WORDS} words, rejects the variant.`,
+    // THE READING GRADE, stated once, from the same constant the gate enforces. Placed
+    // last because word choice is the thing the model is most likely to drift on once it
+    // is concentrating on word counts and sentence caps.
+    `- Every email must read at FLESCH-KINCAID GRADE ${MAX_READING_GRADE} OR UNDER, measured on the paragraphs you write, with the {{first_name}} line and the sign-off excluded. This is a hard gate and it rejects the variant. The reason is not style: a cold email is read in a hurry, on a phone, by someone who never asked for it, and anything that needs a second read gets none. Two things move this number, sentence length and syllables per word, and since the sentence cap above already holds the first, WORD CHOICE is what you control here. Industry words are the usual cause: "qualified", "prospecting", "consistency", "conversations", "opportunities", "capacity". Say the everyday thing instead. "Meetings" not "qualified meetings", "work" not "engagements", "find clients" not "prospecting". Short, plain, concrete words are also simply better cold-email copy, so this gate and good writing pull in the same direction.`,
+    `- Email 1's observation slot is TWO paragraphs, a blank line between them, ONE SENTENCE in each, and neither over ${EMAIL1_MAX_SENTENCE_WORDS} words. Paragraph 2 observes. Paragraph 3 names the consequence that follows. Count the words in both before moving on: two sentences in either paragraph, or one sentence over ${EMAIL1_MAX_SENTENCE_WORDS} words, rejects the variant.`,
+    // THE ONE-SENTENCE RULE IS THE SLOT ONLY, and this line says so because the slot rule
+    // above states its half loudly. The "up to two sentences" version of this line was
+    // PERMISSION, and permission did not move the model: on run 3, 6 of 7 Email 1 attempts
+    // declined it and came back at four sentences. The per-sentence cap replaces it, because a
+    // cap is arithmetic rather than an invitation.
+    `- The ONE-SENTENCE rule is the SLOT ONLY, paragraphs 2 and 3. Email 1's offer line and its CTA have NO sentence limit of their own: write what the job needs, subject only to the ${EMAIL1_MAX_SENTENCE_WORDS}-word cap on every sentence and the email's word band.`,
   ].join('\n')
 }
 
@@ -1673,6 +1761,34 @@ interface ProcessVariantParams {
   senderCompanyName: string
   organisation_id: string
   attemptLabel?: string
+  /** See MessagingAgentInput.held_paragraphs. Defaults to none. */
+  heldParagraphs?: readonly HeldParagraph[]
+}
+
+/**
+ * Writes one attempt to MESSAGING_ATTEMPT_DUMP_DIR when that variable is set, and does
+ * nothing otherwise. Synchronous and swallowing: a diagnostic that can fail a generation
+ * run is worse than no diagnostic.
+ */
+function dumpAttempt(
+  variantKey: string,
+  attemptLabel: string | undefined,
+  emails: EmailRecord[],
+  violations: ValidationViolation[],
+): void {
+  const dir = process.env.MESSAGING_ATTEMPT_DUMP_DIR
+  if (!dir) return
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    fs.mkdirSync(dir, { recursive: true })
+    const name = `${variantKey}${attemptLabel ? `-${attemptLabel}` : '-first'}.json`
+    fs.writeFileSync(
+      `${dir}/${name}`,
+      JSON.stringify({ variant: variantKey, attempt: attemptLabel ?? 'first', emails, violations }, null, 2),
+    )
+  } catch {
+    // Deliberately silent. See the note above.
+  }
 }
 
 async function processOneVariant({
@@ -1682,6 +1798,7 @@ async function processOneVariant({
   senderCompanyName,
   organisation_id,
   attemptLabel,
+  heldParagraphs = [],
 }: ProcessVariantParams): Promise<{ passed: EmailRecord[] } | { failure: VariantFailure }> {
   const label = attemptLabel ? ` (${attemptLabel})` : ''
 
@@ -1744,7 +1861,25 @@ async function processOneVariant({
     }
   }
 
-  const violations = validateEmails(countedEmails, senderFirstName, senderCompanyName)
+  // The ONE place the structured held list becomes the flat list the scorer wants. Derived
+  // rather than passed separately, so the prompt and the gate cannot come to disagree about
+  // which paragraphs were held.
+  const violations = validateEmails(
+    countedEmails, senderFirstName, senderCompanyName,
+    heldParagraphs.map(h => h.text),
+  )
+
+  // DIAGNOSTIC CAPTURE, OFF UNLESS AN ENV VAR NAMES A DIRECTORY. Never set in production.
+  //
+  // Every attempt is written, passed or failed, because the useful question after a run
+  // that produced nothing is "what did it actually write", and the answer has been lost
+  // three times now. saveFailedGeneration deliberately logs violations WITHOUT bodies,
+  // since client copy does not belong in a log line, and that judgement is kept: this
+  // writes to a local file the operator asked for by name, not to the log stream.
+  //
+  // It also makes a threshold decision answerable without spending money: attempts can be
+  // re-validated offline under a different rule rather than regenerated.
+  dumpAttempt(variantKey, attemptLabel, countedEmails, violations)
   if (violations.length > 0) {
     const failure: VariantFailure = { variant: variantKey, violations }
     logger.warn(`Messaging agent: Variant ${variantKey}${label} failed validation`, {
@@ -1810,6 +1945,7 @@ async function processAllVariants(
   senderCompanyName: string,
   organisation_id: string,
   registry: SentenceRegistry,
+  heldParagraphs: readonly HeldParagraph[] = [],
 ): Promise<{ passedVariants: Record<string, EmailRecord[]>; variantFailures: VariantFailure[] }> {
   const passedVariants: Record<string, EmailRecord[]> = {}
   const variantFailures: VariantFailure[] = []
@@ -1818,7 +1954,7 @@ async function processAllVariants(
   // Sorted so "first writer wins" is stable rather than dependent on object key order.
   for (const variantKey of Object.keys(rawVariants).sort()) {
     const emails = rawVariants[variantKey]
-    const result = await processOneVariant({ variantKey, emails, senderFirstName, senderCompanyName, organisation_id })
+    const result = await processOneVariant({ variantKey, emails, senderFirstName, senderCompanyName, organisation_id, heldParagraphs })
     if (!('passed' in result)) {
       variantFailures.push(result.failure)
       continue
@@ -2059,7 +2195,41 @@ const WORD_BANDS: Record<number, { min: number; max: number }> = {
 // force short sentences where Email 1 at 90 and Email 2 at 85 do not. Every document from
 // April onward fails at least one email, so this is a standing defect and not a
 // regression in the current copy.
-const MAX_EMAIL_SENTENCE_WORDS = MAX_SENTENCE_WORDS
+/**
+ * THE SENTENCE CAP, PER POSITION. 15 in Email 1, 25 in emails 2 to 4.
+ *
+ * This number has moved four times and the history is worth keeping, because each move was
+ * caused by the previous one rather than by a new opinion:
+ *
+ *   25 everywhere   Email 1 arrived at 4 long sentences every time, grade 8.7 to 10.4
+ *   12 for Email 1  grade fixed, but 12 was too tight for the ONE-SENTENCE observation
+ *                   slot, so attempts failed the slot rule instead
+ *   15 for Email 1  both hold. Email 1s landed at 4.61 to 5.96
+ *   15 everywhere   fixed nothing that was broken and broke something that was not
+ *   15 / 25         here
+ *
+ * WHY EMAILS 2 TO 4 GO BACK TO 25. Applying 15 to them was an extrapolation from Email 1,
+ * not a measurement, and it was wrong. Together with a grade ceiling of 5 it produced
+ * emails at grade 1.70 to 2.99: ten clipped sentences in a row, worse copy than the v6 it
+ * replaced. v6's approved emails 2 to 4 carry sentences up to 24 words and read well.
+ *
+ * The cost is not only the email. The follow-up writer takes its tone from these templates,
+ * so a choppy template produces choppy generated follow-ups for every prospect.
+ *
+ * WHY EMAIL 1 KEEPS 15. It is the one a stranger reads cold with no prior message, its
+ * observation slot is replaced per prospect, and 15 is what made its grade reachable.
+ */
+export const EMAIL1_MAX_SENTENCE_WORDS = 15
+export const FOLLOWUP_MAX_SENTENCE_WORDS = MAX_SENTENCE_WORDS
+
+/**
+ * The cap for one position. A function rather than a lookup table, for the reason the
+ * monitor sweep's parallel arrays taught this codebase: a table is a second list that has
+ * to be kept in step with the four positions by hand.
+ */
+export function sentenceWordCapFor(sequencePosition: number): number {
+  return sequencePosition === 1 ? EMAIL1_MAX_SENTENCE_WORDS : FOLLOWUP_MAX_SENTENCE_WORDS
+}
 
 // The prose surface a sentence cap applies to. Three lines are removed first, and none of
 // them is prose:
@@ -2086,6 +2256,47 @@ export function emailProse(body: string, senderFirstName: string, senderCompanyN
     .join('\n')
 }
 
+// ─── The authored surface, which is what the reading grade is taken on ────────
+//
+// A regeneration may HOLD a paragraph: supply it to the agent verbatim and ask it not to
+// change it. The Email 2 and Email 3 CTAs were held on 2026-09-22 because they already
+// scored grade -1.06 to 2.48, the cleanest prose in the document, and rewriting them
+// risked the only lines that were already right.
+//
+// A held paragraph must never decide an email's verdict, in EITHER direction, so it is
+// removed before the grade is taken.
+//
+// THE DIRECTION THAT SURPRISED US, MEASURED ON ALL 16 LIVE EMAILS. The held CTAs were not
+// a risk of unfair FAILURE, they were a subsidy: dropping them RAISES the measured grade
+// by +0.80 to +2.02, because a grade -1.06 question averaged in with the body was pulling
+// the whole email under the line. Scoring the full prose would have let the agent bank a
+// grade point it did not write. So this is the stricter surface as well as the honest one.
+//
+// It also makes one failure mode impossible by construction rather than by a check: since
+// a held paragraph is excluded, EDITING a held CTA can never improve an email's grade. The
+// edited text no longer matches the held string, so it is scored like anything else the
+// agent wrote. There is no route by which spending budget on a held paragraph pays.
+//
+// Matching is on trimmed text with internal whitespace collapsed. Anything else the agent
+// returns is treated as authored, which is the correct default: if it changed it, it owns it.
+function normaliseParagraph(text: string): string {
+  return text.trim().replace(/\s+/g, ' ')
+}
+
+export function authoredProse(
+  body: string,
+  senderFirstName: string,
+  senderCompanyName: string,
+  heldParagraphs: readonly string[] = [],
+): string {
+  const held = new Set(heldParagraphs.map(normaliseParagraph))
+  return emailProse(body, senderFirstName, senderCompanyName)
+    .split(/\n{2,}/)
+    .map(p => p.trim())
+    .filter(p => p.length > 0 && !held.has(normaliseParagraph(p)))
+    .join('\n\n')
+}
+
 // Replaces the model's self-reported word_count and subject_char_count with computed
 // values, before validation and before storage.
 //
@@ -2107,6 +2318,12 @@ export function validateEmails(
   emails: EmailRecord[],
   senderFirstName: string,
   senderCompanyName: string,
+  /**
+   * Paragraphs supplied to the agent verbatim rather than authored by it. Excluded from
+   * the reading grade so a held paragraph can never decide the verdict. Defaults to none,
+   * which is the ordinary generation case where the agent writes every paragraph.
+   */
+  heldParagraphs: readonly string[] = [],
 ): ValidationViolation[] {
   const violations: ValidationViolation[] = []
 
@@ -2274,15 +2491,86 @@ export function validateEmails(
       })
     }
 
-    // Sentence length, measured by the research module. See MAX_EMAIL_SENTENCE_WORDS.
+    // Sentence length, measured by the research module. See sentenceWordCapFor.
+    const sentenceCap = sentenceWordCapFor(pos)
     const readability = readabilityScore(
       emailProse(body, senderFirstName, senderCompanyName),
-      MAX_EMAIL_SENTENCE_WORDS,
+      sentenceCap,
     )
     for (const sentence of readability.longSentences) {
       violations.push({
         email: pos,
-        issue: `sentence runs ${countWords(sentence)} words, cap is ${MAX_EMAIL_SENTENCE_WORDS}. A sentence a thirteen-year-old follows on first read. Two short sentences beat one long one, so split it rather than trimming words. Offending sentence: "${sentence}"`,
+        issue: `sentence runs ${countWords(sentence)} words, cap is ${sentenceCap}${pos === 1 ? ' in Email 1, which is stricter than the ' + FOLLOWUP_MAX_SENTENCE_WORDS + ' that emails 2 to 4 carry' : ''}. A sentence a thirteen-year-old follows on first read. Two short sentences beat one long one, so split it rather than trimming words. Offending sentence: "${sentence}"`,
+      })
+    }
+
+    // ─── Reading grade ────────────────────────────────────────────────────────
+    //
+    // HARD FAIL above grade MAX_READING_GRADE on the authored prose. Flesch-Kincaid, so
+    // the two things that move it are sentence length and syllables per word. The sentence
+    // cap above already holds one of those, which means in practice this gate is about
+    // WORD CHOICE: "qualified", "prospecting", "consistency", "conversations".
+    //
+    // Measured on the 16 live template emails of messaging v6 before this gate existed:
+    // mean 6.37, and all four Email 1s between 8.72 and 10.44. The worst single paragraph
+    // was an observation at 13.98. The benchmark line from the campaign that replied at
+    // 7 percent scores 3.68, and it is asserted as a control in reading-grade.test.ts.
+    //
+    // Taken on authoredProse, not emailProse. See authoredProse for why, and for the
+    // measurement showing that held paragraphs were flattering the grade rather than
+    // threatening it.
+    //
+    // A null grade means there was no authored prose to score, which the word-count band
+    // above has already rejected. Nothing is reported here rather than inventing a verdict
+    // on an empty string.
+    const authored = authoredProse(body, senderFirstName, senderCompanyName, heldParagraphs)
+    const reading = fleschKincaidGrade(authored)
+    const gradeCap = readingGradeCapFor(pos)
+    if (reading !== null && reading.grade > gradeCap) {
+      // THE MESSAGE NAMES WHAT THE GRADE REQUIRES, AND NEVER A CAP.
+      //
+      // It used to quote the email's sentence-length cap alongside "break it". For Email 1
+      // that cap was binding and the message worked. For emails 2 to 4 the cap was 25 and
+      // not binding, so the message contradicted itself:
+      //
+      //   "Your longest sentence is 19 words ... against a cap of 25 ... break it."
+      //
+      // It told the model to break a sentence and in the same breath told it the sentence
+      // was comfortably legal. Every failure in the run of 2026-09-23 was an email 2 or 3
+      // whose longest sentence ran 17 to 24 words: inside the cap, too long for the grade.
+      //
+      // So the target is DERIVED FROM THE FORMULA instead. Flesch-Kincaid is
+      // 0.39*wps + 11.8*spw - 15.59, so at the vocabulary this draft already has, the
+      // words-per-sentence that would reach the ceiling is
+      //   wps = (cap + 15.59 - 11.8*spw) / 0.39
+      // which converts directly into a number of sentences the model can count to.
+      const spw = reading.syllablesPerWord
+      const neededWps = (gradeCap + 15.59 - 11.8 * spw) / 0.39
+      const longest = [...splitSentences(authored)]
+        .sort((a, b) => countWords(b) - countWords(a))[0] ?? ''
+
+      // When the vocabulary alone puts the email over, no amount of splitting reaches the
+      // ceiling and telling it to split is a wasted attempt. 3 words a sentence is the
+      // floor below which the instruction is not writable prose.
+      const splittingCanWork = neededWps >= 3
+      const neededSentences = Math.ceil(reading.words / Math.max(neededWps, 1))
+
+      violations.push({
+        email: pos,
+        issue: splittingCanWork
+          ? `reading grade ${reading.grade.toFixed(1)} is above the maximum of ${gradeCap}. ` +
+            `Your ${reading.words} words are split across ${reading.sentences} sentences, which ` +
+            `averages ${reading.wordsPerSentence.toFixed(1)} words each. To reach ${gradeCap} at ` +
+            `the vocabulary you have used, you need to average ${neededWps.toFixed(1)} words per ` +
+            `sentence or fewer, which is AT LEAST ${neededSentences} sentences for this many words. ` +
+            `Your longest sentence is ${countWords(longest)} words: "${longest}" — break it, and ` +
+            `keep breaking until you reach ${neededSentences}. Splitting cuts nothing: the same ` +
+            `words in more sentences score lower. Plainer words lower it further, and you are at ` +
+            `${spw.toFixed(2)} syllables per word.`
+          : `reading grade ${reading.grade.toFixed(1)} is above the maximum of ${gradeCap}, and ` +
+            `SPLITTING SENTENCES WILL NOT FIX IT. At ${spw.toFixed(2)} syllables per word this ` +
+            `email is over the ceiling however it is punctuated. The words themselves are too ` +
+            `long. Replace the industry words with everyday ones and rewrite it shorter.`,
       })
     }
 
@@ -2334,7 +2622,7 @@ export function validateEmails(
       }
     }
 
-    // REPORT ONLY, both of them. Neither gates. See MAX_EMAIL_SENTENCE_WORDS for why
+    // REPORT ONLY, both of them. Neither gates. See sentenceWordCapFor for why
     // hedging is not enforced in the same change as the cap.
     if (readability.hedges.length > 0) {
       logger.debug('Messaging agent: hedging phrases (reported, not gated)', {
@@ -2615,6 +2903,7 @@ export async function attemptSlotRepair(
     const result = await processOneVariant({
       variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
       attemptLabel: plan.label,
+      heldParagraphs: context.heldParagraphs,
     })
 
     // Carry THIS attempt's measured violations into the next one. Without this every
@@ -2759,7 +3048,7 @@ function resolveShippedAngle(key: string, recorded: Map<string, string>): string
 // Writes a single row to document_suggestions.
 // suggested_value stores: { variants: { A: { emails: [...] }, B: {...}, ... } }
 // Matches the full_document pattern used by all document generation agents.
-async function writeDocumentSuggestion(
+export async function writeDocumentSuggestion(
   supabase: SupabaseClient,
   params: {
     organisation_id: string

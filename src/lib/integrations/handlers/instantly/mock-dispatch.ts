@@ -127,12 +127,44 @@ export function mockEmailsList(): Response {
   return mockResponse({ items: [], pagination: {} })
 }
 
-// GET /emails/:id — outbound email body fetch
+// GET /emails/:id — a single email.
+//
+// `body` IS AN OBJECT AND THERE IS NO `body_text`. This mock used to return
+// `body_text: 'Mock outbound email body.'`, a field the real endpoint does not have, and the
+// body extractor that read it therefore passed every test while returning null against every
+// real email. Confirmed against the live endpoint 2026-09-21: the keys are id,
+// timestamp_created, timestamp_email, message_id, subject, to_address_email_list,
+// body:{html}, organization_id, eaccount, campaign_id, lead, lead_id, ue_type, step,
+// thread_id. A mock that returns a shape the provider never returns is worse than no mock:
+// it makes the suite an argument FOR the bug.
 export function mockEmailGet(emailId: string): Response {
   return mockResponse({
     id: emailId,
-    body_text: 'Mock outbound email body.',
     subject: 'Mock subject',
     eaccount: 'mock@example.com',
+    ue_type: 1,
+    body: { html: '<div><p>Mock outbound email body.</p></div>' },
+  })
+}
+
+// GET /emails?lead=…&email_type=sent — the sent emails for one lead.
+//
+// Returns one sent email already in the requested thread, which is the shape the outbound
+// body capture expects. Callers that want the thread-mismatch path should exercise
+// selectOutboundEmailForReply directly rather than reach for a second mock.
+export function mockSentEmailsForLead(lead: string, threadId: string): Response {
+  return mockResponse({
+    items: [
+      {
+        id: 'mock-outbound-0001',
+        lead,
+        thread_id: threadId,
+        ue_type: 1,
+        timestamp_email: '2026-01-01T00:00:00.000Z',
+        subject: 'Mock subject',
+        body: { html: '<div><p>Mock outbound email body.</p></div>' },
+      },
+    ],
+    pagination: {},
   })
 }
