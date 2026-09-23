@@ -589,6 +589,13 @@ function parseInferenceDirection(o: Record<string, unknown>): {
   return { opposite_reading, inference_direction: claimed ?? 'ambiguous_unhandled' }
 }
 
+/** A 1-based list position, from a number or a string of digits. Null for anything else. */
+function parsePosition(v: unknown): number | null {
+  if (typeof v !== 'number' && typeof v !== 'string') return null
+  const n = Number(v)
+  return Number.isInteger(n) && n >= 1 ? n : null
+}
+
 function parseCandidate(raw: unknown, index: number): ObservationCandidate | null {
   if (typeof raw !== 'object' || raw === null) return null
   const o = raw as Record<string, unknown>
@@ -651,11 +658,13 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
     is_composite: asBool(o.is_composite) || source === 'composite',
     // POSITION, never the trigger's text. See ObservationCandidate.matched_trigger: the list
     // is per client and per ICP version, so the text would be meaningless once it changes.
-    // Out-of-range or non-integer reads as "matched none" rather than being clamped: a
-    // position we cannot place is not a match we can rank on.
-    matched_trigger: Number.isInteger(o.matched_trigger) && (o.matched_trigger as number) >= 1
-      ? (o.matched_trigger as number)
-      : null,
+    //
+    // A STRING OF DIGITS IS ACCEPTED, a fraction and a zero are not. Rejecting "3" would have
+    // dropped a genuine trigger match over JSON formatting, and a candidate that quietly
+    // stops matching ranks below every one that does, which is a silent downgrade for a
+    // quirk. Anything that is not a whole position in a 1-based list reads as "matched
+    // none", because a position we cannot place is not a match we can rank on.
+    matched_trigger: parsePosition(o.matched_trigger),
     is_reshare: asBool(o.is_reshare),
     scores,
     passes_all,

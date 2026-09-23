@@ -163,12 +163,28 @@ describe('the sentence about the choice', () => {
     expect(out.selection_basis?.chosen_basis.trigger_position).toBe(6)
   })
 
-  it('a garbage matched_trigger reads as matching nothing, never as position 0 or NaN', () => {
+  // EVERY SHAPE, because the first version of this test used only 'first', and a mutation
+  // replacing the parse with Number(v) || null passed it: Number('first') is NaN and NaN ||
+  // null is null, so the mutation and the guard agreed on the one input being tested. A
+  // fraction and a zero are what actually separate them.
+  it.each([
+    ['a word',          'first', null],
+    ['a fraction',      2.5,     null],
+    ['zero',            0,       null],
+    ['a negative',      -1,      null],
+    ['null',            null,    null],
+    ['a whole number',  3,       3],
+    ['a string of digits', '3',  3],
+  ])('matched_trigger from %s reads as %s', (_label, given, expected) => {
+    const out = run(respond([candidate({ id: 'c1', matched_trigger: given, date: daysAgo(9) })]))
+    expect(out.candidates.find(c => c.id === 'c1')?.matched_trigger).toBe(expected)
+  })
+
+  it('a candidate whose position could not be read ranks below one whose could', () => {
     const out = run(respond([
-      candidate({ id: 'c1', matched_trigger: 'first', date: daysAgo(9) }),
-      candidate({ id: 'c2', matched_trigger: 2,       date: daysAgo(200) }),
+      candidate({ id: 'c1', matched_trigger: 2.5, date: daysAgo(9) }),
+      candidate({ id: 'c2', matched_trigger: 2,   date: daysAgo(200) }),
     ]))
-    expect(out.candidates.find(c => c.id === 'c1')?.matched_trigger).toBeNull()
     expect(out.selected_candidate_id).toBe('c2')
   })
 })
