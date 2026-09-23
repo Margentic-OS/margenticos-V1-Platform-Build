@@ -173,7 +173,7 @@ describe('the scanned surface excludes the merge tag and the sign-off', () => {
 // readabilityScore call now reads sentenceWordCapFor(pos) instead of one constant.
 describe('Email 1 carries a stricter cap than emails 2 to 4', () => {
   it('the cap under test is the constant, not a local number', () => {
-    expect(EMAIL1_MAX_SENTENCE_WORDS).toBe(12)
+    expect(EMAIL1_MAX_SENTENCE_WORDS).toBe(15)
     expect(MAX_SENTENCE_WORDS).toBe(25)
   })
 
@@ -195,9 +195,11 @@ describe('Email 1 carries a stricter cap than emails 2 to 4', () => {
     expect(capIssues(EMAIL1_MAX_SENTENCE_WORDS, 1)).toEqual([])
   })
 
-  it('says the cap is 12 and says why it is stricter, so a retry is a correction', () => {
+  it('names the cap and says why it is stricter, so a retry is a correction', () => {
+    // Reads the constant. A literal here is a second copy of a number that lives in one
+    // place, and it went stale the first time the cap moved.
     const issue = capIssues(20, 1)[0]
-    expect(issue).toContain('sentence runs 20 words, cap is 12')
+    expect(issue).toContain(`sentence runs 20 words, cap is ${EMAIL1_MAX_SENTENCE_WORDS}`)
     expect(issue).toContain('stricter than the 25 that emails 2 to 4 carry')
   })
 })

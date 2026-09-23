@@ -1467,7 +1467,7 @@ function renderWordCountReminder(): string {
     // THE ONE-SENTENCE RULE IS THE SLOT ONLY, and this line says so because the slot rule
     // above states its half loudly. The "up to two sentences" version of this line was
     // PERMISSION, and permission did not move the model: on run 3, 6 of 7 Email 1 attempts
-    // declined it and came back at four sentences. The 12-word cap replaces it, because a
+    // declined it and came back at four sentences. The per-sentence cap replaces it, because a
     // cap is arithmetic rather than an invitation.
     `- The ONE-SENTENCE rule is the SLOT ONLY, paragraphs 2 and 3. Email 1's offer line and its CTA have NO sentence limit of their own: write what the job needs, subject only to the ${EMAIL1_MAX_SENTENCE_WORDS}-word cap on every sentence and the email's word band.`,
   ].join('\n')
@@ -2216,16 +2216,26 @@ const MAX_EMAIL_SENTENCE_WORDS = MAX_SENTENCE_WORDS
  * instruction was wrong. A CAP is not permission, it is arithmetic the model has to satisfy,
  * and it converts "you may split" into "you must".
  *
- * 12 is set from the measured failures rather than chosen. Email 1's band is 40 to 90 words
- * and the observed attempts run 48 to 71. At 12 words a sentence, a 60-word Email 1 cannot
- * be fewer than 5 sentences, which puts words-per-sentence at 12 or below and the grade-5
- * requirement at 1.44 syllables per word or looser. Attempts have reached 1.31 and 1.32,
- * so that target is inside what the model has already demonstrated.
+ * RAISED FROM 12 TO 15 ON 2026-09-23, and the reason is not that 12 failed on grade. It
+ * worked: Email 1 retries at five or more sentences went from 1 of 7 to 5 of 5, and the best
+ * Email 1 grade went 5.80 to 3.60. What 12 did was push the model into a DIFFERENT gate.
+ *
+ * The observation slot is ONE SENTENCE per paragraph, because each paragraph is replaced per
+ * prospect and carries one job. At 12 words the model could not fit an observation into one
+ * sentence, so it wrote two short ones and was rejected by the slot rule instead:
+ *
+ *   "Close rate is solid."  "The work speaks for itself."        4 and 5 words
+ *   "Delivery fills the week."  "Outreach sits on the list."     4 and 5 words
+ *
+ * Every one of those is far inside the cap. Three of four retries failed this way. 15 gives
+ * the slot room for a complete observation in one sentence while still forcing the split that
+ * makes the grade reachable: at 15 words a sentence, a 60-word Email 1 cannot be fewer than
+ * 4 sentences and in practice lands at 5 or 6, which is where the passing attempts sat.
  *
  * Emails 2 to 4 keep 25. They are not where the grade fails, their word bands already force
- * shorter sentences, and halving a cap that is not failing would reject good copy for nothing.
+ * shorter sentences, and tightening a cap that is not failing would reject good copy.
  */
-export const EMAIL1_MAX_SENTENCE_WORDS = 12
+export const EMAIL1_MAX_SENTENCE_WORDS = 15
 
 /**
  * The cap for one position. A FUNCTION rather than a lookup table, because a table is a

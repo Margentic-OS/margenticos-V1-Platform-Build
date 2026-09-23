@@ -850,7 +850,7 @@ that ships when it does not. Every other paragraph must survive that replacement
   P1  {{first_name}} on its own line. Nothing else.
 
   P2 and P3  THE OBSERVATION SLOT. TWO PARAGRAPHS, with a blank line between them.
-      ONE SENTENCE EACH, and each within EMAIL 1'S 12-WORD SENTENCE CAP. All of this is
+      ONE SENTENCE EACH, and each within EMAIL 1'S 15-WORD SENTENCE CAP. All of this is
       enforced in code and breaking any of it rejects the variant.
 
       P2  THE OBSERVATION. Name one thing about the prospect's situation, drawn from the
@@ -886,7 +886,7 @@ that ships when it does not. Every other paragraph must survive that replacement
       Signal that the sender does something about the problem the slot just named.
       Name a RESULT, in the prospect's own words.
       Do NOT name the service. Do NOT explain the mechanism. Do NOT list features.
-      Write as many sentences as the job needs, each one within Email 1's 12-word
+      Write as many sentences as the job needs, each one within Email 1's 15-word
       sentence cap. This paragraph MAY begin with We.
       Register to match:
         "We get more conversations into your diary."
@@ -896,7 +896,7 @@ that ships when it does not. Every other paragraph must survive that replacement
       repeated across a send list is a spam fingerprint.
 
   P5  THE CTA.
-      Exactly ONE question mark, and every sentence within Email 1's 12-word cap.
+      Exactly ONE question mark, and every sentence within Email 1's 15-word cap.
       One low-commitment yes/no question about whether the problem is active.
       Never offer to send anything.
       The question may stand alone, or a short statement may lead into it:
@@ -907,12 +907,12 @@ that ships when it does not. Every other paragraph must survive that replacement
   P6  THE SIGN-OFF. The two-line block: the sender's first name, then the sender's
       company name directly beneath it. Nothing after it. See Framework 2.
 
-EMAIL 1'S SENTENCE CAP IS 12 WORDS, HALF WHAT EMAILS 2 TO 4 CARRY. Every sentence in
-Email 1, in every paragraph, must be 12 words or fewer. Emails 2, 3 and 4 keep the 25-word
+EMAIL 1'S SENTENCE CAP IS 15 WORDS, WELL UNDER THE 25 EMAILS 2 TO 4 CARRY. Every sentence in
+Email 1, in every paragraph, must be 15 words or fewer. Emails 2, 3 and 4 keep the 25-word
 cap. This is enforced in code and one long sentence rejects the variant.
 
 The ONE-SENTENCE rule is still the SLOT ONLY, P2 and P3. The offer line and the CTA have no
-sentence limit of their own; they are bounded by the 12-word cap and the email's word band.
+sentence limit of their own; they are bounded by the 15-word cap and the email's word band.
 
 WHAT THE CAP MEANS IN PRACTICE. An Email 1 of 60 words cannot be fewer than FIVE sentences,
 and that is the purpose of the cap rather than a side effect of it. Reading grade rises with
