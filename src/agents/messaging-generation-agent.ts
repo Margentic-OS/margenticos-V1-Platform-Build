@@ -1764,6 +1764,32 @@ interface ProcessVariantParams {
   heldParagraphs?: readonly HeldParagraph[]
 }
 
+/**
+ * Writes one attempt to MESSAGING_ATTEMPT_DUMP_DIR when that variable is set, and does
+ * nothing otherwise. Synchronous and swallowing: a diagnostic that can fail a generation
+ * run is worse than no diagnostic.
+ */
+function dumpAttempt(
+  variantKey: string,
+  attemptLabel: string | undefined,
+  emails: EmailRecord[],
+  violations: ValidationViolation[],
+): void {
+  const dir = process.env.MESSAGING_ATTEMPT_DUMP_DIR
+  if (!dir) return
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    fs.mkdirSync(dir, { recursive: true })
+    const name = `${variantKey}${attemptLabel ? `-${attemptLabel}` : '-first'}.json`
+    fs.writeFileSync(
+      `${dir}/${name}`,
+      JSON.stringify({ variant: variantKey, attempt: attemptLabel ?? 'first', emails, violations }, null, 2),
+    )
+  } catch {
+    // Deliberately silent. See the note above.
+  }
+}
+
 async function processOneVariant({
   variantKey,
   emails,
@@ -1841,6 +1867,18 @@ async function processOneVariant({
     countedEmails, senderFirstName, senderCompanyName,
     heldParagraphs.map(h => h.text),
   )
+
+  // DIAGNOSTIC CAPTURE, OFF UNLESS AN ENV VAR NAMES A DIRECTORY. Never set in production.
+  //
+  // Every attempt is written, passed or failed, because the useful question after a run
+  // that produced nothing is "what did it actually write", and the answer has been lost
+  // three times now. saveFailedGeneration deliberately logs violations WITHOUT bodies,
+  // since client copy does not belong in a log line, and that judgement is kept: this
+  // writes to a local file the operator asked for by name, not to the log stream.
+  //
+  // It also makes a threshold decision answerable without spending money: attempts can be
+  // re-validated offline under a different rule rather than regenerated.
+  dumpAttempt(variantKey, attemptLabel, countedEmails, violations)
   if (violations.length > 0) {
     const failure: VariantFailure = { variant: variantKey, violations }
     logger.warn(`Messaging agent: Variant ${variantKey}${label} failed validation`, {
