@@ -36,6 +36,7 @@
 
 import { logger } from '@/lib/logger'
 import { raiseForStatus, throwIfFatalSource } from './source-http'
+import { SOURCE_RAN_FOUND_NOTHING } from '../source-skip'
 import type { ProspectContext, LinkedInSourceResult } from '../types'
 
 const APIFY_POSTS_ACTOR   = 'harvestapi~linkedin-profile-posts'
@@ -209,13 +210,16 @@ export async function fetchLinkedInSource(prospect: ProspectContext): Promise<Li
         profile_data: null,
         recent_posts: null,
         formatted: null,
-        error: 'Apify posts actor returned no posts',
+        // CARRIES THE MARKER, because this is not a failure: the actor ran and the
+        // person has not posted inside the window. The window is named so the reason is
+        // legible without reading this file.
+        error: `Apify posts actor ${SOURCE_RAN_FOUND_NOTHING}: no posts in the last ${POSTED_WITHIN_DAYS} days`,
       }
     }
 
     const formatted = formatPostsData(postsData) || null
     if (!formatted) {
-      return { available: false, profile_data: null, recent_posts: postsData, formatted: null, error: 'Apify returned empty data' }
+      return { available: false, profile_data: null, recent_posts: postsData, formatted: null, error: `Apify ${SOURCE_RAN_FOUND_NOTHING}: posts returned with no readable text` }
     }
 
     logger.debug('research/linkedin: Apify succeeded', {

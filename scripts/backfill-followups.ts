@@ -100,7 +100,24 @@ function env(name: string): string {
  *   not suppressed                     never mail a suppressed prospect.
  *   followup_email2 is null            not already done, so a re-run is cheap and idempotent.
  */
-async function loadCohort(supabase: SupabaseClient, orgId: string, limit: number | null) {
+/**
+ * `ids` NARROWS THE COHORT TO A NAMED SET, and it exists because --limit cannot.
+ *
+ * ADDED 2026-09-23. --limit takes the first N by id order, which is an arbitrary slice,
+ * so there was no way to run this for a SPECIFIC group of prospects. A session that had
+ * just re-run Email 1 for 13 prospects had two options: write follow-ups for all 57 in
+ * the organisation, or none.
+ *
+ * That is the sequencing hazard this file's own header describes, in the one direction it
+ * did not guard: a follow-up composed against an Email 1 that a DIFFERENT run has since
+ * replaced opens with a callback to something the prospect never read. Nothing errors and
+ * the word counts are fine. Naming the prospects is how a caller says "these, whose
+ * Email 1 I just wrote and am holding".
+ *
+ * The other filters still apply on top, so an id that is suppressed, already uploaded or
+ * already has follow-ups is still excluded. This narrows the cohort; it never widens it.
+ */
+async function loadCohort(supabase: SupabaseClient, orgId: string, limit: number | null, ids: string[] | null) {
   let q = supabase
     .from('prospects')
     .select('id, organisation_id, segment_id, variant_id, first_name, last_name, company_name, country, role, job_title, email, linkedin_url, website_url, personalisation_trigger, personalisation_question, personalisation_subject, company_headcount, company_industry, apollo_enrichment_data, current_research_result_id')
@@ -111,6 +128,7 @@ async function loadCohort(supabase: SupabaseClient, orgId: string, limit: number
     .is('followup_email2', null)
     .or('suppressed.is.null,suppressed.eq.false')
     .order('id')
+  if (ids && ids.length > 0) q = q.in('id', ids)
   if (limit) q = q.limit(limit)
   const { data, error } = await q
   if (error) throw new Error(`could not load the cohort: ${error.message}`)
@@ -122,12 +140,17 @@ async function main() {
   const commit = argv.includes('--commit')
   const limitArg = argv.find(a => a.startsWith('--limit='))?.split('=')[1]
   const limit = limitArg ? Number(limitArg) : null
+  const idsArg = argv.find(a => a.startsWith('--ids='))?.split('=')[1]
+  const ids = idsArg ? idsArg.split(',').map(x => x.trim()).filter(Boolean) : null
   const orgId = argv.find(a => a.startsWith('--org='))?.split('=')[1] ?? env('BACKFILL_ORG_ID')
 
   const supabase = createClient(env('NEXT_PUBLIC_SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'))
   const apiKey = env('ANTHROPIC_API_KEY')
 
-  const cohort = await loadCohort(supabase, orgId, limit)
+  const cohort = await loadCohort(supabase, orgId, limit, ids)
+  console.log(ids
+    ? `  Scope        : ${ids.length} named id(s); ${cohort.length} of them meet the cohort filters`
+    : `  Scope        : EVERY eligible prospect in the organisation (${cohort.length})`)
   console.log(`backfill-followups: ${cohort.length} prospects.`)
   console.log(commit
     ? 'COMMIT MODE: the three follow-up columns WILL be written.'

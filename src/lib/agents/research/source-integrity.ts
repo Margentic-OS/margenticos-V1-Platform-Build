@@ -19,7 +19,7 @@
 // check needs only the source results, so it runs the moment they land.
 // ═════════════════════════════════════════════════════════════════════════════
 
-import { SOURCE_SKIPPED_REUSE } from './source-skip'
+import { SOURCE_SKIPPED_REUSE, SOURCE_RAN_FOUND_NOTHING } from './source-skip'
 import type { RawSourceData } from './types'
 
 /**
@@ -39,6 +39,26 @@ export const SKIP_MARKERS: ReadonlyArray<string> = [
 export function isDeliberateSkip(error: string | null | undefined): boolean {
   if (!error) return false
   return SKIP_MARKERS.some(m => error.includes(m))
+}
+
+/**
+ * Errors that mean THE SOURCE RAN AND FOUND NOTHING, rather than could not be reached.
+ *
+ * ADDED 2026-09-23 MID-RUN, after the classifier held 4 of the first 8 prospects on
+ * `Apify posts actor returned no posts`, which is Apify succeeding. The legacy literals
+ * are matched alongside the marker because stored rows written before this change carry
+ * the old wording, and a reader of history must classify them the same way.
+ */
+const FOUND_NOTHING_MARKERS: ReadonlyArray<string> = [
+  SOURCE_RAN_FOUND_NOTHING,
+  'returned no posts',      // legacy wording, rows written before 2026-09-23
+  'returned empty data',    // legacy wording
+]
+
+/** True when the source answered and the answer was "nothing here". */
+export function isFoundNothing(error: string | null | undefined): boolean {
+  if (!error) return false
+  return FOUND_NOTHING_MARKERS.some(m => error.includes(m))
 }
 
 /**
@@ -90,6 +110,12 @@ export interface SourceIntegrity {
   recorded: Array<{ source: string; error: string }>
   /** Sources deliberately not called. Never a reason to hold. */
   skipped: string[]
+  /**
+   * Sources that RAN AND FOUND NOTHING. Never a reason to hold either, and kept apart
+   * from `skipped` because they are a different fact and cost different money: a skip
+   * made no call, an empty result was paid for.
+   */
+  empty: string[]
   /** Sources that came back. */
   successful: string[]
 }
@@ -106,16 +132,22 @@ export function assessSourceIntegrity(rawData: RawSourceData): SourceIntegrity {
   const skipped: string[] = []
   const successful: string[] = []
 
+  const empty: string[] = []
+
   for (const [source, result] of Object.entries(rawData) as [string, { available: boolean; error?: string }][]) {
     if (result.available) { successful.push(source); continue }
     if (isDeliberateSkip(result.error)) { skipped.push(source); continue }
+    // THE THIRD ANSWER. This file's header has always said "we looked and found nothing"
+    // and "we could not look" are different answers; until 2026-09-23 there was nowhere
+    // to put the first one and it was counted as the second.
+    if (isFoundNothing(result.error)) { empty.push(source); continue }
     failed.push({ source, error: result.error ?? '(no error recorded)' })
   }
 
   const holding  = failed.filter(f => HOLDING_SOURCES.includes(f.source))
   const recorded = failed.filter(f => !HOLDING_SOURCES.includes(f.source))
 
-  return { complete: holding.length === 0, failed, holding, recorded, skipped, successful }
+  return { complete: holding.length === 0, failed, holding, recorded, skipped, empty, successful }
 }
 
 /**

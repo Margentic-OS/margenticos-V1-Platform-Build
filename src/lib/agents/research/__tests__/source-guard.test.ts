@@ -12,7 +12,7 @@ import {
   SourceHttpError, raiseForStatus, throwIfFatalSource, isFatalSourceStatus,
   FATAL_SOURCE_STATUSES, readErrorBody, ERROR_BODY_CHARS,
 } from '../sources/source-http'
-import { assessSourceIntegrity, ResearchIncompleteError, isDeliberateSkip, HOLDING_SOURCES } from '../source-integrity'
+import { assessSourceIntegrity, ResearchIncompleteError, isDeliberateSkip, isFoundNothing, HOLDING_SOURCES } from '../source-integrity'
 import { SOURCE_SKIPPED_REUSE } from '../source-skip'
 import type { RawSourceData } from '../types'
 
@@ -295,5 +295,141 @@ describe('the Apollo guard is reachable for every fatal status, not just 402', (
     const result = await fetchApolloSource({ id: 'p1', first_name: 'A', last_name: 'B', company_name: 'C' } as never)
     expect(result.available).toBe(false)
     expect(String(result.error)).toContain('429')
+  })
+})
+
+describe('a source that RAN AND FOUND NOTHING does not hold the prospect', () => {
+  // FOUND IN PRODUCTION, 2026-09-23, mid-run. The classifier held 4 of the first 8
+  // prospects on "Apify posts actor returned no posts". Apify ran and was paid; the
+  // person had not posted inside the window. Holding them means anyone who does not post
+  // on LinkedIn can never be researched.
+  //
+  // AND THE SAME DAY'S OTHER CHANGE MADE IT COMMON. Until postedLimitDate was added that
+  // morning the actor returned up to 50 posts of any age, so an empty result was rare.
+  // With a 90-day filter every prospect who has not posted recently returns zero. Two
+  // changes, each correct alone, wrong together.
+  it('recognises the marker and the legacy wordings', () => {
+    expect(isFoundNothing('Apify posts actor ran and found nothing: no posts in the last 90 days')).toBe(true)
+    // Rows written before the marker existed carry the old text and must classify the same.
+    expect(isFoundNothing('Apify posts actor returned no posts')).toBe(true)
+    expect(isFoundNothing('Apify returned empty data')).toBe(true)
+  })
+
+  it('does NOT swallow a real failure', () => {
+    expect(isFoundNothing('Apify actor returned HTTP 402: payment required')).toBe(false)
+    expect(isFoundNothing('SourceHttpError: Apify actor returned HTTP 500')).toBe(false)
+    expect(isFoundNothing(null)).toBe(false)
+    expect(isFoundNothing('')).toBe(false)
+  })
+
+  it('an empty LinkedIn leaves the prospect researchable', () => {
+    const integrity = assessSourceIntegrity(raw({
+      linkedin: { available: false, error: 'Apify posts actor ran and found nothing: no posts in the last 90 days' },
+    }))
+    expect(integrity.complete).toBe(true)
+    expect(integrity.empty).toEqual(['linkedin'])
+    expect(integrity.holding).toEqual([])
+    expect(integrity.failed).toEqual([])
+  })
+
+  it('kept apart from skipped, because a skip made no call and an empty result was paid for', () => {
+    const integrity = assessSourceIntegrity(raw({
+      linkedin: { available: false, error: 'Apify posts actor ran and found nothing: no posts in the last 90 days' },
+      apollo:   { available: false, error: 'APOLLO_API_KEY not set' },
+    }))
+    expect(integrity.empty).toEqual(['linkedin'])
+    expect(integrity.skipped).toEqual(['apollo'])
+    expect(integrity.complete).toBe(true)
+  })
+
+  it('a LinkedIn that genuinely FAILED still holds, so this did not disable the guard', () => {
+    // The control. If this ever goes green alongside the tests above, the fix has gone
+    // too far and the 2026-09-21 incident can happen again.
+    const integrity = assessSourceIntegrity(raw({
+      linkedin: { available: false, error: 'Apify actor returned HTTP 402: Monthly usage hard limit exceeded' },
+    }))
+    expect(integrity.complete).toBe(false)
+    expect(integrity.holding.map(f => f.source)).toEqual(['linkedin'])
+    expect(integrity.empty).toEqual([])
+  })
+})
+
+describe('POSITIVE CONTROL: zero posts is researched on the other sources, not held', () => {
+  const realFetch = globalThis.fetch
+  beforeEach(() => { process.env.APIFY_API_KEY = 'test-token' })
+  afterEach(() => { globalThis.fetch = realFetch; vi.restoreAllMocks() })
+
+  // THE CONTROL THE 2026-09-23 RUN NEEDED AND DID NOT HAVE. Four of the first eight
+  // prospects were held on "Apify posts actor returned no posts" — Apify succeeding.
+  // This drives the REAL handler with a real empty actor response and carries its output
+  // into the real classifier, so it covers the seam between them rather than each end.
+
+  it('the handler turns an empty actor response into a found-nothing error, not a failure', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true, status: 200, text: async () => '[]', json: async () => [],
+    })) as never
+    const { fetchLinkedInSource } = await import('../sources/linkedin')
+
+    const li = await fetchLinkedInSource({ id: 'p1', linkedin_url: 'https://linkedin.com/in/x' } as never)
+
+    expect(li.available).toBe(false)          // there genuinely is no LinkedIn data
+    expect(isFoundNothing(li.error)).toBe(true)
+    // It must NOT read as an infrastructure failure.
+    expect(li.error).not.toMatch(/HTTP \d{3}/)
+  })
+
+  it('END TO END: empty LinkedIn + three live sources leaves the prospect RESEARCHABLE', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true, status: 200, text: async () => '[]', json: async () => [],
+    })) as never
+    const { fetchLinkedInSource } = await import('../sources/linkedin')
+    const li = await fetchLinkedInSource({ id: 'p1', linkedin_url: 'https://linkedin.com/in/x' } as never)
+
+    // The other three answered, which is the ordinary case for someone who simply does
+    // not post: Apollo has their employment history, the site is up, search finds them.
+    const integrity = assessSourceIntegrity(raw({ linkedin: li }))
+
+    expect(integrity.complete).toBe(true)        // NOT held
+    expect(integrity.empty).toEqual(['linkedin'])
+    expect(integrity.holding).toEqual([])
+    expect(integrity.failed).toEqual([])
+    // And the three that answered are still available to synthesis, so there is real
+    // material to write from. "Not held" would be hollow if nothing survived.
+    expect(integrity.successful.sort()).toEqual(['apollo', 'web_search', 'website'])
+  })
+
+  it('THE CONTROL ON THE CONTROL: a real 402 from the same handler still holds', async () => {
+    // If this ever goes green alongside the two above, the fix has gone too far and the
+    // 2026-09-21 incident — 50 prospects researched without LinkedIn, run reports
+    // success — can happen again.
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false, status: 402, text: async () => 'Monthly usage hard limit exceeded',
+    })) as never
+    const { fetchLinkedInSource } = await import('../sources/linkedin')
+
+    // A 402 is fatal at the source: it does not even return, it throws to abort the run.
+    await expect(
+      fetchLinkedInSource({ id: 'p1', linkedin_url: 'https://linkedin.com/in/x' } as never),
+    ).rejects.toThrow(FatalApiError)
+
+    // And were it ever downgraded to a returned error, the classifier must still hold.
+    const integrity = assessSourceIntegrity(raw({
+      linkedin: { available: false, error: 'Apify actor returned HTTP 402: Monthly usage hard limit exceeded' },
+    }))
+    expect(integrity.complete).toBe(false)
+    expect(integrity.holding.map(f => f.source)).toEqual(['linkedin'])
+    expect(integrity.empty).toEqual([])
+  })
+
+  it('a 500 is neither empty nor fatal: it holds, because we could not look', async () => {
+    // The third case, so the two above cannot be read as "everything non-402 is fine".
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false, status: 500, text: async () => 'upstream error',
+    })) as never
+    const { fetchLinkedInSource } = await import('../sources/linkedin')
+    const li = await fetchLinkedInSource({ id: 'p1', linkedin_url: 'https://linkedin.com/in/x' } as never)
+
+    expect(isFoundNothing(li.error)).toBe(false)
+    expect(assessSourceIntegrity(raw({ linkedin: li })).complete).toBe(false)
   })
 })
