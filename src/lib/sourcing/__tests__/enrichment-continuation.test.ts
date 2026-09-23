@@ -230,6 +230,55 @@ describe('the press still stops, and says so', () => {
     expect(result.stop_message).toContain('200 still waiting')
   })
 
+  // ── THIS TEST EXISTS BECAUSE MUTATION TESTING FOUND TWO WEAKER ONES ────────
+  //
+  // Deleting the `break` that stops the loop on a failing pass passed green TWICE, and both
+  // reasons are worth recording, because both are the guard being shadowed by something else
+  // rather than being tested:
+  //
+  //   a failing pass returning batch_size 0   sets nothingLeftToSelect, and the exhaustion
+  //                                           path stops the loop instead of the break
+  //   a failing pass returning FEWER than it  is a short window, and planNextWindow reads a
+  //   asked for                               short window as provider_exhausted, so again
+  //                                           something else stops it
+  //
+  // The break is load-bearing for exactly one shape: a FULL batch that still reports an error.
+  // enrichApprovedBatch can enrich everything it locked and still set error_message (its status
+  // union has 'partial' for precisely that). Nothing else in the loop notices, so without the
+  // break the request keeps calling a provider that has already said it is unhappy, spending a
+  // credit per prospect on every further attempt.
+  //
+  // The lesson, which is the reusable part: when a mutation survives, check whether a DIFFERENT
+  // guard is covering for the one being mutated before concluding the test is fine.
+  it('stops on a FULL batch that still reports an error, which only the break catches', async () => {
+    const clock = makeClock()
+    const db = makeSupabase(Array.from({ length: 300 }, waitingRow))
+    let calls = 0
+
+    const result = await enrichApprovedUntilDoneOrOutOfTime(db.client, ORG, {
+      clock: clock.now,
+      runPass: async (max) => {
+        calls++
+        clock.charge(5_000)
+        if (calls === 2) {
+          // A FULL batch: batch_size equals what was asked for, so it is neither empty nor short
+          // and neither the exhaustion flag nor the short-window rule fires. Only the error does.
+          return pass(max, { status: 'partial', error_message: 'Apollo returned 502 mid-batch' })
+        }
+        return pass(max)
+      },
+    })
+
+    // TWO CALLS. Deleting the break makes this 5: the loop runs on to the per-press ceiling,
+    // spending 300 more credits against a provider that has already errored.
+    expect(calls).toBe(2)
+    expect(result.presses).toBe(2)
+    expect(result.error).toBe('Apollo returned 502 mid-batch')
+    // And what both passes DID enrich is still counted, because it happened and was paid for.
+    expect(result.enriched).toBe(200)
+    expect(result.credits_consumed).toBe(200)
+  })
+
   it('stops on the FIRST failing pass rather than turning one failure into five', async () => {
     const clock = makeClock()
     const db = makeSupabase(Array.from({ length: 400 }, waitingRow))
