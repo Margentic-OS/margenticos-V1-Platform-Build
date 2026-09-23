@@ -375,3 +375,113 @@ pass needed. It reached 1.50 and missed by 0.07.
 | Email 1s at 5+ sentences | 0 | 1 of 7 |
 
 Moving in the right direction, and not yet enough. Nothing loosened.
+
+---
+
+## The fourth regeneration attempt, 2026-09-23 — the 12-word cap worked, and exposed the next conflict
+
+Run with Email 1's sentence cap at 12 words and the retry feedback naming the lever.
+**0 of 4 variants passed inside the run**, 221s over 6 calls. All nine attempts were
+captured to disk, so everything below cost no further model calls. Nothing was written and
+v6 is still active.
+
+### The cap did what it was built to do
+
+| | run 3 (four to six permitted) | run 4 (12-word cap) |
+|---|---|---|
+| Email 1 retries at 5+ sentences | 1 of 7 | **5 of 5** |
+| best Email 1 grade, any attempt | 5.80 | **3.60** |
+| Email 1s passing grade 5 outright | 0 | **2** (B 3.92, C 3.60) |
+
+Every first pass still arrives at four long sentences and is rejected on sentence length.
+**Every retry, once told the cap, came back at five to seven sentences.** A cap moved what
+permission did not.
+
+Best Email 1 per variant: **A 5.36, B 3.92, C 3.60, D 5.08.**
+
+### The fallback fired, and it was not enough
+
+Per the rule agreed before the run, Email 1's ceiling moved to 6 and every captured attempt
+was re-validated through the real `validateEmails` with no new calls.
+
+**1 of 4 variants is clean: A, via A-retry-2.** Not enough to land a document, which needs
+four.
+
+### What blocks the other three, and it is NOT the grade
+
+| variant | best attempt | what stops it |
+|---|---|---|
+| B | B-retry-1 | Email 1 slot paragraph has 2 sentences; Email 2 grade 6.50 |
+| C | C-retry-1 | Email 1 has a 13-word sentence; observation AND consequence each have 2 sentences |
+| D | D-retry-1 | Email 1 consequence has 2 sentences; Email 2 grade 6.18; Email 3 grade 6.17 |
+
+**Three of the four retries now fail the slot one-sentence rule, and the 12-word cap is why.**
+Told to keep sentences short, the model writes short ones and puts two of them in the slot
+paragraph:
+
+```
+B-retry-1 observation:  "Close rate is solid."  "The work speaks for itself."     (4 and 5 words)
+C-retry-1 observation:  "Delivery fills the week."  "Outreach sits on the list."  (4 and 5 words)
+C-retry-1 consequence:  "Referrals carry things when they land."
+                        "When they don't, the diary thins."                       (6 and 6 words)
+D-retry-1 consequence:  "Outbound that starts in panic mode never builds momentum."
+                        "Delivery pulls them back in before it does."             (9 and 8 words)
+```
+
+Every one of those sentences is well inside the cap. None is too long. They are rejected for
+being **two sentences in a paragraph that must hold one**, because the slot is replaced per
+prospect and each paragraph carries exactly one job.
+
+**So the 12-word cap and the one-sentence slot rule now pull against each other, the same
+shape as the frame-versus-grade conflict before it.** The slot has to carry an observation
+in a single sentence of 12 words or fewer. That is a very small box, and the model keeps
+reaching for a second sentence to fill it.
+
+Nothing was loosened. The slot rule was not touched.
+
+### Cross-variant sentence reuse: still cannot fire
+
+One variant clean, so there is nothing for a second to collide with. The gate has now been
+unable to fire on four consecutive runs, for the same structural reason each time:
+`findCrossVariantReuse` compares a passing variant against the ones that passed before it.
+
+### Every attempt, grade, words and sentences per email
+
+| attempt | email | grade | cap | words | sentences | longest sentence | verdict |
+|---|---|---|---|---|---|---|---|
+| A-first | 1 | 7.22 | 6 | 50 | 4 | 15 / 12 | sentence len, sentence len, grade |
+| A-first | 2 | 4.07 | 5 | 75 | 6 | 23 / 25 | clean |
+| A-first | 3 | 5.04 | 5 | 42 | 3 | 17 / 25 | grade |
+| A-first | 4 | 5.50 | 5 | 38 | 3 | 18 / 25 | grade |
+| A-retry-1 | 1 | 5.36 | 6 | 46 | 6 | 11 / 12 | slot 1-sentence |
+| A-retry-1 | 2 | 5.42 | 5 | 62 | 5 | 24 / 25 | grade |
+| A-retry-1 | 3 | 4.24 | 5 | 40 | 4 | 15 / 25 | clean |
+| A-retry-1 | 4 | 3.27 | 5 | 30 | 5 | 12 / 25 | clean |
+| A-retry-2 | 1 | 5.82 | 6 | 40 | 5 | 10 / 12 | clean |
+| A-retry-2 | 2 | 3.25 | 5 | 59 | 6 | 16 / 25 | clean |
+| A-retry-2 | 3 | 4.88 | 5 | 38 | 3 | 14 / 25 | clean |
+| A-retry-2 | 4 | 4.81 | 5 | 35 | 3 | 18 / 25 | clean |
+| B-first | 1 | 7.99 | 6 | 65 | 4 | 19 / 12 | sentence len, sentence len, sentence len, grade |
+| B-first | 2 | 5.32 | 5 | 67 | 6 | 23 / 25 | grade |
+| B-first | 3 | 9.96 | 5 | 41 | 2 | 21 / 25 | grade |
+| B-first | 4 | 6.33 | 5 | 31 | 3 | 18 / 25 | grade |
+| B-retry-1 | 1 | 3.92 | 6 | 51 | 6 | 12 / 12 | slot 1-sentence |
+| B-retry-1 | 2 | 6.50 | 5 | 51 | 4 | 19 / 25 | grade |
+| B-retry-1 | 3 | 2.31 | 5 | 35 | 5 | 10 / 25 | clean |
+| B-retry-1 | 4 | 3.22 | 5 | 27 | 3 | 17 / 25 | clean |
+| C-first | 1 | 7.18 | 6 | 68 | 4 | 23 / 12 | sentence len, sentence len, sentence len, sentence len, grade |
+| C-first | 2 | 6.04 | 5 | 69 | 5 | 21 / 25 | grade |
+| C-first | 3 | 5.92 | 5 | 43 | 3 | 23 / 25 | grade |
+| C-first | 4 | 5.84 | 5 | 34 | 3 | 16 / 25 | grade |
+| C-retry-1 | 1 | 3.60 | 6 | 47 | 7 | 13 / 12 | sentence len, slot 1-sentence, slot 1-sentence |
+| C-retry-1 | 2 | 3.44 | 5 | 61 | 8 | 14 / 25 | clean |
+| C-retry-1 | 3 | 4.79 | 5 | 44 | 4 | 13 / 25 | clean |
+| C-retry-1 | 4 | 1.69 | 5 | 36 | 4 | 13 / 25 | clean |
+| D-first | 1 | 9.12 | 6 | 61 | 4 | 20 / 12 | back-ref, sentence len, sentence len, sentence len, grade |
+| D-first | 2 | 5.81 | 5 | 64 | 5 | 20 / 25 | grade |
+| D-first | 3 | 3.65 | 5 | 50 | 5 | 16 / 25 | firmographic |
+| D-first | 4 | 4.88 | 5 | 38 | 3 | 21 / 25 | clean |
+| D-retry-1 | 1 | 5.08 | 6 | 51 | 6 | 10 / 12 | slot 1-sentence |
+| D-retry-1 | 2 | 6.18 | 5 | 64 | 5 | 21 / 25 | grade |
+| D-retry-1 | 3 | 6.17 | 5 | 42 | 3 | 23 / 25 | grade |
+| D-retry-1 | 4 | 4.53 | 5 | 37 | 3 | 20 / 25 | clean |
