@@ -944,7 +944,13 @@ function judgeOwnGrade(parsed: Record<string, unknown>): {
   return { icp_fit, icp_fit_missing, icp_fit_unestablished }
 }
 
-function parseSynthesisResponse(
+/**
+ * EXPORTED FOR TESTS. The whole selection path lives behind this function: parsing the
+ * model's candidates, applying the ordering, and deriving the relevance grade. A test that
+ * reaches only rankCandidates proves the comparator and nothing about whether synthesis
+ * calls it, which is the seam that has broken before (writer-input, 2026-09-11).
+ */
+export function parseSynthesisResponse(
   raw: string,
   prospect: ProspectContext,
   icpSummary: string,
