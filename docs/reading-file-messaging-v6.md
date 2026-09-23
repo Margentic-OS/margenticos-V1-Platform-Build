@@ -667,3 +667,104 @@ still active.
 | D | 2 | 1.70 | 5 | 50 | 10 | 9 / 15 | clean |
 | D | 3 | 2.04 | 5 | 41 | 6 | 10 / 15 | other |
 | D | 4 | 3.75 | 5 | 34 | 3 | 21 / 15 | sentence len |
+
+---
+
+## 2026-09-23, LANDED — A, C and D pending, after six sentences edited by hand
+
+### The edits, before and after
+
+Six edits, not four: A and D each carried two faults, and C's slot was two paragraphs.
+Every one is a single sentence, and each was put through the real `validateEmails`.
+
+**A / Email 2** — 16-word sentence, cap is 15. Split in two.
+> before (16w): "Most founders I speak to have lived with that swing long enough that it feels normal."
+> after (12 + 3w): "Most founders I speak to have lived with that swing long enough. It feels normal."
+
+**A / Email 4** — 18-word sentence. Split at the comma.
+> before (18w): "If a referral source goes quiet and there's nothing running behind it, happy to pick this up then."
+> after (15 + 6w): "If a referral source goes quiet and there's nothing running behind it, get in touch. Happy to pick this up then."
+
+**C / Email 1** — observation slot paragraph held 2 sentences, must be 1. Merged.
+> before: "Delivery fills the week. Outreach sits on the list."
+> after: "Delivery fills the week and outreach sits on the list."
+
+**C / Email 1** — consequence slot paragraph held 2 sentences, must be 1. Merged.
+> before: "Referrals carry things when they land. When they don't, the diary thins."
+> after: "Referrals carry things when they land, and the diary thins when they don't."
+
+**D / Email 3** — internal jargon "ICP". One phrase replaced.
+> before: "The ICP isn't pinned down."
+> after: "The target list isn't pinned down."
+
+**D / Email 4** — 21-word sentence. Split, dropping "before it bites".
+> before (21w): "If a quiet patch shows up and you'd rather have something running before it bites, happy to pick this up then."
+> after (15 + 6w): "If a quiet patch shows up and you'd rather have something running, get in touch. Happy to pick this up then."
+
+`validateEmails` on the result: **CLEAN for A, CLEAN for C, CLEAN for D.**
+
+### B: one repair round, and it went backwards
+
+B failed on ONE violation, Email 1 at grade 7.62. One repair round was spent. It fixed
+exactly that and broke three emails that were already passing:
+
+| | before | after |
+|---|---|---|
+| E1 | grade **7.62** fail, longest 14w | grade 4.71 pass, longest **16w** fail |
+| E2 | grade 4.37, longest 12w, **pass** | grade 2.48, longest **17w**, fail |
+| E3 | grade 2.48, longest 11w, **pass** | grade 3.22, longest **17w**, fail |
+| E4 | grade 3.71, longest 15w, **pass** | grade 4.45, longest **19w**, fail |
+
+**B's reading grade is no longer the problem: all four of its emails now pass the grade.**
+Every one of its four failures is a single over-length sentence. Not included in the
+document. Filed as a Backlog row, because the cause is structural: repair is variant-level.
+
+### Cross-variant sentence reuse — it finally had the chance to fire
+
+Six runs produced fewer than two clean variants, so this gate had never run against a real
+set. Against A, C and D, **Email 1 only, as `findCrossVariantReuse` does**:
+
+> NO CROSS-VARIANT SENTENCE REUSE across A, C and D.
+
+A zero from a gate is not evidence until the gate is shown to detect a positive, so A's
+Email 1 was re-presented under C's key: **5 hits**. The instrument works; the set is clean.
+
+Worth recording what a NAIVE run of the same check reports, because it looks alarming and
+is not: scanning all four emails finds 7 "collisions", and they are the two HELD CTAs and
+the shared breakup openers in emails 2 to 4. Those are identical BY DESIGN. The gate is
+Email 1 only for exactly this reason.
+
+### What landed
+
+Suggestion **`1ca8e5d1-71b9-40ff-aca5-a391650a69f9`**, status **pending**, variants A, C, D,
+angles A/C/D (all three shipped on their own angle, none fallback-substituted). v6 is still
+the active document. The hand edits are recorded in `suggestion_reason`.
+
+One error was logged during the write and is worth stating rather than hiding: the runner
+seeds `passedVariants` directly and never records a shipped angle, so `resolveShippedAngle`
+fell back to the slot key and logged "no shipped angle recorded" for all three. The stored
+values are correct, but they are correct because the fallback happens to equal the right
+answer, not because anything recorded it. A defect in the one-off runner, not in the agent.
+
+### Grade, words and sentences per email
+
+| attempt | email | grade | cap | words | sentences | longest sentence | verdict |
+|---|---|---|---|---|---|---|---|
+| A | 1 | 5.82 | 6 | 40 | 5 | 10 / 15 | clean |
+| A | 2 | 2.70 | 5 | 58 | 7 | 14 / 15 | clean |
+| A | 3 | 4.88 | 5 | 38 | 3 | 14 / 15 | clean |
+| A | 4 | 3.64 | 5 | 38 | 4 | 15 / 15 | clean |
+| B | 1 | 4.71 | 6 | 66 | 7 | 16 / 15 | sentence len |
+| B | 2 | 2.48 | 5 | 60 | 8 | 17 / 15 | sentence len |
+| B | 3 | 3.22 | 5 | 28 | 3 | 17 / 15 | sentence len |
+| B | 4 | 4.45 | 5 | 34 | 3 | 19 / 15 | sentence len |
+| C | 1 | 4.61 | 6 | 49 | 5 | 13 / 15 | clean |
+| C | 2 | 3.44 | 5 | 61 | 8 | 14 / 15 | clean |
+| C | 3 | 4.79 | 5 | 44 | 4 | 13 / 15 | clean |
+| C | 4 | 1.69 | 5 | 36 | 4 | 13 / 15 | clean |
+| D | 1 | 5.96 | 6 | 41 | 4 | 11 / 15 | clean |
+| D | 2 | 1.70 | 5 | 50 | 10 | 9 / 15 | clean |
+| D | 3 | 2.31 | 5 | 42 | 6 | 10 / 15 | clean |
+| D | 4 | 2.30 | 5 | 34 | 4 | 15 / 15 | clean |
+
+A, C and D are the landed set. B is shown for the record and is NOT in the document.
