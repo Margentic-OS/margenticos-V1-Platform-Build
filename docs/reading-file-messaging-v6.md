@@ -240,3 +240,68 @@ The only paragraph free to become two short sentences is the offer line: the slo
 paragraphs are gated to one sentence each, and the CTA is a single question by rule.
 
 Nothing was loosened. This is recorded for the decision, not acted on.
+
+---
+
+## The second regeneration attempt, 2026-09-22 — blocked on billing, not on the gate
+
+After the offer line and the CTA were allowed two sentences each, the regeneration was run
+again. **It never reached the gate.** The first Anthropic call was rejected in four
+seconds:
+
+```
+400 invalid_request_error — Your credit balance is too low to access the Anthropic API.
+```
+
+Retried once, same result, same class. **Zero model calls completed, so there are no grades
+and no sentence counts from this run to report.** Nothing was written; v6 is still the
+active document. The held CTAs were read correctly from v6 before the failure, so the
+plumbing is proved up to the API boundary and no further.
+
+### Sentence counts on the live v6, which is what there is to measure
+
+| email | sentences | grade | Email 1 breakdown |
+|---|---|---|---|
+| A/E1 | 4 | 9.43 | slot 1, slot 1, offer 1, CTA 1 |
+| A/E2 | 5 | 5.42 | |
+| A/E3 | 3 | 5.54 | |
+| A/E4 | 3 | 4.81 | |
+| B/E1 | 4 | 10.44 | slot 1, slot 1, offer 1, CTA 1 |
+| B/E2 | 4 | 7.83 | |
+| B/E3 | 2 | 9.87 | |
+| B/E4 | 3 | 6.49 | |
+| C/E1 | 4 | 8.80 | slot 1, slot 1, offer 1, CTA 1 |
+| C/E2 | 4 | 6.63 | |
+| C/E3 | 3 | 6.22 | |
+| C/E4 | 3 | 5.14 | |
+| D/E1 | 4 | 8.72 | slot 1, slot 1, offer 1, CTA 1 |
+| D/E2 | 5 | 6.18 | |
+| D/E3 | 3 | 5.19 | |
+| D/E4 | 3 | 4.53 | |
+
+**Every live Email 1 sits at exactly four sentences**, one per paragraph, which is the
+pattern the prompt change is meant to break. The new frame makes four to six legal.
+
+### Splitting alone does NOT close the gap, and that is worth knowing before the next run
+
+Holding each live Email 1's words and syllables constant and only re-splitting it:
+
+| | words | syll/word | at 4 sentences | at 5 | at 6 |
+|---|---|---|---|---|---|
+| A/E1 | 57 | 1.65 | 9.43 | 8.32 | 7.57 |
+| B/E1 | 72 | 1.61 | 10.44 | 9.04 | 8.10 |
+| C/E1 | 72 | 1.47 | 8.80 | 7.40 | 6.46 |
+| D/E1 | 65 | 1.52 | 8.72 | 7.45 | 6.61 |
+
+**At six sentences they still land 6.46 to 8.10.** Splitting buys roughly 1.9 grades and
+the gap is 3.7 to 5.4. So the sentence allowance is necessary and not sufficient: syllables
+per word has to come down as well.
+
+**The combination is reachable, and the model has already shown both halves separately.**
+At six sentences and around 60 words, grade 5 needs about **1.41** syllables per word. On
+the first run, variant C's Email 1 retry reached **1.38** — but at four sentences, where
+1.29 was required. 1.38 syllables per word at six sentences scores about **4.6** and passes.
+
+What no run has yet produced is both at once, and that is what the prompt change is asking
+for. Whether the model can hold plain vocabulary and a six-sentence split in the same draft
+is untested, because the run that would have tested it never made a call.
