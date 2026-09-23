@@ -121,12 +121,17 @@ function table(rows: Row[], onInsert?: (r: Row) => void) {
   const isNull: string[] = []
   const notNull: string[] = []
   const cmps: Array<[string, 'gte' | 'lte' | 'gt' | 'lt', unknown]> = []
+  const neqs: Array<[string, unknown]> = []
+  let headCount = false
   let ordered = false
   let limited: number | null = null
   let updatePatch: Row | null = null
 
   const matches = (r: Row) =>
     eqs.every(([c, v]) => r[c] === v)
+    // HONOURED, not swallowed, like every other filter here. It is what separates
+    // "entries still to collect" from "all of them" in the end-of-batch tally.
+    && neqs.every(([c, v]) => r[c] !== v)
     && ins.every(([c, v]) => (v as unknown[]).includes(r[c]))
     && isNull.every(c => r[c] === null || r[c] === undefined)
     && notNull.every(c => r[c] !== null && r[c] !== undefined)
@@ -141,6 +146,9 @@ function table(rows: Row[], onInsert?: (r: Row) => void) {
 
   const resolve = () => {
     let out = rows.filter(matches)
+    // A head count returns { count }, never rows. Mirrors PostgREST, where the builder stays
+    // chainable and resolves to the count.
+    if (headCount) return { count: out.length, data: null, error: null }
     if (updatePatch) {
       out.forEach(r => Object.assign(r, updatePatch))
       return { data: out.map(r => ({ ...r })), error: null }
@@ -151,8 +159,12 @@ function table(rows: Row[], onInsert?: (r: Row) => void) {
   }
 
   const chain: Record<string, unknown> = {
-    select: () => chain,
+    select: (_cols?: string, o?: { count?: string; head?: boolean }) => {
+      if (o?.head) headCount = true
+      return chain
+    },
     eq: (c: string, v: unknown) => { eqs.push([c, v]); return chain },
+    neq: (c: string, v: unknown) => { neqs.push([c, v]); return chain },
     in: (c: string, v: unknown[]) => { ins.push([c, v]); return chain },
     is: (c: string, v: unknown) => {
       if (v !== null) throw new Error(`fake: .is(${c}, ${String(v)}) not implemented`)
@@ -176,12 +188,16 @@ function table(rows: Row[], onInsert?: (r: Row) => void) {
       list.forEach(x => { rows.push({ ...x }); onInsert?.(x) })
       return chain
     },
+    // A head count has no rows, so asking it for one is a mistake in the code under test
+    // rather than something to paper over with null.
     maybeSingle: async () => {
       const { data } = resolve()
+      if (data === null) throw new Error('fake: maybeSingle() on a head count returns no rows')
       return { data: data[0] ?? null, error: null }
     },
     single: async () => {
       const { data } = resolve()
+      if (data === null) throw new Error('fake: single() on a head count returns no rows')
       return { data: data[0] ?? null, error: null }
     },
     then: (res: (v: unknown) => void) => res(resolve()),

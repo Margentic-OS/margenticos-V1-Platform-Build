@@ -42,11 +42,16 @@ describe('takenQuestions lists what the writer has to avoid', () => {
     expect(reg.takenQuestions('p2')).toEqual([])
   })
 
-  it('records nothing from a refused reservation', () => {
+  // INVERTED 2026-09-23 with the block-to-report change. p2's bridge repeats p1's, which
+  // used to refuse the whole reservation and drop p2's question with it. Nothing is refused
+  // now: p2's attempt ships, so p2's question really is taken and the next writer has to be
+  // told about it. Listing only p1's would send the third prospect at a question already in
+  // the batch.
+  it('lists the question of a prospect whose BRIDGE repeated, because its attempt still ships', () => {
     const reg = new BatchUniquenessRegistry()
     reg.reserve('p1', BRIDGE_A, 'Is that a gap?')
-    reg.reserve('p2', BRIDGE_A, 'Something else entirely?')   // bridge collides, so refused
-    expect(reg.takenQuestions('p3')).toEqual(['Is that a gap?'])
+    reg.reserve('p2', BRIDGE_A, 'Something else entirely?')
+    expect(reg.takenQuestions('p3').sort()).toEqual(['Is that a gap?', 'Something else entirely?'])
   })
 
   it('replaces the text when a prospect re-reserves with a new question', () => {

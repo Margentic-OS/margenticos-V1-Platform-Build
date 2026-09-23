@@ -66,6 +66,12 @@ interface FakeOpts {
   entryMissing?: boolean
   /** Override the stored Message, so a truncated one can be collected. */
   responseMessage?: Record<string, unknown> | null
+  /**
+   * Entries of this batch not yet collected. Defaults to 1, so the end-of-batch repetition
+   * tally does not fire in the tests that are about the snapshot. Set to 0 to make this job
+   * the last one.
+   */
+  remainingEntries?: number
 }
 
 function fakeSupabase(opts: FakeOpts = {}) {
@@ -91,11 +97,35 @@ function fakeSupabase(opts: FakeOpts = {}) {
     batch_id: 'batch-1',
   }
 
+  const neqFilters: Array<[string, unknown]> = []
+  // Entries of this batch not yet collected. Non-zero by default, so the end-of-batch tally
+  // does not run in tests that are about something else.
+  const countRemaining = opts.remainingEntries ?? 1
+
   const client = {
     from(table: string) {
+      const countChain: Record<string, unknown> = {
+        eq: () => countChain,
+        neq: (c: string, v: unknown) => { neqFilters.push([c, v]); return countChain },
+        then: (resolve: (r: { count: number; error: null }) => unknown) =>
+          resolve({ count: countRemaining, error: null }),
+      }
       const chain: Record<string, unknown> = {
-        select: () => chain,
+        // COUNT MODE. `select('id', { count: 'exact', head: true })` returns a thenable that
+        // resolves to { count }, not a row set. reportBatchRepetition uses it to ask whether
+        // it is the last entry of its batch; answering "one still outstanding" is what keeps
+        // every other test in this file on the path it was written for, since none of them
+        // is about the end-of-batch tally.
+        // A HEAD COUNT IS A THENABLE BUILDER, not a promise. PostgREST lets you keep
+        // chaining filters onto `select(cols, { head: true, count: 'exact' })` and await the
+        // result, so a fake that returned a bare promise here broke on the very next `.eq`.
+        select: (_cols?: string, o?: { count?: string; head?: boolean }) =>
+          o?.head ? countChain : chain,
         eq: () => chain,
+        // HONOURED. It is the only thing separating "entries still to collect" from "all of
+        // them", and a fake that swallowed it would make the tally look like it ran on every
+        // job when it runs on one.
+        neq: (c: string, v: unknown) => { neqFilters.push([c, v]); return chain },
         // HONOURED, not swallowed. The states phase 2 is willing to collect are the whole of
         // its contract with the sweep, and this used to accept the call and drop it, so a test
         // could not tell a widened filter from an unchanged one.
