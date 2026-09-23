@@ -1,24 +1,23 @@
 // AN EVENT FROM ANOTHER YEAR MUST SAY WHICH YEAR.
 //
 // ═════════════════════════════════════════════════════════════════════════════
-// THE 2026-09-23 MEASUREMENT. The research candidate read "She co-hosted a webinar with
-// GrantExec on July 24, 2025". The shipped observation read "You co-hosted a webinar in
-// July on the One Big Beautiful Bill". A reader in September 2026 reads "in July" as two
-// months ago. It was fourteen.
+// THE 2026-09-23 MEASUREMENT. A research candidate was dated to the day, in the PREVIOUS
+// calendar year. The shipped observation named the month and dropped the year, so a reader
+// in September 2026 read it as two months ago. It was fourteen.
 //
 // The run log says exactly how it happened: the first attempt was over the per-sentence
 // word cap, and the retry shortened it. THE YEAR IS THE CHEAPEST WORD TO CUT, because
-// nothing told the writer it was load-bearing. Erin Spencer's observation in the same run
-// DID say "in July 2026", so the writer names the year when it has room and drops it when
-// it does not, which is the worst possible rule: the year survives where it does not matter
-// and disappears where it does.
+// nothing told the writer it was load-bearing. Another prospect's observation in the same
+// run DID name the year, on an event from the CURRENT year, so the writer names the year
+// when it has room and drops it when it does not. That is the worst possible rule: the year
+// survives where it does not matter and disappears where it does.
 //
 // DETERMINISTIC, PER ADR-018. This is a date comparison and a substring search. There is no
 // judgement in it, and a prompt instruction would be advisory (ADR-028) against a model that
 // is already under length pressure when it makes this mistake.
 //
-// WHAT THIS IS NOT. It is not a recency floor. A candidate from 2012 is still usable: "you
-// have run 8 Consulting as its sole principal since September 2012" is honest copy about an
+// WHAT THIS IS NOT. It is not a recency floor. A candidate from a decade ago is still
+// usable: "you have run it as sole principal since September 2012" is honest copy about an
 // ongoing state, and it names its year, so it passes. Measured across the same 20: six
 // winners were dated outside the current year, four already named the year unprompted, and
 // a 180-day floor would have rejected all six, four of them wrongly.

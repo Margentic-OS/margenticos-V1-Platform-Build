@@ -3,9 +3,9 @@
 // This is the end-to-end half of the block-to-report change, against the REAL attempt loop.
 // The unit tests on BatchUniquenessRegistry prove reserve() reports and records; they cannot
 // prove that writeAndJudgeOpening acts on the report rather than aborting, and that was the
-// whole defect: on 2026-09-23 Jason Shapiro and Richard Spilsbury each had their email
-// thrown away on every attempt over a bridge frame another prospect reserved first, both
-// with strong_material logged.
+// whole defect: on 2026-09-23 two prospects each had their email thrown away on every
+// attempt over a bridge frame another prospect reserved first, both with strong_material
+// logged.
 //
 // MUTATION TARGET. Reinstating the block at the call site in write-opening.ts must turn the
 // first test here red. That is what the test is for.

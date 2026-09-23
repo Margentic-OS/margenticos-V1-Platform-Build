@@ -2229,7 +2229,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // Released again the moment this attempt stops being a candidate, so the end-of-batch
     // tally counts what shipped.
     //
-    // REPORTS AND CONTINUES. Blocking here cost Jason Shapiro and Richard Spilsbury their
+    // REPORTS AND CONTINUES. Blocking here cost two prospects their
     // emails on 2026-09-23, both on every attempt and both with strong material, because a
     // shared client trigger makes two prospects legitimately have the same thing said about
     // them. See batch-uniqueness.ts for why that inverted the original reasoning.

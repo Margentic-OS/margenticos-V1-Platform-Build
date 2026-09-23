@@ -14,10 +14,10 @@
 // The 2026-09-23 run inverted it. With a client trigger list the research now matches on,
 // several prospects legitimately share a trigger, so their bridges legitimately converge:
 // two prospects who both just posted a delivery role genuinely have the same thing said
-// about them. Measured on that run: Jason Shapiro and Richard Spilsbury each lost their
-// email on EVERY attempt to a bridge frame another prospect had reserved first, and both
-// were logged `strong_material: true`. Two of the four prospects that fell back to the
-// template did so for this reason alone.
+// about them. Measured on that run: TWO prospects each lost their email on EVERY attempt
+// to a bridge frame another prospect had reserved first, and both were logged
+// `strong_material: true`. Two of the four prospects that fell back to the template did so
+// for this reason alone.
 //
 // So the gate now fails in the direction the research got BETTER. A collision used to mean
 // "the writer had nothing to say"; it now often means "two prospects are in the same

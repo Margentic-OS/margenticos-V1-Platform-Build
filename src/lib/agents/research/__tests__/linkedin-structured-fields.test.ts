@@ -20,7 +20,7 @@ describe('a job share reaches the model with its role', () => {
   beforeEach(() => { process.env.APIFY_API_KEY = 't' })
   afterEach(() => { globalThis.fetch = realFetch; vi.restoreAllMocks() })
 
-  it('THE JASON SHAPIRO CASE: prose was "We\'re hiring!" and the role was dropped', async () => {
+  it('THE MEASURED CASE: prose was "We\'re hiring!" and the role was dropped', async () => {
     // Measured 2026-09-23. The model saw `Post (2026-08-13): We're hiring!` and wrote the
     // candidate "a hiring announcement ... WITH NO ROLE SPECIFIED IN THE AVAILABLE EXCERPT".
     // It was accurate about what it could see. He went to template.
@@ -64,11 +64,13 @@ describe('a reshare is never presented as the prospect\'s own post', () => {
   beforeEach(() => { process.env.APIFY_API_KEY = 't' })
   afterEach(() => { globalThis.fetch = realFetch; vi.restoreAllMocks() })
 
-  // MEASURED: 2 of Jason Shapiro's 5 posts were reshares, and synthesis built two candidates
-  // from them — "Jason posted on July 8 that 82i joined the Puzzle Accounting Partner
-  // Network" and "Jason posted on July 28 about intentional recovery". Both credit him with
-  // writing something he amplified. An opening built on that is confidently wrong about his
-  // own life in the first line.
+  // MEASURED 2026-09-21: on one prospect, 2 of 5 posts were reshares and synthesis built a
+  // candidate from each, both phrased as "<name> posted that ...". Both credit the prospect
+  // with writing something they only amplified. An opening built on that is confidently
+  // wrong about the reader's own life in its first line.
+  //
+  // The prospect, their company and the reshared partner were named here until 2026-09-23.
+  // None of it was load-bearing and this repository is public.
   it.each([
     { repost: true },
     { repostId: 'abc123' },

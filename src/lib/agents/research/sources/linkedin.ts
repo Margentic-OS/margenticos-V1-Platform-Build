@@ -146,7 +146,7 @@ export function postedDate(post: Record<string, unknown>): string | null {
  * The formatter read post.text/content/commentary and nothing else, so everything LinkedIn
  * supplies as structure was dropped on the way to the model. Measured across the 20:
  *
- *   Jason Shapiro, 13 Aug   prose "We're hiring!"   job.title "Controller Engagement Manager"
+ *   one prospect, 13 Aug   prose "We're hiring!"   job.title named the role, and only job.title did
  *   Erin Spencer,  23 Jul   prose "...actively interviewing for cand..."
  *                                                   job.title "Human Resources Consultant"
  *

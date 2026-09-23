@@ -15,8 +15,11 @@ describe('the URL always carries a scheme', () => {
     // TypeError: Failed to parse URL — it does not attempt a request and returns no
     // status. 67 of 68 failing URLs on 2026-09-21 were bare domains, so the direct path
     // made zero network calls all run: fetch_method was 'jina' 16/16 and 'direct' 0/84.
-    expect(withScheme('dentalconsultingco.com')).toBe('https://dentalconsultingco.com')
-    expect(withScheme('82i.co')).toBe('https://82i.co')
+    // NEUTRAL FIXTURES. These were two real prospects' domains until 2026-09-23. The test
+    // is about a bare domain needing a scheme, and nothing about it needed a real company:
+    // a short all-numeric-leading host is the shape worth keeping, not whose host it was.
+    expect(withScheme('example-consulting.com')).toBe('https://example-consulting.com')
+    expect(withScheme('7a.co')).toBe('https://7a.co')
   })
 
   it('leaves an existing scheme alone, including http', () => {
@@ -26,7 +29,7 @@ describe('the URL always carries a scheme', () => {
 
   it('a bare domain really does throw from fetch, which is why this matters', async () => {
     // The control that proves the premise, rather than asserting it in a comment.
-    await expect(fetch('dentalconsultingco.com')).rejects.toThrow(/Failed to parse URL/)
+    await expect(fetch('example-consulting.com')).rejects.toThrow(/Failed to parse URL/)
   })
 })
 

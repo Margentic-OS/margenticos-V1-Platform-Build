@@ -34,7 +34,7 @@ describe('a matched trigger outranks an unmatched one', () => {
 
 describe('their own post outranks a reshare', () => {
   it('even when the reshare is newer and matched a stronger trigger', () => {
-    // A reshare is not their event. 2 of Jason Shapiro's 5 posts were reshares on
+    // A reshare is not their event. On one prospect, 2 of 5 posts were reshares on
     // 2026-09-23 and synthesis built candidates from both, crediting him with writing them.
     expect(order([
       c('reshare', { is_reshare: true, date: '2026-09-22', matched_trigger: 1 }),
