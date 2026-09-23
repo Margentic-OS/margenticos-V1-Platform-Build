@@ -27,6 +27,8 @@ import {
   CONTROL_BENCHMARK,
   CONTROL_BENCHMARK_GRADE,
   MAX_READING_GRADE,
+  EMAIL1_MAX_READING_GRADE,
+  readingGradeCapFor,
 } from '../reading-grade'
 
 describe('reading grade: control 1, the syllable counter', () => {
@@ -117,5 +119,33 @@ describe('reading grade: tokenising', () => {
     // Null is deliberate. Zero would read as a suspiciously good grade and pass a gate.
     expect(fleschKincaidGrade('')).toBeNull()
     expect(fleschKincaidGrade('   \n\n  ')).toBeNull()
+  })
+})
+
+describe('the grade ceiling is per position', () => {
+  // POSITIVE CONTROL, BOTH DIRECTIONS. Email 1 carries four fixed jobs in 40 to 90 words;
+  // emails 2 to 4 carry one idea each and no frame, which is why they were already passing
+  // at 5 while Email 1 was not. The extra grade buys structure Email 1 cannot shed.
+  it('Email 1 is allowed one grade more than the rest', () => {
+    expect(EMAIL1_MAX_READING_GRADE).toBe(6)
+    expect(MAX_READING_GRADE).toBe(5)
+    expect(EMAIL1_MAX_READING_GRADE).toBe(MAX_READING_GRADE + 1)
+  })
+
+  it('readingGradeCapFor returns 6 for Email 1 and 5 for the rest', () => {
+    expect(readingGradeCapFor(1)).toBe(EMAIL1_MAX_READING_GRADE)
+    expect([2, 3, 4].map(readingGradeCapFor)).toEqual([5, 5, 5])
+  })
+
+  it('THE PAIR: a grade of 5.5 is legal in Email 1 and illegal in emails 2 to 4', () => {
+    const grade = 5.5
+    expect(grade).toBeLessThanOrEqual(readingGradeCapFor(1))
+    expect(grade).toBeGreaterThan(readingGradeCapFor(2))
+  })
+
+  it('the benchmark still clears the STRICTER of the two', () => {
+    // The looser Email 1 ceiling must not quietly become the thing the target is judged
+    // against. The 7-percent-reply line clears 5, not merely 6.
+    expect(fleschKincaidGrade(CONTROL_BENCHMARK)!.grade).toBeLessThanOrEqual(MAX_READING_GRADE)
   })
 })

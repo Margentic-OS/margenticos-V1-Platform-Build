@@ -190,6 +190,33 @@ export function fleschKincaidGrade(text: string): ReadingGrade | null {
 // their Email 1s.
 export const MAX_READING_GRADE = 5
 
+/**
+ * Email 1's grade ceiling, which is ONE GRADE LOOSER than the other three carry.
+ *
+ * DECIDED IN ADVANCE OF THE RUN THAT TRIGGERED IT, which is the only reason it is a rule
+ * rather than a rationalisation. The standing instruction was: hold 5, and if the best
+ * Email 1 per variant lands between 5.0 and 6.0 after the 12-word sentence cap, take 6 for
+ * Email 1 only and land what passes.
+ *
+ * MEASURED on the run of 2026-09-22, nine attempts, best Email 1 per variant:
+ *   A 5.36   B 3.92   C 3.60   D 5.08
+ * Two already clear 5. The two that do not sit inside the band, and nothing is above 6.
+ *
+ * WHY EMAIL 1 AND NOT THE REST. Email 1 carries four fixed jobs in 40 to 90 words: an
+ * observation, a consequence, an offer line and a question. Emails 2 to 4 carry one idea
+ * each and no frame, which is why they were already passing at 5 while Email 1 was not.
+ * The extra grade is bought by structure Email 1 cannot shed, not by weaker writing.
+ */
+export const EMAIL1_MAX_READING_GRADE = 6
+
+/**
+ * The ceiling for one position. A function for the same reason sentenceWordCapFor is one:
+ * a lookup table is a second list that has to stay in step with the four positions by hand.
+ */
+export function readingGradeCapFor(sequencePosition: number): number {
+  return sequencePosition === 1 ? EMAIL1_MAX_READING_GRADE : MAX_READING_GRADE
+}
+
 // The known-answer controls for the syllable counter. Every word below the separator
 // appears in the measured template corpus, so this exercises what the instrument is
 // actually pointed at rather than a generic word list.

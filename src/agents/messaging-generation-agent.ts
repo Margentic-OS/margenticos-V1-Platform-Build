@@ -32,7 +32,7 @@ import { EMAIL1_FRAME_TAIL_PARAGRAPHS, EMAIL1_FRAME_SLOT_PARAGRAPHS } from '@/li
 import { BANNED_FIRMOGRAPHIC } from '@/lib/style/firmographic'
 import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-frames'
 import { readabilityScore, MAX_SENTENCE_WORDS, splitSentences } from '@/lib/style/readability'
-import { fleschKincaidGrade, MAX_READING_GRADE } from '@/lib/style/reading-grade'
+import { fleschKincaidGrade, MAX_READING_GRADE, readingGradeCapFor } from '@/lib/style/reading-grade'
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
@@ -2530,7 +2530,8 @@ export function validateEmails(
     // on an empty string.
     const authored = authoredProse(body, senderFirstName, senderCompanyName, heldParagraphs)
     const reading = fleschKincaidGrade(authored)
-    if (reading !== null && reading.grade > MAX_READING_GRADE) {
+    const gradeCap = readingGradeCapFor(pos)
+    if (reading !== null && reading.grade > gradeCap) {
       // THE MESSAGE NAMES THE LEVER, NOT JUST THE VERDICT, because this string IS the retry
       // instruction: buildPriorAttemptBlock renders the violations verbatim into the next
       // attempt's prompt, so anything missing here is missing from the correction.
@@ -2546,7 +2547,7 @@ export function validateEmails(
       violations.push({
         email: pos,
         issue:
-          `reading grade ${reading.grade.toFixed(1)} is above the maximum of ${MAX_READING_GRADE}. ` +
+          `reading grade ${reading.grade.toFixed(1)} is above the maximum of ${gradeCap}. ` +
           `THE LEVER IS SENTENCE LENGTH: your ${reading.words} words are split across only ` +
           `${reading.sentences} sentences, which averages ${reading.wordsPerSentence.toFixed(1)} ` +
           `words per sentence against a cap of ${sentenceCap}. Splitting the same words across ` +

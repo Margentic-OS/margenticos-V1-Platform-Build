@@ -44,6 +44,12 @@ const PLAIN_PARAGRAPHS = [
   //                                                    vv this word is the whole experiment
   'When that source goes quiet, nothing else is operating. The variation makes it hard to plan or hire.',
 ]
+// Fails even at Email 1's looser ceiling, with every sentence inside the 12-word cap, so
+// it isolates the GRADE from the sentence-length gate at position 1.
+const VERY_DENSE_PARAGRAPHS = [
+  'Most organisations demonstrate identical operational difficulties. New business materialises through established professional relationships.',
+  'When that source deteriorates, nothing else is operational. The variability complicates recruitment decisions considerably.',
+]
 const DENSE_PARAGRAPHS = [
   'Most firms we speak to have the same difficulty. New business arrives through established relationships.',
   'When that source goes quiet, nothing else is operating. The variation makes it difficult to plan or hire.',
@@ -63,6 +69,17 @@ function emailOf(paragraphs: string[]): EmailRecord {
     body,
     word_count: body.trim().split(/\s+/).filter(Boolean).length,
   }
+}
+
+/** The same paragraphs judged at a chosen sequence position. */
+const gradeIssuesAt = (paragraphs: string[], pos: number): string[] => {
+  const base = emailOf(paragraphs)
+  const email: EmailRecord = pos === 1
+    ? { ...base, sequence_position: 1, subject_line: 'quick question', subject_char_count: 14 }
+    : { ...base, sequence_position: pos }
+  return validateEmails([email], SENDER, COMPANY)
+    .filter(v => v.issue.includes('reading grade'))
+    .map(v => v.issue)
 }
 
 const gradeIssues = (email: EmailRecord, held: readonly string[] = []) =>
@@ -228,21 +245,34 @@ describe('the grade violation names the lever, because it IS the retry instructi
   })
 
   it('cites Email 1 cap of 12 when the email is Email 1, and 25 when it is not', () => {
-    // THE PAIR. The same failing prose, two positions, and the cap quoted in the retry
-    // instruction must follow the position. Proves the message reads sentenceWordCapFor
-    // rather than one constant.
-    const atOne: EmailRecord = {
-      ...emailOf(DENSE_PARAGRAPHS),
-      sequence_position: 1,
-      subject_line: 'quick question',
-      subject_char_count: 'quick question'.length,
-    }
-    const one = validateEmails([atOne], SENDER, COMPANY)
-      .filter(v => v.issue.includes('reading grade'))
-      .map(v => v.issue)
+    // THE PAIR on the SENTENCE cap quoted inside the grade message. Uses the fixture that
+    // fails at BOTH ceilings, so a grade violation exists at either position to read.
+    const one = gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 1)
     expect(one).toHaveLength(1)
     expect(one[0]).toContain(`against a cap of ${EMAIL1_MAX_SENTENCE_WORDS}`)
-    expect(gradeIssues(emailOf(DENSE_PARAGRAPHS))[0]).toContain('against a cap of 25')
+    expect(gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 2)[0]).toContain('against a cap of 25')
+  })
+
+  it('cites the grade ceiling of its own position', () => {
+    expect(gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 1)[0]).toContain('above the maximum of 6')
+    expect(gradeIssuesAt(VERY_DENSE_PARAGRAPHS, 2)[0]).toContain('above the maximum of 5')
+  })
+})
+
+describe('the grade GATE reads the per-position ceiling, not one constant', () => {
+  // THE MUTATION THIS EXISTS TO KILL: replacing readingGradeCapFor(pos) in the gate with
+  // the flat MAX_READING_GRADE. Every other test in this file still passed under that
+  // mutation, because they all measure emails at position 2 where the two agree.
+  //
+  // The pair is one body at grade 5.47, judged twice. Email 1's ceiling is 6, so it is
+  // legal there. Emails 2 to 4 are held to 5, so the identical prose is rejected.
+  it('THE PAIR: prose at grade 5.5 is accepted in Email 1 and rejected in Email 2', () => {
+    expect(fleschKincaidGrade(DENSE_PARAGRAPHS.concat(CTA).join('\n\n'))!.grade)
+      .toBeGreaterThan(MAX_READING_GRADE)
+    expect(fleschKincaidGrade(DENSE_PARAGRAPHS.concat(CTA).join('\n\n'))!.grade)
+      .toBeLessThanOrEqual(6)
+    expect(gradeIssuesAt(DENSE_PARAGRAPHS, 1)).toEqual([])
+    expect(gradeIssuesAt(DENSE_PARAGRAPHS, 2)).toHaveLength(1)
   })
 })
 
