@@ -42,6 +42,7 @@ import { createClient } from '@supabase/supabase-js'
 import Anthropic from '@anthropic-ai/sdk'
 import type { Message } from '@anthropic-ai/sdk/resources/messages'
 import { logger } from '@/lib/logger'
+import { overusedPhrases, OVERUSE_FRACTION } from '@/lib/agents/research/batch-uniqueness'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { loadProspectContext } from './research/prospect-context'
 import {
@@ -306,6 +307,7 @@ export async function runProspectResearchCollect({
       const resultId = await storeResearchResult(ctx, entry.raw_sources, synthesis, agentRun.run_id, noOpening, synthesizedAt)
       await updateProspect(ctx, synthesis, resultId, noOpening, synthesizedAt)
       await markEntryCollected(supabase, entry.id, false)
+      await reportBatchRepetition(supabase, entry.batch_id)
 
       await agentRun.complete(`Collected, no opening written: prospect is ${reason}.`)
       return { outcome: 'stored_without_opening', research_result_id: resultId, entry_id: entry.id, reason }
@@ -409,6 +411,7 @@ export async function runProspectResearchCollect({
       })
     }
     await markEntryCollected(supabase, entry.id, docSuperseded)
+    await reportBatchRepetition(supabase, entry.batch_id)
 
     await agentRun.complete(
       `Collected: ${synthesis.qualification_status}, ` +
@@ -528,6 +531,77 @@ async function isDocSuperseded(
   // snapshotted rather than pointed at.
   if (!currentId) return false
   return currentId !== snapshotDocId
+}
+
+/**
+ * THE SAME REPETITION TALLY THE INLINE BATCH RUNS, on the batch path.
+ *
+ * WHY IT HAS TO LIVE HERE RATHER THAN IN A REGISTRY. BatchUniquenessRegistry is an
+ * in-process map and this phase handles ONE prospect per job, so a registry here would be
+ * empty on every call and would report zero repetition however uniform the batch was. That
+ * is not "the same behaviour", it is a check that cannot fail. The batch's copy only exists
+ * together in the DATABASE, so that is where it is counted.
+ *
+ * RUNS FOR THE LAST ENTRY ONLY. Two jobs finishing at the same instant can both read zero
+ * remaining and both log; a duplicated report line is harmless and is the right trade
+ * against a lock on a read-only tally.
+ */
+async function reportBatchRepetition(
+  supabase: ReturnType<typeof getServiceClient>,
+  batchId: string | null,
+): Promise<void> {
+  if (!batchId) return
+
+  const { count, error: remainingError } = await supabase
+    .from('synthesis_batch_entries')
+    .select('id', { count: 'exact', head: true })
+    .eq('batch_id', batchId)
+    .neq('state', 'collected')
+  // A failed count is not a reason to fail the job. Skipping the report loses a log line.
+  if (remainingError || (count ?? 0) > 0) return
+
+  const { data: entries } = await supabase
+    .from('synthesis_batch_entries')
+    .select('prospect_id')
+    .eq('batch_id', batchId)
+  const ids = (entries ?? []).map(e => e.prospect_id as string).filter(Boolean)
+  if (ids.length === 0) return
+
+  const { data: rows } = await supabase
+    .from('prospects')
+    .select('id, personalisation_trigger, personalisation_question')
+    .in('id', ids)
+
+  const shipped = (rows ?? [])
+    .filter(r => r.personalisation_trigger)
+    .map(r => ({
+      prospect_id: r.id as string,
+      // THE STORED TRIGGER IS observation + '\n\n' + bridge, joined by joinOpening. The
+      // second paragraph is the bridge; a trigger with only one paragraph has no bridge to
+      // count and contributes an empty string, which frameShingles yields nothing for.
+      bridge: String(r.personalisation_trigger).split('\n\n')[1] ?? '',
+      question: (r.personalisation_question as string | null) ?? '',
+    }))
+
+  const overused = overusedPhrases(shipped, ids.length)
+
+  logger.info('prospect-research-collect: batch bridge and question repetition', {
+    batch_id: batchId,
+    batch_size: ids.length,
+    shipped: shipped.length,
+    overused: overused.length,
+  })
+
+  if (overused.length > 0) {
+    logger.warn('prospect-research-collect: a phrase is used by more than a tenth of the batch', {
+      batch_id: batchId,
+      threshold: OVERUSE_FRACTION,
+      phrases: overused.slice(0, 5).map(p => ({
+        kind: p.kind, phrase: p.phrase, used: p.used,
+        share: `${Math.round(p.share * 100)}%`, prospect_ids: p.prospect_ids,
+      })),
+    })
+  }
 }
 
 async function markEntryCollected(

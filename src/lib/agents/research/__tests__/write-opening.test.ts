@@ -20,7 +20,7 @@ import {
   OPENING_TARGET_WORDS,
   WRITER_MAX_SENTENCE_WORDS,
 } from '../write-opening'
-import { BatchUniquenessRegistry, uniquenessFeedback } from '../batch-uniqueness'
+import { BatchUniquenessRegistry } from '../batch-uniqueness'
 import { MAX_SENTENCE_WORDS } from '@/lib/style/readability'
 import { ABSTRACT_NOUNS, countAbstractNouns, countFigurativeVerbs } from '@/lib/style/abstract-nouns'
 import { shapeModels, concreteRewrites, plainRewrites, printShopBridge } from './writer-prompt-specimens'
@@ -903,13 +903,16 @@ describe('BatchUniquenessRegistry gates the bridge and the closing question', ()
     expect(collisions.map(c => c.kind)).toContain('question')
   })
 
-  it('records NOTHING when it refuses, so a rejected attempt cannot block a third prospect', () => {
+  // INVERTED 2026-09-23, with the block-to-report change. This used to assert that a
+  // colliding reservation recorded NOTHING, which was right while a collision ended the
+  // attempt: there was no point booking frames that were about to be thrown away. The
+  // attempt now proceeds and the copy ships, so not recording it would mean the end-of-batch
+  // tally counted a phrase used by five prospects as used by one.
+  it('RECORDS a colliding reservation, because the attempt it belongs to now ships', () => {
     const reg = new BatchUniquenessRegistry()
     reg.reserve('p1', BRIDGE_A, 'Is that a gap?')
-    const before = reg.bridgeFrameCount
     reg.reserve('p2', BRIDGE_A_NOUNS_SWAPPED, 'Is that a gap?')
-    expect(reg.bridgeFrameCount).toBe(before)
-    expect(reg.holds('p2')).toBe(false)
+    expect(reg.holds('p2')).toBe(true)
   })
 
   it('lets a prospect retry against itself without colliding with its own last attempt', () => {
@@ -946,27 +949,50 @@ describe('BatchUniquenessRegistry gates the bridge and the closing question', ()
   })
 })
 
-describe('uniquenessFeedback tells the writer what to change', () => {
-  it('asks for a different construction on a bridge collision', () => {
-    const text = uniquenessFeedback([{ kind: 'bridge', key: 'often find the pipeline', firstSeenId: 'p1' }])
-    expect(text).toContain('already uses that sentence shape for the bridge')
-    expect(text).toContain('genuinely different CONSTRUCTION')
-    expect(text).toContain('conditional')
+// REPLACES the three uniquenessFeedback tests, 2026-09-23. They pinned the wording of the
+// retry instruction sent when a repeated bridge REJECTED an attempt. That rejection is gone
+// (see batch-uniqueness.ts), so the function that wrote the instruction is gone with it, and
+// a test pinning a string nothing sends is worse than no test: it reads as coverage.
+//
+// What replaced them asserts the contract that actually changed, at the same level.
+describe('a repeated bridge is recorded and reported, never refused', () => {
+  it('reserve RETURNS the collision and RECORDS it anyway, so the tally can count it', () => {
+    const r = new BatchUniquenessRegistry()
+    const bridge = 'The weeks you spend delivering are weeks nobody is filling the diary.'
+    expect(r.reserve('p1', bridge, 'Worth a look?')).toEqual([])
+    const collisions = r.reserve('p2', bridge, 'Any use to you?')
+    expect(collisions.length).toBeGreaterThan(0)
+    // THE CHANGE. The old version recorded nothing when it collided, because the attempt
+    // was about to be thrown away. The attempt now proceeds, so p2 must be on the books.
+    expect(r.holds('p2')).toBe(true)
   })
 
-  it('forbids a slight reword on a question collision', () => {
-    const text = uniquenessFeedback([{ kind: 'question', key: 'is that a gap', firstSeenId: 'p1' }])
-    expect(text).toContain('already uses that closing question')
-    expect(text).toContain('Do not reword it slightly')
+  it('names whoever said it FIRST, so the report can tell them apart', () => {
+    const r = new BatchUniquenessRegistry()
+    const bridge = 'The weeks you spend delivering are weeks nobody is filling the diary.'
+    r.reserve('p1', bridge, 'Worth a look?')
+    const collisions = r.reserve('p2', bridge, 'Any use to you?')
+    expect(collisions.every(c => c.firstSeenId === 'p1')).toBe(true)
   })
 
-  it('reports both when both collided', () => {
-    const text = uniquenessFeedback([
-      { kind: 'bridge', key: 'often find the pipeline', firstSeenId: 'p1' },
-      { kind: 'question', key: 'is that a gap', firstSeenId: 'p1' },
-    ])
-    expect(text).toContain('sentence shape for the bridge')
-    expect(text).toContain('closing question')
+  it('a retry by the same prospect never collides with itself', () => {
+    const r = new BatchUniquenessRegistry()
+    const bridge = 'The weeks you spend delivering are weeks nobody is filling the diary.'
+    r.reserve('p1', bridge, 'Worth a look?')
+    expect(r.reserve('p1', bridge, 'Worth a look?')).toEqual([])
+  })
+
+  it('releasing the first owner hands the reservation to whoever is still using it', () => {
+    const r = new BatchUniquenessRegistry()
+    const bridge = 'The weeks you spend delivering are weeks nobody is filling the diary.'
+    r.reserve('p1', bridge, 'Worth a look?')
+    r.reserve('p2', bridge, 'Any use to you?')
+    r.release('p1')
+    // p3 must be told p2 said it first. Pointing at the released p1 would name a prospect
+    // no longer in the batch; deleting it would make p3 look like the first to say it.
+    const collisions = r.reserve('p3', bridge, 'Handy?')
+    expect(collisions.length).toBeGreaterThan(0)
+    expect(collisions.every(c => c.firstSeenId === 'p2')).toBe(true)
   })
 })
 

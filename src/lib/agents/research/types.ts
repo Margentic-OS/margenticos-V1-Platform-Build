@@ -144,6 +144,8 @@ export interface SelectionBasis {
   runner_up_basis: SelectionBasis['chosen_basis'] | null
 }
 
+import type { OverusedPhrase } from './batch-uniqueness'
+
 export interface ObservationCandidate {
   /** Stable id within this run: c1, c2, ... */
   id: string
@@ -659,6 +661,12 @@ export interface ResearchBatchSummary {
   bridge_frame_collisions: ResearchFrameCollision[]
   /** Shipped closing questions used by more than one prospect. Also gated, so also zero. */
   question_collisions: ResearchFrameCollision[]
+  /**
+   * Bridge or question phrases more than OVERUSE_FRACTION of the batch used. Empty is the
+   * normal, healthy result. A non-empty entry is the batch converging on one shape, which
+   * is what the uniqueness registry stopped blocking on 2026-09-23 and now only reports.
+   */
+  overused_phrases: OverusedPhrase[]
   /** Distinct closing questions across everything that shipped in this batch. */
   distinct_questions: number
   /**

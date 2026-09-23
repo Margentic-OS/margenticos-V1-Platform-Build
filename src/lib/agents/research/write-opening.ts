@@ -27,7 +27,8 @@ import { readabilityScore } from '@/lib/style/readability'
 // imported rather than restated: a second copy of a number is a second thing to keep
 // in step by hand, and CLAUDE.md names that constant as the source of truth.
 import { EMAIL_SUBJECT_LIMITS } from '@/agents/messaging-generation-agent'
-import { BatchUniquenessRegistry, uniquenessFeedback } from './batch-uniqueness'
+import { BatchUniquenessRegistry } from './batch-uniqueness'
+import { missingEventYear, eventYearGateMessage } from './event-year'
 import type { ObservationCandidate, TokenUsage } from './types'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
 
@@ -1781,8 +1782,14 @@ function cleanOpening(raw: string): string {
 export interface AttemptObservation {
   /** Zero-based. Attempt 0 is the first write, so any value above 0 is a retry. */
   attempt: number
-  /** How this attempt ended. Only 'gated' can carry deterministic gate failures. */
-  kind: 'gated' | 'collided' | 'floored' | 'compared'
+  /**
+   * How this attempt ended. Only 'gated' can carry deterministic gate failures.
+   *
+   * 'collided' was REMOVED on 2026-09-23 with the block-to-report change. A repeated bridge
+   * no longer ends an attempt, so no attempt can end that way, and leaving the value in the
+   * union would let a reader believe a histogram over it might still show one.
+   */
+  kind: 'gated' | 'floored' | 'compared'
   /** The deterministic gates this attempt tripped. Empty for every other kind. */
   gate_failures: string[]
 
@@ -1865,6 +1872,12 @@ export interface WriteAndJudgeParams {
   relevanceReason?: string | null
   /** Why the selected finding beat the runner-up. One sentence. Optional; see buildFindingsBlock. */
   selectionReason?: string | null
+  /**
+   * The clock the event-year gate compares against. Defaults to now. A parameter rather
+   * than a direct `new Date()` inside the gate so a test can pin the year without freezing
+   * the clock for everything else in the run.
+   */
+  now?: Date
   p3: string
   cta: string
   /**
@@ -2100,6 +2113,14 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       `${opening} ${question}`.trim(), params.prospectFirstName, findingsEvidence, params.p3,
       { observation, bridge, question }, { prospectId: params.prospectId }, findings,
     )
+    // THE EVENT YEAR. Read from the SELECTED candidate, not from the observation, because
+    // the observation is the thing under test: asking it what year it means would be asking
+    // the suspect. A writer that chose to describe a different candidate than the one
+    // synthesis selected is a separate fault and the traceability gates own it.
+    const selected = params.candidates.find(c => c.id === params.selectedCandidateId)
+    const owedYear = observation ? missingEventYear(observation, selected?.date, params.now) : null
+    if (owedYear !== null) gates.push(eventYearGateMessage(owedYear))
+
     if (!question) gates.push('writer returned no closing question')
     // A missing half means the reply was malformed. Failing here rather than shipping is
     // deliberate: a bridge with no observation reads as a generic line with no anchor, and
@@ -2189,7 +2210,6 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // that does not carry the text cannot be expressed.
   type Attempt = AttemptText & (
     | { kind: 'gated'; gates: string[] }
-    | { kind: 'collided'; reason: string }
     | { kind: 'floored'; floor: FloorCheck }
     | { kind: 'compared'; c: JudgeComparison }
   )
@@ -2204,17 +2224,25 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     }
     if (w.gates.length > 0) return { ...text, kind: 'gated', gates: w.gates }
 
-    // THE BRIDGE GATE. Reserved synchronously, before either model call below, so two
-    // prospects running concurrently cannot both pass a clean check and then both commit
-    // the same frame. Released again the moment this attempt stops being a candidate.
+    // THE BRIDGE TALLY, NOT A GATE. Recorded synchronously, before either model call below,
+    // so two prospects running concurrently are both counted rather than one being missed.
+    // Released again the moment this attempt stops being a candidate, so the end-of-batch
+    // tally counts what shipped.
+    //
+    // REPORTS AND CONTINUES. Blocking here cost Jason Shapiro and Richard Spilsbury their
+    // emails on 2026-09-23, both on every attempt and both with strong material, because a
+    // shared client trigger makes two prospects legitimately have the same thing said about
+    // them. See batch-uniqueness.ts for why that inverted the original reasoning.
     const collisions = params.uniqueness?.reserve(params.prospectId, w.bridge, w.question) ?? []
     if (collisions.length > 0) {
-      logger.warn('research/write-opening: bridge or question collided with another prospect', {
+      params.uniqueness?.recordReported(collisions)
+      logger.info('research/write-opening: bridge or question repeats another prospect in this batch', {
         prospect_id: params.prospectId,
+        mode: 'report',
         kinds: [...new Set(collisions.map(c => c.kind))],
         keys: collisions.map(c => c.key).slice(0, 3),
+        first_seen: collisions.map(c => c.firstSeenId).slice(0, 3),
       })
-      return { ...text, kind: 'collided', reason: uniquenessFeedback(collisions) }
     }
 
     const floor = await floorCheck(w.opening, w.question, w.subject)
@@ -2236,11 +2264,9 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   const feedbackFrom = (a: Attempt): string =>
     a.kind === 'gated'
       ? `${a.opening} ${a.question}|||${a.gates.join('; ')}`
-      : a.kind === 'collided'
-        ? `${a.opening} ${a.question}|||${a.reason}`
-        : a.kind === 'floored'
-          ? `${a.opening} ${a.question}|||A reviewer said this claims private knowledge about the prospect: ${a.floor.reason}. Say only what can be seen from outside.`
-          : `${a.c.opening} ${a.c.question}|||${a.c.reason}`
+      : a.kind === 'floored'
+        ? `${a.opening} ${a.question}|||A reviewer said this claims private knowledge about the prospect: ${a.floor.reason}. Say only what can be seen from outside.`
+        : `${a.c.opening} ${a.c.question}|||${a.c.reason}`
 
   let feedback: string | null = null
   let last: Attempt | null = null
@@ -2311,13 +2337,11 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   const reason =
     last?.kind === 'gated'
       ? `Failed deterministic gates on the final attempt: ${last.gates.join('; ')}`
-      : last?.kind === 'collided'
-        ? `Bridge or closing question collided with another prospect in this batch on every attempt: ${last.reason}`
-        : last?.kind === 'floored'
-          ? `Disqualified by the floor on the final attempt: ${last.floor.reason}`
-          : last?.kind === 'compared'
-            ? last.c.reason
-            : 'No attempt completed.'
+      : last?.kind === 'floored'
+        ? `Disqualified by the floor on the final attempt: ${last.floor.reason}`
+        : last?.kind === 'compared'
+          ? last.c.reason
+          : 'No attempt completed.'
 
   // Nothing from this prospect ships, so it must not be holding any batch reservation.
   params.uniqueness?.release(params.prospectId)

@@ -17,7 +17,7 @@ import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { fetchAllSources } from './research/fetch-sources'
 import { synthesizeResearch, loadClientContext }  from './research/synthesize'
 import { FrameRegistry, frameShingles, sentenceKey } from '@/lib/style/sentence-frames'
-import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
+import { BatchUniquenessRegistry, overusedPhrases, OVERUSE_FRACTION, type OverusedPhrase } from '@/lib/agents/research/batch-uniqueness'
 import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
@@ -928,6 +928,7 @@ export async function runProspectResearchAgentV2Batch({
   const frame_collisions: ResearchFrameCollision[] = []
   const bridge_frame_collisions: ResearchFrameCollision[] = []
   const question_collisions: ResearchFrameCollision[] = []
+  let overused_phrases: OverusedPhrase[] = []
   const abstract_noun_hits: ResearchAbstractNounHit[] = []
   const summary: ResearchBatchSummary = {
     total:          prospect_ids.length,
@@ -941,6 +942,7 @@ export async function runProspectResearchAgentV2Batch({
     frame_collisions,
     bridge_frame_collisions,
     question_collisions,
+    overused_phrases,
     distinct_questions: 0,
     abstract_noun_hits,
     abstract_noun_total: 0,
@@ -1202,16 +1204,39 @@ export async function runProspectResearchAgentV2Batch({
     nouns:               [...new Set(abstract_noun_hits.flatMap(h => h.nouns))],
   })
 
-  if (bridge_frame_collisions.length > 0 || question_collisions.length > 0) {
-    logger.error('prospect-research-v2 batch: uniqueness gate let a collision through', {
-      bridge_collisions:   bridge_frame_collisions.length,
-      question_collisions: question_collisions.length,
-    })
-  } else {
-    logger.info('prospect-research-v2 batch: bridges and closing questions all distinct', {
-      shipped:            shipped.length,
-      distinct_questions: summary.distinct_questions,
-      reserved_frames:    uniqueness.bridgeFrameCount,
+  // REPETITION IS REPORTED, NOT FAILED. Until 2026-09-23 a collision here was logged at
+  // ERROR as "the gate let one through", because the registry was supposed to make it
+  // impossible. The registry now reports instead of blocking, so a repeat is an expected
+  // observation about the copy and the old line would cry wolf on every batch.
+  //
+  // WHAT IS WORTH AN ALARM is not that two prospects share a shape, it is that MANY do.
+  // That is what overusedPhrases measures, and it is the only thing here that escalates.
+  overused_phrases = overusedPhrases(
+    shipped.map(s => ({ prospect_id: s.prospect_id, bridge: s.bridge, question: s.question })),
+    // THE WHOLE BATCH is the denominator, including prospects that fell back to the
+    // template. Dividing by the shipped count would make a batch where most prospects
+    // failed look more varied the worse it went.
+    prospect_ids.length,
+  )
+  summary.overused_phrases = overused_phrases
+
+  logger.info('prospect-research-v2 batch: bridge and question repetition', {
+    shipped:             shipped.length,
+    batch_size:          prospect_ids.length,
+    distinct_questions:  summary.distinct_questions,
+    repeated_bridges:    bridge_frame_collisions.length,
+    repeated_questions:  question_collisions.length,
+    reported_in_run:     uniqueness.reportedCollisions.length,
+    reserved_frames:     uniqueness.bridgeFrameCount,
+  })
+
+  if (overused_phrases.length > 0) {
+    logger.warn('prospect-research-v2 batch: a phrase is used by more than a tenth of the batch', {
+      threshold: OVERUSE_FRACTION,
+      phrases: overused_phrases.slice(0, 5).map(p => ({
+        kind: p.kind, phrase: p.phrase, used: p.used,
+        share: `${Math.round(p.share * 100)}%`, prospect_ids: p.prospect_ids,
+      })),
     })
   }
 
