@@ -17,7 +17,13 @@
 // The full run is recorded in the commit message.
 
 import { describe, it, expect } from 'vitest'
-import { validateEmails, authoredProse, type EmailRecord } from '../messaging-generation-agent'
+import {
+  validateEmails,
+  authoredProse,
+  buildHeldParagraphsBlock,
+  type EmailRecord,
+  type HeldParagraph,
+} from '../messaging-generation-agent'
 import { fleschKincaidGrade, MAX_READING_GRADE } from '@/lib/style/reading-grade'
 
 const SENDER = 'Doug'
@@ -142,5 +148,40 @@ describe('a held paragraph cannot decide the verdict', () => {
   it('matches a held paragraph despite whitespace differences', () => {
     const body = emailOf(PLAIN_PARAGRAPHS).body
     expect(authoredProse(body, SENDER, COMPANY, ['  Does that   sound right?  '])).not.toContain(CTA)
+  })
+})
+
+describe('the prompt and the gate agree about what is held', () => {
+  // THE SEAM, tested as a PAIR rather than as two sides. The prompt tells the agent which
+  // lines to reproduce; the gate excludes which lines it scores. Each is correct on its
+  // own and the failure that matters is them disagreeing: a line the prompt demands but
+  // the gate scores is a paragraph the agent is ordered to write and then punished for.
+  // Both are driven from one list, and this asserts that is actually true rather than
+  // merely intended.
+  const HELD: HeldParagraph[] = [
+    { sequence_position: 2, text: CTA },
+    { sequence_position: 3, text: 'Worth a quick call to see if it fits?' },
+  ]
+
+  it('every line the prompt names is excluded from the scored surface', () => {
+    const block = buildHeldParagraphsBlock(HELD)
+    for (const h of HELD) {
+      expect(block).toContain(h.text)
+    }
+    const body = emailOf(PLAIN_PARAGRAPHS).body
+    const surface = authoredProse(body, SENDER, COMPANY, HELD.map(h => h.text))
+    expect(surface).not.toContain(CTA)
+  })
+
+  it('groups by email so a CTA is never offered for the wrong position', () => {
+    const block = buildHeldParagraphsBlock(HELD)
+    expect(block).toContain('Email 2 must end with')
+    expect(block).toContain('Email 3 must end with')
+  })
+
+  it('renders nothing at all when nothing is held', () => {
+    // An empty block must be empty, not a heading with no content under it. Ordinary
+    // generation holds nothing, and a stray heading would be prompt noise on every run.
+    expect(buildHeldParagraphsBlock([])).toBe('')
   })
 })

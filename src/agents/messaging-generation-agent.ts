@@ -163,6 +163,21 @@ export interface MessagingAgentInput {
   segment_id?: string | null
   /** Optional: notes on the rejected suggestion this run replaces. See ADR-038. */
   regeneration_notes?: RegenerationNotes
+  /**
+   * Paragraphs this run supplies to the agent verbatim rather than asking it to write.
+   * Both halves matter and they are deliberately driven from ONE list: the prompt tells
+   * the agent to reproduce these lines, and the reading grade excludes them. Two lists
+   * would be two things to keep in step, and the failure would be silent in the direction
+   * that costs money, an agent rewriting a line nothing then scored.
+   */
+  held_paragraphs?: readonly HeldParagraph[]
+}
+
+/** A paragraph supplied to the agent rather than written by it. See held_paragraphs. */
+export interface HeldParagraph {
+  /** Which email in the sequence this paragraph belongs to, 1 to 4. */
+  sequence_position: number
+  text: string
 }
 
 export interface MessagingAgentResult {
@@ -258,6 +273,10 @@ export interface VariantGenerationContext {
   /** Notes on the rejected suggestion this run replaces. Carried into retries and
    *  fallbacks as well as the first pass, so a retry cannot quietly drop the note. */
   regeneration_notes: RegenerationNotes | undefined
+  /** See MessagingAgentInput.held_paragraphs. Carried on the context because retries and
+   *  fallbacks validate through the same path and must score the same surface as the
+   *  first pass. A retry that scored held text would fail a variant the first pass passed. */
+  heldParagraphs: readonly HeldParagraph[]
 }
 
 // Records the outcome for one variant slot after first pass + any retries/fallbacks.
@@ -346,6 +365,7 @@ export async function runMessagingGenerationAgent(
 ): Promise<MessagingAgentResult> {
   const { organisation_id, supabase, segment_id = null } = input
   const regeneration_notes = input.regeneration_notes
+  const heldParagraphs = input.held_paragraphs ?? []
 
   logger.info('Messaging agent: starting', { organisation_id, segment_id })
 
@@ -406,7 +426,7 @@ export async function runMessagingGenerationAgent(
     // two lists that must agree by hand: the day one of them learns to read a new document
     // and the other does not, the repair writes copy from context the full run would have
     // rejected, and nothing says so.
-    const context = await buildVariantGenerationContext(supabase, organisation_id, regeneration_notes)
+    const context = await buildVariantGenerationContext(supabase, organisation_id, regeneration_notes, heldParagraphs)
     const { intake, preflight, requiredDocs, completeness, existingDocument, patterns, upstreamAssumptions } = context
 
     // Step 8: Build the user message requesting four variants.
@@ -420,6 +440,7 @@ export async function runMessagingGenerationAgent(
       preflight,
       upstreamAssumptions,
       regeneration_notes,
+      heldParagraphs,
     })
 
     // Step 9: Call Claude — one API call for all four variants.
@@ -471,6 +492,8 @@ export async function runMessagingGenerationAgent(
     // then fallback angles). Only fires if variants actually failed.
     if (variantFailures.length > 0) {
       const retryContext: VariantGenerationContext = {
+        // Carried so a retry scores exactly the surface the first pass scored.
+        heldParagraphs,
         intake,
         requiredDocs,
         existingDocument,
@@ -843,6 +866,7 @@ export async function buildVariantGenerationContext(
   supabase: SupabaseClient,
   organisation_id: string,
   regeneration_notes: RegenerationNotes | undefined,
+  heldParagraphs: readonly HeldParagraph[] = [],
 ): Promise<VariantGenerationContext> {
   // Step 1: Fetch intake responses for this client only.
   const intake = await fetchIntakeResponses(supabase, organisation_id)
@@ -907,6 +931,7 @@ export async function buildVariantGenerationContext(
   ]
 
   return {
+    heldParagraphs,
     intake,
     requiredDocs,
     existingDocument,
@@ -916,6 +941,44 @@ export async function buildVariantGenerationContext(
     upstreamAssumptions,
     regeneration_notes,
   }
+}
+
+// Renders the held paragraphs into the prompt, grouped by which email they belong to.
+//
+// RENDERED FROM THE SAME LIST THE GATE EXCLUDES. If the prompt named one set of lines and
+// the scorer excluded another, the agent would be asked to reproduce a paragraph that then
+// counted against its grade, which is the exact failure the held mechanism exists to
+// prevent. One list, two consumers, no second place to edit.
+//
+// Placed in buildBaseContext so the first pass and the single-variant REPAIR path both get
+// it. A repair that did not see this block would rewrite the held lines, and a rewritten
+// line is no longer matched, so it would start being scored, and the repair would be
+// strictly harder than the attempt it was repairing.
+export function buildHeldParagraphsBlock(held: readonly HeldParagraph[]): string {
+  if (held.length === 0) return ''
+  const byPosition = new Map<number, string[]>()
+  for (const h of held) {
+    const list = byPosition.get(h.sequence_position) ?? []
+    list.push(h.text)
+    byPosition.set(h.sequence_position, list)
+  }
+  const sections = [...byPosition.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([pos, texts]) => {
+      const options = texts.map(t => `    ${t}`).join('\n')
+      return texts.length === 1
+        ? `  Email ${pos} must end with exactly this question:\n${options}`
+        : `  Email ${pos} must end with exactly ONE of these questions, whichever suits its angle:\n${options}`
+    })
+    .join('\n\n')
+
+  return `\n\n## LINES THAT ARE ALREADY WRITTEN. REPRODUCE THEM EXACTLY.\n\n` +
+    `These closing questions are not yours to rewrite. Copy one of them word for word, ` +
+    `including its punctuation, as the last line before the sign-off of the email named.\n\n` +
+    `${sections}\n\n` +
+    `They are excluded from the reading grade, so rewriting one CANNOT help you pass it. ` +
+    `It can only cost you the attempt. Every other paragraph in those emails is yours and ` +
+    `is what the grade is measured on.\n`
 }
 
 function buildBaseContext(params: VariantGenerationContext): {
@@ -1049,7 +1112,8 @@ function buildBaseContext(params: VariantGenerationContext): {
   const contextBlocks =
     `## INTAKE QUESTIONNAIRE RESPONSES\n\n${intakeSections}` +
     icpBlock + positioningBlock + tovBlock + senderContext + upstreamAssumptionsContext + refreshContext + patternContext +
-    buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument)
+    buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument) +
+    buildHeldParagraphsBlock(params.heldParagraphs)
 
   return { completenessNote, contextBlocks }
 }
@@ -1064,6 +1128,7 @@ function buildUserMessage(params: {
   preflight: PreflightContext
   upstreamAssumptions: UpstreamAssumption[]
   regeneration_notes: RegenerationNotes | undefined
+  heldParagraphs: readonly HeldParagraph[]
 }): string {
   const { completenessNote, contextBlocks } = buildBaseContext(params)
 
@@ -1678,6 +1743,8 @@ interface ProcessVariantParams {
   senderCompanyName: string
   organisation_id: string
   attemptLabel?: string
+  /** See MessagingAgentInput.held_paragraphs. Defaults to none. */
+  heldParagraphs?: readonly HeldParagraph[]
 }
 
 async function processOneVariant({
@@ -1687,6 +1754,7 @@ async function processOneVariant({
   senderCompanyName,
   organisation_id,
   attemptLabel,
+  heldParagraphs = [],
 }: ProcessVariantParams): Promise<{ passed: EmailRecord[] } | { failure: VariantFailure }> {
   const label = attemptLabel ? ` (${attemptLabel})` : ''
 
@@ -1749,7 +1817,13 @@ async function processOneVariant({
     }
   }
 
-  const violations = validateEmails(countedEmails, senderFirstName, senderCompanyName)
+  // The ONE place the structured held list becomes the flat list the scorer wants. Derived
+  // rather than passed separately, so the prompt and the gate cannot come to disagree about
+  // which paragraphs were held.
+  const violations = validateEmails(
+    countedEmails, senderFirstName, senderCompanyName,
+    heldParagraphs.map(h => h.text),
+  )
   if (violations.length > 0) {
     const failure: VariantFailure = { variant: variantKey, violations }
     logger.warn(`Messaging agent: Variant ${variantKey}${label} failed validation`, {
@@ -1815,6 +1889,7 @@ async function processAllVariants(
   senderCompanyName: string,
   organisation_id: string,
   registry: SentenceRegistry,
+  heldParagraphs: readonly HeldParagraph[] = [],
 ): Promise<{ passedVariants: Record<string, EmailRecord[]>; variantFailures: VariantFailure[] }> {
   const passedVariants: Record<string, EmailRecord[]> = {}
   const variantFailures: VariantFailure[] = []
@@ -1823,7 +1898,7 @@ async function processAllVariants(
   // Sorted so "first writer wins" is stable rather than dependent on object key order.
   for (const variantKey of Object.keys(rawVariants).sort()) {
     const emails = rawVariants[variantKey]
-    const result = await processOneVariant({ variantKey, emails, senderFirstName, senderCompanyName, organisation_id })
+    const result = await processOneVariant({ variantKey, emails, senderFirstName, senderCompanyName, organisation_id, heldParagraphs })
     if (!('passed' in result)) {
       variantFailures.push(result.failure)
       continue
@@ -2695,6 +2770,7 @@ export async function attemptSlotRepair(
     const result = await processOneVariant({
       variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
       attemptLabel: plan.label,
+      heldParagraphs: context.heldParagraphs,
     })
 
     // Carry THIS attempt's measured violations into the next one. Without this every
