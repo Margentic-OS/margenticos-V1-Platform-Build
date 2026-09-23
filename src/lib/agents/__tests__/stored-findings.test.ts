@@ -385,8 +385,20 @@ describe('buildSourceTracking: a skip is not an attempt', () => {
     // path. A hardcoded copy in any one of them stops matching the reader and that source
     // silently reappears in sources_attempted. Verified by mutation: hardcoding one stub
     // passes every other test in this file.
+    //
+    // THE PREFIX IN THIS PATTERN IS LOad-BEARING, 2026-09-23. SOURCE_SKIPPED_REUSE moved
+    // to research/source-skip.ts, so the agent now IMPORTS it rather than declaring it,
+    // and the module transform rewrites every reference inside this function from
+    // `SOURCE_SKIPPED_REUSE` to `__vite_ssr_import_NN__.SOURCE_SKIPPED_REUSE`. The four
+    // stubs were untouched and still work; only the text changed.
+    //
+    // That is the hazard of reading a function's SOURCE rather than its BEHAVIOUR: this
+    // test went red for a refactor that changed nothing it was written to protect. The
+    // optional namespace below keeps the real guarantee (all four stubs go through the
+    // one constant) while tolerating however the transform spells the reference. Do not
+    // tighten it back to a bare identifier.
     const src = runProspectResearchAgentV2.toString()
     expect(src).not.toMatch(/error:\s*['"`]skipped:/)
-    expect(src.match(/error:\s*SOURCE_SKIPPED_REUSE/g) ?? []).toHaveLength(4)
+    expect(src.match(/error:\s*(?:[A-Za-z0-9_$]+\.)?SOURCE_SKIPPED_REUSE/g) ?? []).toHaveLength(4)
   })
 })
