@@ -111,6 +111,39 @@ export const OPENING_BUDGET = {
  */
 export const WRITER_MAX_SENTENCE_WORDS = 18
 
+/**
+ * The exact marker the sentence-length gate puts in its failure string.
+ *
+ * SHARED BY THE PRODUCER AND THE READER, because they have to agree on the wording and
+ * stating it twice is how they stop agreeing. The gate below builds its message from this
+ * constant; isSentenceLengthOnly matches on it. A reworded gate that forgot to update a
+ * separate matcher would silently stop granting the extra attempt, and nothing would fail.
+ */
+export const SENTENCE_CAP_MARKER = 'and the writer cap is'
+
+/**
+ * True when EVERY failure on this attempt is a sentence that ran long, and there is at
+ * least one.
+ *
+ * ─── WHY THIS ONE FAULT EARNS AN EXTRA ATTEMPT ───────────────────────────────
+ *
+ * A long sentence is the only gate failure where the model has the right FACT and the
+ * wrong SHAPE. Every other gate says the content is wrong: a banned figure, a bare
+ * pronoun, an inference the evidence does not carry. Those do not improve by asking
+ * again, and spending a call on them buys the same answer.
+ *
+ * Splitting a sentence is a mechanical instruction the model reliably follows, and the
+ * feedback already tells it exactly that. Measured on the 2026-09-21 cohort: 135 sentences
+ * over the 18-word cap, and it is the single most common gate failure.
+ *
+ * "ONLY" IS LOAD-BEARING. An attempt that ran long AND used a banned figure is not a
+ * shape problem wearing a length label, and must not buy a retry on the strength of the
+ * half that is cheap to fix.
+ */
+export function isSentenceLengthOnly(gates: readonly string[]): boolean {
+  return gates.length > 0 && gates.every(g => g.includes(SENTENCE_CAP_MARKER))
+}
+
 /** The sum of the per-part targets. What the prompt aims at, not what the gate enforces. */
 export const OPENING_TARGET_WORDS =
   OPENING_BUDGET.observation + OPENING_BUDGET.bridge + OPENING_BUDGET.question
@@ -1406,7 +1439,7 @@ export function checkOpeningGates(
       for (const sentence of readability.longSentences) {
         const n = sentence.trim().split(/\s+/).filter(Boolean).length
         failures.push(
-          `the ${part} has a sentence of ${n} words, and the writer cap is ` +
+          `the ${part} has a sentence of ${n} words, ${SENTENCE_CAP_MARKER} ` +
           `${WRITER_MAX_SENTENCE_WORDS}: split it into two shorter sentences rather than ` +
           `cutting the fact out`,
         )
@@ -2087,7 +2120,21 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // just spends calls to arrive at the same place, so the extra attempt is bought by the
   // evidence: at least one candidate that passed all six tests.
   const strongMaterial = params.candidates.some(c => c.passes_all)
-  const maxAttempts = strongMaterial ? 3 : 2
+  const baseAttempts = strongMaterial ? 3 : 2
+
+  /**
+   * ONE EXTRA ATTEMPT, AND ONLY FOR A SENTENCE THAT RAN LONG.
+   *
+   * Granted at most once per prospect, and only when the LAST attempt's sole complaint was
+   * sentence length. It is the one gate failure where the model has the right fact and the
+   * wrong shape, and the feedback already tells it exactly what to do. Every other gate
+   * says the CONTENT is wrong, and asking again buys the same answer.
+   *
+   * Spent at the END of the budget rather than inserted mid-loop, so a prospect that
+   * already recovered never pays for it, and the normal budget is unchanged for every
+   * prospect whose attempts failed for any other reason.
+   */
+  let extraGranted = false
 
   // AN INTERSECTION, NOT THE SAME FIELDS REPEATED PER VARIANT, and that is the whole of
   // why a rejected attempt's text is now reachable.
@@ -2156,7 +2203,8 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   let feedback: string | null = null
   let last: Attempt | null = null
 
-  for (let i = 0; i < maxAttempts; i++) {
+  // `maxAttempts` is read fresh each iteration because the extra attempt may raise it.
+  for (let i = 0; i < baseAttempts + (extraGranted ? 1 : 0); i++) {
     const a = await attempt(feedback)
     last = a
 
@@ -2196,8 +2244,26 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       }
     }
     feedback = feedbackFrom(a)
+
+    // Grant the extra attempt when the budget is about to run out and the ONLY thing
+    // wrong is a long sentence. Checked here, after feedback is built, so the extra
+    // attempt receives the same split-it instruction every other retry gets.
+    if (
+      !extraGranted
+      && i === baseAttempts - 1
+      && a.kind === 'gated'
+      && isSentenceLengthOnly(a.gates)
+    ) {
+      extraGranted = true
+      logger.info('write-opening: extra attempt granted, sentence length was the only fault', {
+        prospect_id: params.prospectId,
+        base_attempts: baseAttempts,
+        gates: a.gates,
+      })
+    }
   }
 
+  const maxAttempts = baseAttempts + (extraGranted ? 1 : 0)
   // Every attempt used. The approved template ships, which is the correct outcome.
   const retries = maxAttempts - 1
   const reason =
