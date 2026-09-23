@@ -307,10 +307,27 @@ First, the observation: the thing you noticed about this specific person. You ca
 they posted, what they published, who they hired, where they spoke, what roles they have
 held and when. Say one of those.
 
-Second, the bridge: its own paragraph and ONE sentence, naming the CONSEQUENCE that follows
-from the observation above it, as a PATTERN that is typically true of firms in the situation
-you just described. The consequence you name is the one that lands on the problem your
-target is.
+Second, the bridge: its own paragraph and ONE sentence, stating THE REASON the observation
+gives this person to want what the sender offers.
+
+THE REASON IS SUPPLIED TO YOU. Synthesis names it in the ASSIGNMENT block, derived from the
+client's own documents. Your job is to state it in a sentence this reader would accept, not
+to work out for yourself what the fact implies.
+
+IT MUST BE TRUE WHATEVER THEIR SITUATION. This is the whole test for the sentence. Write it
+as something that follows from the observation for anyone it describes, and never as a claim
+about THIS reader's circumstances. You do not know their circumstances. You know one thing
+that happened.
+
+  A claim about them:  "so your pipeline has gone quiet while you deliver"
+                       You have no idea whether it has. If it has not, they stop reading.
+  The reason, stated:  "work booked now is work that needs replacing later"
+                       True whether they are busy or quiet, and it still explains why the
+                       sender is worth a reply.
+
+Never assert anything about their pipeline, their diary, their revenue or how busy they are.
+Those are the things you cannot see, and a reader who is doing fine knows immediately that
+you guessed.
 
 A CONSEQUENCE MAY BE AN ABSENCE. IT DOES NOT HAVE TO BE. Where something genuinely is
 absent, naming it stays permitted, on the terms set out lower down. Where it is not, do

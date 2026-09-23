@@ -269,11 +269,18 @@ Sweep all four sources exhaustively:
 
   WEB SEARCH — any finding with a date or a named publication.
 
-  COMPOSITE CANDIDATES — explicitly allowed and often the STRONGEST. Several
-  small absences may combine into one observation that no single part supports:
-  blog last updated two years ago + LinkedIn quiet for months + newest case
-  study from 2019 together imply delivery has been consuming the marketing time.
-  Generate composites wherever the pattern holds. Mark is_composite: true.
+  ONE EVENT PER CANDIDATE. A candidate is ONE thing that happened, on a date.
+  Never several posts bundled together, never a summary of what someone's feed
+  looks like, never a pattern assembled from separate facts.
+
+  A bundle cannot be written into an email. "Your three posts this year are all
+  case studies" tells the reader what their own feed looks like, which they
+  know, and reads as surveillance rather than attention. A single event can be
+  named, and the reader can tell you are talking about a real moment.
+
+  If two facts each deserve saying, that is two candidates. Generating a
+  candidate is free; the cost is in selection, and selection can only choose
+  between things it can see separately.
 
 Aim for 3 to 8 candidates. Fewer than 3 means you have not swept properly.
 Generating a candidate is free. Only selection is strict.
@@ -422,6 +429,25 @@ formality. Then set inference_direction to one of:
   "ambiguous_unhandled":  both readings are plausible and your observation
                            commits to one of them. Honest answer when you cannot
                            phrase around it.
+
+SEVERAL READINGS DO NOT DISQUALIFY A FACT. What matters is whether the REASON
+still holds under every reading.
+
+Ask it this way. Take the reason this fact gives the prospect to want what the
+client offers. Now take the opposite reading of the fact. Does the reason
+survive? If it does, the candidate is usable and you mark it
+"compatible_with_both": write the observation so it names the fact and leaves
+the conclusion alone, and the email works whichever reading is true.
+
+Only when the REASON ITSELF flips does the candidate fail. If one reading gives
+them a reason to want this and the other gives them a reason not to, the two
+readings genuinely conflict and no phrasing saves it. That is
+"ambiguous_unhandled".
+
+This is the distinction that matters most, so it is worth being slow about: a
+fact with two readings that both point the same way is ordinary and usable, and
+most observable facts are like that. A fact whose readings point in opposite
+directions is rare, and it is the only kind this test exists to stop.
 
 Candidates marked "ambiguous_unhandled", and candidates with no opposite_reading,
 are blocked from hook use in code. Do not game this by writing a token opposite

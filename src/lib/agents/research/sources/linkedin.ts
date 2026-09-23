@@ -69,9 +69,13 @@ export const MAX_POSTS = 5
  * model were older than 90 days under that label. The model was told a recency the data
  * did not have, which is how so many candidates came back asserting "recent" with no date.
  *
- * 90 days, matching the window the research is judged against.
+ * 180 days since 2026-09-23, raised from 90. At 90 the filter was correct and too tight:
+ * every prospect who had not posted in three months returned zero posts, and on the
+ * 2026-09-23 run that emptied LinkedIn for several of them. A trigger list built on events
+ * does not need the event to be three months old to be worth naming, and a six-month window
+ * still excludes the years of stale material the unfiltered actor used to return.
  */
-export const POSTED_WITHIN_DAYS = 90
+export const POSTED_WITHIN_DAYS = 180
 
 async function runApifyActor(
   actorId: string,
@@ -135,6 +139,59 @@ export function postedDate(post: Record<string, unknown>): string | null {
   return null
 }
 
+/**
+ * The structured fields a post can carry that the PROSE does not repeat.
+ *
+ * ═══ WHY THESE, MEASURED 2026-09-23 ══════════════════════════════════════════
+ * The formatter read post.text/content/commentary and nothing else, so everything LinkedIn
+ * supplies as structure was dropped on the way to the model. Measured across the 20:
+ *
+ *   Jason Shapiro, 13 Aug   prose "We're hiring!"   job.title "Controller Engagement Manager"
+ *   Erin Spencer,  23 Jul   prose "...actively interviewing for cand..."
+ *                                                   job.title "Human Resources Consultant"
+ *
+ * Both are hiring posts, both went to template, and the one detail that makes a hiring post
+ * usable never reached the model. The candidate synthesis wrote for Jason says it outright:
+ * "a hiring announcement on August 13 WITH NO ROLE SPECIFIED IN THE AVAILABLE EXCERPT". The
+ * model was accurate about what it could see.
+ *
+ * A RESHARE IS NOT THEIR POST, and the flag is the only thing that can tell you. Without it
+ * an opening can credit a prospect with something somebody else wrote, which is worse than
+ * saying nothing: it is confidently wrong about their own life, in the first line.
+ */
+function structuredFacts(post: Record<string, unknown>): string[] {
+  const out: string[] = []
+  const str = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim().length > 0 ? v.trim() : null
+
+  const job = post.job as Record<string, unknown> | undefined
+  const jobTitle = job ? str(job.title) : null
+  if (jobTitle) {
+    const where = job ? str(job.location) : null
+    out.push(`role advertised: ${jobTitle}${where ? ` (${where})` : ''}`)
+  }
+
+  const article = post.article as Record<string, unknown> | undefined
+  const articleTitle = article ? str(article.title) : null
+  if (articleTitle) out.push(`article: ${articleTitle}`)
+
+  const doc = post.document as Record<string, unknown> | undefined
+  const docTitle = doc ? str(doc.title) : null
+  if (docTitle) out.push(`document: ${docTitle}`)
+
+  const newsletter = str(post.newsletterTitle)
+  if (newsletter) out.push(`newsletter: ${newsletter}`)
+
+  return out
+}
+
+/** True when this post is a reshare of somebody else's, not the prospect's own. */
+export function isReshare(post: Record<string, unknown>): boolean {
+  if (post.repost === true || post.repostId != null || post.repostedAt != null) return true
+  const by = post.repostedBy
+  return !!by && typeof by === 'object'
+}
+
 function formatPostsData(posts: Array<Record<string, unknown>>): string {
   if (!posts.length) return ''
 
@@ -145,13 +202,21 @@ function formatPostsData(posts: Array<Record<string, unknown>>): string {
   const lines = [`Recent LinkedIn posts (provider filtered to the last ${POSTED_WITHIN_DAYS} days):`]
   for (const post of recent) {
     const text = post.text ?? post.content ?? post.commentary
-    if (!text) continue
+    const facts = structuredFacts(post)
+    // A POST WITH NO PROSE IS STILL A POST when it carries structure. The old guard was
+    // `if (!text) continue`, which dropped a job share whose whole content is the job.
+    if (!text && facts.length === 0) continue
     const date = postedDate(post)
     const reactions = post.reactions ?? post.totalReactionCount ?? ''
     // An undated post says so rather than being silently presented as dated.
     const dateStr = date ? ` (${date})` : ' (date not given)'
     const reactStr = reactions ? ` — ${reactions} reactions` : ''
-    lines.push(`  Post${dateStr}${reactStr}: ${[...String(text)].slice(0, 300).join('')}`)
+    // MARKED, NOT DROPPED. A reshare is evidence of what they chose to amplify, which is a
+    // real fact about them; it is just not something they said. The model is told which.
+    const kindStr = isReshare(post) ? ' [RESHARE of someone else\'s post, not their own]' : ''
+    const body = text ? [...String(text)].slice(0, 300).join('') : '(no text)'
+    lines.push(`  Post${dateStr}${reactStr}${kindStr}: ${body}`)
+    for (const f of facts) lines.push(`      ${f}`)
   }
 
   return lines.join('\n')

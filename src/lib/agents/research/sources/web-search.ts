@@ -57,7 +57,48 @@ import { webSearch } from '@/lib/agents/tools/webSearch'
 import { logger } from '@/lib/logger'
 import type { ProspectContext, WebSearchSourceResult } from '../types'
 
+/**
+ * ONE RETRY ON FAILURE, and only on a THROW.
+ *
+ * ═══ WHAT IS AND IS NOT RETRIED ══════════════════════════════════════════════
+ * A throw means the call did not complete: a timeout, a socket reset, a provider 5xx. That
+ * is worth asking again, and on the 2026-09-23 runs it was the common web_search failure.
+ *
+ * A COMPLETED SEARCH THAT FOUND NOTHING IS NOT RETRIED. `available: false` with
+ * "No substantive findings" is the provider answering: it looked and there was nothing
+ * about this person. Asking the same question again buys the same answer and pays twice.
+ * That is the same distinction source-integrity.ts draws between a source that could not be
+ * reached and one that ran and found nothing.
+ */
 export async function fetchWebSearchSource(prospect: ProspectContext): Promise<WebSearchSourceResult> {
+  try {
+    return await fetchWebSearchOnce(prospect)
+  } catch (firstError) {
+    logger.warn('research/web-search: call threw, retrying once', { error: String(firstError) })
+    try {
+      return await fetchWebSearchOnce(prospect)
+    } catch (secondError) {
+      // Both failed. The second error is the one reported, and the first is logged above so
+      // neither is lost: two different failures are two different diagnoses.
+      logger.warn('research/web-search: retry also threw', { error: String(secondError) })
+      return {
+        available: false,
+        person_search: null,
+        company_search: null,
+        combined: null,
+        error: String(secondError),
+        providers: [],
+        // TWO attempts were made and both threw, so anything the provider ran on either is
+        // unrecoverable from here. Zero is a floor on what was billed, not a claim that
+        // nothing was: the same caveat the single-attempt path already carried, doubled.
+        search_count: 0,
+        result_count: 0,
+      }
+    }
+  }
+}
+
+async function fetchWebSearchOnce(prospect: ProspectContext): Promise<WebSearchSourceResult> {
   const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ')
   const company = prospect.company_name ?? ''
   const year = new Date().getFullYear()

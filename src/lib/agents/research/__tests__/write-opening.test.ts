@@ -1724,7 +1724,16 @@ describe('the bridge names a consequence, and an absence is permitted but never 
     const flat = prompt().replace(/\s+/g, ' ')
     // ESTABLISHED IN THE JOB DEFINITION, which is the point: every rule that assumes an
     // absence sits below this, so it has to be settled before they are read.
-    expect(flat).toContain('naming the CONSEQUENCE that follows from the observation above it')
+    //
+    // RETARGETED 2026-09-23. The bridge used to be defined as "the CONSEQUENCE that follows
+    // from the observation", which left the model to work out for itself what a fact
+    // implied, and what it worked out was usually a claim about the reader's pipeline. It
+    // now states THE REASON, supplied by synthesis from the client's documents. The test
+    // keeps its job: the job definition still has to settle what the bridge is.
+    expect(flat).toContain('stating THE REASON the observation gives this person to want what the sender offers')
+    // And the test that matters most about that sentence: it must hold whatever their
+    // situation, which is the rule that stops it guessing.
+    expect(flat).toContain('IT MUST BE TRUE WHATEVER THEIR SITUATION')
   })
 
   it('permits an absence without requiring one', () => {

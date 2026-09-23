@@ -578,7 +578,7 @@ Return raw JSON only.
         "evidence_to_find": [
           "Where it would be visible and what it would say: e.g. a post naming a new role the company is hiring for",
           "Where it would be visible and what it would say: e.g. a service page published with a start date",
-          "Where it would be visible and what it would say: e.g. an announcement naming a partner, award or accreditation"
+          "Where it would be visible and what it would say: e.g. an announcement naming an award or accreditation the company received"
         ]
       }
     ],
