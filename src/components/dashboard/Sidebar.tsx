@@ -136,6 +136,38 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
     return pathname === href || pathname.startsWith(href + '/')
   }
 
+  // ─── THE PERMANENT WAY BACK INTO INTAKE ─────────────────────────────────────
+  //
+  // The only link to /intake used to live inside IntakeIncompleteState, the overview card
+  // shown while critical answers are still missing. It vanished the moment the client
+  // crossed the completeness threshold, so a client who had finished intake could not reach
+  // their own answers from anywhere in the product. The route worked the whole time and the
+  // answers stayed editable; there was simply nothing to click.
+  //
+  // It lives in the sidebar because the sidebar is the only chrome rendered on EVERY client
+  // route in EVERY dashboard state. Putting it back on the overview cards instead would mean
+  // three copies of one link, one per state, and the next state added to DashboardState
+  // would silently have none. This entry cannot go missing for a state, because it does not
+  // read the state.
+  //
+  // THIS LINK DELIBERATELY DOES NOT CARRY ?client=.
+  //
+  // /intake resolves the CALLER's own organisation and ignores the query string entirely:
+  // src/app/intake/page.tsx calls loadIntakeResponses and loadBuyerProfile, and both resolve
+  // the organisation from auth.getUser() and that user's own row in `users`. Passing the
+  // param through appendClientParam would therefore be worse than useless: an operator using
+  // "View as client" would be shown THEIR OWN answers under the client's name, with an
+  // editable form, which is the wrong-org failure mode that bites the operator and that no
+  // client can reproduce. The operator already has a read-only view of a client's answers,
+  // and that is the honest destination for them.
+  const intakeHref = clientId
+    ? `/dashboard/operator/clients/${clientId}/intake`
+    : '/intake'
+
+  // No active styling. /intake sits outside the (client) route group, so this sidebar is
+  // never rendered while it is open and the highlight could not fire. Claiming otherwise
+  // would be dead code that reads as a covered case.
+
   // A collapsed section must never hide the page the client is looking at, so being on a
   // strategy route forces it open regardless of the derived default.
   const onStrategyRoute = pathname.startsWith('/dashboard/strategy')
@@ -188,6 +220,14 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
               ].join(' ')}
             >
               Overview
+            </Link>
+          </li>
+          <li>
+            <Link
+              href={intakeHref}
+              className="flex items-center px-2 py-[6px] rounded-[6px] text-[13px] transition-colors text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]"
+            >
+              Your answers
             </Link>
           </li>
         </ul>
