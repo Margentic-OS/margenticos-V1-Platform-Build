@@ -624,6 +624,98 @@ Run `npm run test-filler-detection` for unit-style checks on the gate.
 
 ---
 
+## FAQ Seed Agent — entry point: src/lib/agents/faq-seed-agent.ts
+
+**What it does.** Reads one client's intake questionnaire and their four active strategy
+documents (ICP, positioning, tone of voice, messaging) and writes 5 to 15 candidate FAQs
+to `faq_extractions` with `source = 'seed_generated'` and `status = 'pending'`.
+
+**Why it exists.** The FAQ store could not previously start itself. A prospect's question
+is answered from `faqs`; `faqs` grows from replies that were approved and sent; and
+without any FAQ the drafter escalates to a human instead of drafting, so nothing is ever
+approved and sent. This agent breaks that circle by writing the first candidates from
+material the client already gave us.
+
+**How an operator runs it.** `/dashboard/operator/faqs?client=<orgId>`, the "Generate seed
+FAQs" panel above the extraction queue. The button calls
+`POST /api/operator/faq-seed`; the panel's status line comes from `GET` on the same route.
+
+**Nothing it writes can reach a prospect on its own.** Candidates land as `pending`, and
+the drafter asks `findFaqMatches` with `includePendingExtractions: false`
+(`src/lib/reply-handling/draft-orchestrator.ts`). An operator must approve a candidate in
+the curation queue before it can appear in a draft.
+
+### Two runs cannot collide, and two batches cannot pile up
+
+These are separate problems with separate answers, and both are needed.
+
+**A second run while the first is live** is stopped by `faq_seed_runs`. The route inserts
+a `state = 'running'` row before it does anything else, and
+`faq_seed_runs_one_live_per_org` is a partial unique index on `organisation_id` where
+`state = 'running'`, so the second insert raises 23505 and the caller gets 409. This is
+not a check-then-act: two requests in the same millisecond cannot both win an index.
+
+A run whose route was killed (Vercel stops at `maxDuration = 300`) would otherwise hold
+that row for ever and lock the client out of seeding. A claim older than ten minutes is
+therefore taken over by a single conditional UPDATE. Ten minutes matches the threshold
+`reap-agent-runs` already uses, for the same reason: it is a safe margin over 300s.
+
+**A second run while the last batch is still being curated** is refused separately: the
+route counts `faq_extractions` rows for this organisation with `source = 'seed_generated'`
+and `status = 'pending'`, and returns 409 if there are any. Without this, a second run
+would put a near-identical set of candidates in front of the operator with no way to tell
+from a row which run produced it. Approve or reject the existing batch first.
+
+The order matters and is tested: the lock is taken BEFORE the pending count is read. A
+count is a read and cannot defend itself — two simultaneous requests would both see zero.
+
+A request refused before the agent was called DELETES its claim row rather than closing
+it, so "last run" only ever names runs that actually happened.
+
+### Time budget
+
+One attempt gets 150s, inside an overall budget of 240s, with at most two attempts. The
+SDK's own retry is switched off (`maxRetries: 0`) deliberately: its defaults are a ten
+minute timeout and two retries, which is thirty minutes against a route Vercel kills at
+300s, so the caller would see neither the answer nor the error.
+
+The previous ceiling was 60s, which could not have completed a full-length answer: the
+call is roughly 26,000 input tokens and up to 4,000 output on Opus, and 4,000 output
+tokens is well over a minute of streaming.
+
+Only transient faults are retried — 408, 429, 5xx, and transport errors with no status. A
+400 or 403 is the request itself being wrong and retrying it just spends the budget. A
+truncated answer (`stop_reason = 'max_tokens'`) is a failure with its own reason and is
+NOT retried, because the same request truncates again; it is reported as the token ceiling
+rather than as "no JSON object found", which is what it used to look like.
+
+### What one run costs
+
+At Opus 4.6 rates ($5 per million input, $25 per million output): about **$0.19 to $0.23**
+for a normal run, and up to about **$0.46** if a transient failure forces the one retry.
+There is no prompt caching here and caching would not help — it is one call per client,
+against that client's own documents.
+
+### What to check if it breaks
+
+- The panel says a run is already in progress and no run is happening: look for a
+  `faq_seed_runs` row with `state = 'running'`. It frees itself after ten minutes.
+- 422: the client is missing an ACTIVE ICP, positioning, tone of voice or messaging
+  document, or has no intake rows at all. The message names which.
+- 502 with zero candidates: the agent handled its own failure and returned nothing. The
+  reason is in `agent_runs` where `agent_name = 'faq-seed-agent'`.
+- Nothing appears in the queue after a successful run: the candidates are written
+  best-effort per row, so a single failed insert is logged as a warning and skipped.
+
+**Known gap, not fixed here.** This agent does NOT call `scrubAITells()`, though the
+sibling FAQ extraction agent does (`faq-extraction-agent.ts:282`) and a seed answer can
+reach a prospect once approved. The reply draft agent scrubs the final draft body, so
+there is a net downstream, but this agent does not meet the standing rule in CLAUDE.md
+that every agent producing customer-facing text scrubs its own output. Filed on the
+Notion Backlog.
+
+---
+
 ## Send Orchestrator
 
 Not strictly an agent (no LLM call) — a deterministic orchestrator that executes the

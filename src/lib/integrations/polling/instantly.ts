@@ -58,7 +58,11 @@ import { logger } from '@/lib/logger'
 import { quarantineReply } from '@/lib/reply-handling/quarantine'
 import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from '@/lib/integrations/handlers/instantly/constants'
 import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
-import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
+import { mockEmailsList, mockSentEmailsForLead, mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
+import {
+  selectOutboundEmailForReply,
+  extractOutboundBodyText,
+} from '@/lib/integrations/handlers/instantly/outbound-body'
 import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
 import { recordSuppression } from '@/lib/suppression/suppression-list'
 import { carryOneSuppression } from '@/lib/suppression/carry'
@@ -306,23 +310,34 @@ async function writePollState(
 }
 
 // ── Outbound body capture (best-effort, non-blocking) ─────────────────────────
+//
+// REWRITTEN 2026-09-21. The previous version looked for the outbound email's uuid in three
+// fields on the reply object (reply_to_uuid, in_reply_to_uuid, original_email_uuid). None of
+// the three exists: measured 0 of 9 across every reply in production, against 9 of 9 for
+// thread_id, message_id and eaccount as controls. It returned null before making an API call,
+// always, so original_outbound_body was NULL on every reply ever received and the draft
+// orchestrator's gate meant the reply-draft agent never ran in production.
+//
+// The lookup is now by `lead` + `email_type=sent`, which the provider does honour, with the
+// THREAD MATCHED LOCALLY because `thread_id` as a query parameter is accepted and silently
+// ignored. Both facts are measured; the reasoning, the measurements and the reason a
+// server-side thread filter would have been actively dangerous are in outbound-body.ts.
+//
+// Field-name knowledge and wire shapes live in the handler, not here.
 
-// Candidate field names in the Instantly reply email object that may reference
-// the UUID of the original outbound email. Checked in order — first non-empty string wins.
-const OUTBOUND_UUID_CANDIDATE_FIELDS = [
-  'reply_to_uuid',
-  'in_reply_to_uuid',
-  'original_email_uuid',
-]
+// How many of a lead's sent emails to consider. A lead on a four-step sequence across two
+// campaigns is still comfortably inside this, and the thread filter runs over whatever
+// comes back.
+const OUTBOUND_LOOKUP_LIMIT = 50
 
 interface OutboundEmailCapture {
   body: string | null
   messageId: string | null
 }
 
-// Fetches the original outbound email body from Instantly using a thread reference UUID
-// found in the reply object. Returns nulls on any failure — never throws.
-// 5-second timeout prevents stalling the poll loop on slow API responses.
+// Fetches the body of the outbound email this reply is answering. Returns nulls on any
+// failure — never throws except on the flag misconfiguration below, which is a bug not a
+// runtime condition. 5-second timeout prevents stalling the poll loop.
 async function fetchOutboundEmailBody(
   emailObj: Record<string, unknown>,
   apiKey: string,
@@ -334,57 +349,83 @@ async function fetchOutboundEmailBody(
     throw new InstantlyFlagError('fetchOutboundEmailBody: instantly_api_active is false — cannot call production Instantly')
   }
 
-  let outboundUuid: string | null = null
-  for (const field of OUTBOUND_UUID_CANDIDATE_FIELDS) {
-    const val = emailObj[field]
-    if (typeof val === 'string' && val.trim().length > 0) {
-      outboundUuid = val.trim()
-      break
-    }
-  }
+  const lead = typeof emailObj.lead === 'string' ? emailObj.lead.trim() : ''
+  const threadId = typeof emailObj.thread_id === 'string' ? emailObj.thread_id.trim() : ''
 
-  if (!outboundUuid) return { body: null, messageId: null }
+  // Without both there is nothing to search on and nothing to verify a match against. The
+  // thread id is not optional: it is the only check that the email found is the right one.
+  if (!lead || !threadId) {
+    logger.warn('Instantly poll: reply has no lead or no thread_id — outbound body not captured', {
+      has_lead: Boolean(lead),
+      has_thread_id: Boolean(threadId),
+    })
+    return { body: null, messageId: null }
+  }
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 5000)
 
   try {
-    const response = shouldUseMockDispatch(isActive)
-      ? mockEmailGet(outboundUuid)
-      : await fetch(`${baseUrl}/emails/${outboundUuid}`, {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal,
-        })
+    let sentEmails: readonly Record<string, unknown>[]
 
-    if (!response.ok) {
-      logger.warn('Instantly poll: outbound email fetch failed', {
-        uuid: outboundUuid,
-        status: response.status,
+    if (shouldUseMockDispatch(isActive)) {
+      const mock = mockSentEmailsForLead(lead, threadId)
+      sentEmails = (await mock.json().catch(() => null))?.items ?? []
+    } else {
+      const url = new URL(`${baseUrl}/emails`)
+      url.searchParams.set('lead', lead)
+      url.searchParams.set('email_type', 'sent')
+      url.searchParams.set('limit', String(OUTBOUND_LOOKUP_LIMIT))
+
+      const response = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
       })
-      return { body: null, messageId: outboundUuid }
+
+      if (!response.ok) {
+        logger.warn('Instantly poll: outbound email lookup failed', {
+          thread_id: threadId,
+          status: response.status,
+        })
+        return { body: null, messageId: null }
+      }
+
+      const json = (await response.json().catch(() => null)) as Record<string, unknown> | null
+      const items = json?.items
+      sentEmails = Array.isArray(items) ? (items as Record<string, unknown>[]) : []
     }
 
-    const json = (await response.json().catch(() => null)) as Record<string, unknown> | null
-    if (!json) return { body: null, messageId: outboundUuid }
+    const outbound = selectOutboundEmailForReply(emailObj, sentEmails)
 
-    // Prefer plain-text body; fall back to html body field.
-    const bodyText =
-      (typeof json.body_text === 'string' && json.body_text.trim().length > 0
-        ? json.body_text
-        : null) ??
-      (typeof json.body === 'string' && json.body.trim().length > 0 ? json.body : null)
+    if (!outbound) {
+      logger.warn('Instantly poll: no sent email matched the reply thread', {
+        thread_id: threadId,
+        candidates: sentEmails.length,
+      })
+      return { body: null, messageId: null }
+    }
 
-    return { body: bodyText, messageId: outboundUuid }
+    const messageId = typeof outbound.id === 'string' ? outbound.id : null
+    const body = extractOutboundBodyText(outbound)
+
+    if (!body) {
+      logger.warn('Instantly poll: matched the outbound email but its body was unreadable', {
+        thread_id: threadId,
+        outbound_id: messageId,
+      })
+    }
+
+    return { body, messageId }
   } catch (err) {
     const isAbort = err instanceof Error && err.name === 'AbortError'
-    logger.warn('Instantly poll: outbound email fetch error', {
-      uuid: outboundUuid,
+    logger.warn('Instantly poll: outbound email lookup error', {
+      thread_id: threadId,
       error: isAbort ? 'timeout' : String(err),
     })
-    return { body: null, messageId: outboundUuid }
+    return { body: null, messageId: null }
   } finally {
     clearTimeout(timeoutId)
   }

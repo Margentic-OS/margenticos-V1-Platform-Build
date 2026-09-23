@@ -618,13 +618,47 @@ export const COLLECTABLE_ENTRY_STATES = ['succeeded', 'errored', 'expired', 'fai
 export const OPEN_BATCH_STATES = ['attempted', 'submitted', 'ended'] as const
 
 /**
+ * The entry state that means PHASE 1 IS FINISHED AND NOTHING HAS BEEN SENT YET.
+ *
+ * ── THE SUB-WINDOW INSIDE THE INVISIBLE WINDOW ──────────────────────────────
+ *
+ * An entry is written here by phase 1 with a NULL batch_id, and gains one only when the
+ * five-minute sweep gathers it into a batch and submits it. So for the minutes in between
+ * there is no synthesis_batches row to find it through, and a reader that looks for these
+ * entries through their batch finds nothing at all.
+ *
+ * Measured on production 2026-09-21: phase 1 finished for 107 prospects at 18:06:17, the
+ * first batch was created at 18:08:01 and a second at 18:13:01, because a batch takes at
+ * most MAX_ENTRIES_PER_BATCH and 7 had to wait for the next firing. The operator screen
+ * showed nothing for the whole of that, and the button still offered to research them.
+ *
+ * An entry also returns here when its batch is aged out and requeued, and it KEEPS the old
+ * batch_id when it does. That batch is 'expired' by then and so is not open, which is why
+ * this state is counted on its own rather than through any batch.
+ */
+export const AWAITING_SUBMISSION_ENTRY_STATE = 'pending_submission' as const
+
+/**
+ * Entry states that mean the PROVIDER HOLDS IT. Submission has happened; the answer has not
+ * come back.
+ */
+export const WITH_PROVIDER_ENTRY_STATES = ['attempted', 'submitted'] as const
+
+/**
  * Entry states that mean this prospect is waiting on the MODEL, with no queue job to show
- * for it.
+ * for it. THE UNION OF THE TWO ABOVE, derived rather than retyped: three hand-written lists
+ * that have to agree is the shape that has cost this codebase real time before.
  *
  * THIS IS THE INVISIBLE WINDOW. Phase 1 finishes and marks its job done; phase 2's job does
  * not exist until the sweep sees results. Measured on production 2026-09-17: phase 1 ended
  * 19:48:31 and phase 2 was created 20:03:03, so for 14 minutes 32 seconds 62 prospects had
  * no job row of any kind and nothing on any screen said they were mid-flight. An operator
  * reads that as a stall, because every other stage shows itself through the queue.
+ *
+ * WHICH HALF AN ENTRY IS IN MATTERS TO A READER, because only the second half can be found
+ * through a batch. See AWAITING_SUBMISSION_ENTRY_STATE.
  */
-export const AWAITING_MODEL_ENTRY_STATES = ['pending_submission', 'attempted', 'submitted'] as const
+export const AWAITING_MODEL_ENTRY_STATES = [
+  AWAITING_SUBMISSION_ENTRY_STATE,
+  ...WITH_PROVIDER_ENTRY_STATES,
+] as const

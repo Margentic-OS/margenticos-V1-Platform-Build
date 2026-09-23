@@ -45,7 +45,8 @@ export type OrchestratorResult =
   | { kind: 'drafted'; reply_draft_id: string; tier: 2 | 3 }
   | { kind: 'manual_required'; reply_draft_id: string; reason: string; tier: 2 | 3 }
   | { kind: 'draft_failed'; reply_draft_id: string; failure_count: number; tier: 2 | 3 }
-  | { kind: 'log_only' }
+  // log_only carries a draft id because it now writes a backstop row. See the branch below.
+  | { kind: 'log_only'; reply_draft_id: string }
 
 // Trigger draft_failed placeholder when this many agent_runs failures in 24 hours.
 const DRAFT_FAILURE_CIRCUIT_BREAKER = 3
@@ -144,8 +145,57 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
     )
   }
 
+  // ── log_only is the unroutable case, and it used to leave NOTHING for anyone to find ──
+  //
+  // routeIntent returns 'log_only' only for an intent it does not know. Reaching here means
+  // the classifier produced a label the router has no rule for, which is precisely a reply
+  // nobody has decided what to do with: a person has to look.
+  //
+  // What used to happen: an action row with action_taken 'log_only' and action_succeeded
+  // TRUE, the signal marked processed, and no reply_drafts row. MON-028 watches reply_drafts,
+  // so the reply was invisible to the only monitor that reports a reply waiting on a person.
+  // MON-014 cannot see it either, because the signal IS processed, and MON-015 cannot,
+  // because nothing failed. The operator notification does fire for this intent, but it fires
+  // exactly once and the signal is then closed, so if that email is lost the reply is gone
+  // with no second surface. That is the 'no backstop at all' case.
+  //
+  // A manual_required row fixes it with no new mechanism: MON-028 already counts
+  // manual_required, the triage queue already renders it, and the ageing threshold already
+  // applies. Tier 3 because that is this codebase's existing meaning of "a human writes it";
+  // the CHECK constraint permits only 2 or 3, and manual_required requires a null body.
+  //
+  // THIS DOES NOT CHANGE WHICH INTENTS NEED A PERSON. opt_out and out_of_office never arrive
+  // here at all: they route to tier_1_handled and the guard above throws on them. The set of
+  // intents that produce a card is unchanged; what changes is that an intent which produced
+  // NO card and NO monitor visibility now produces both.
   if (routing === 'log_only') {
-    return { kind: 'log_only' }
+    const draftId = await insertDraftRow(supabase, {
+      organisation_id: signal.organisation_id,
+      signal_id: signal.id,
+      prospect_id: prospectId,
+      intent,
+      tier: 3,
+      status: 'manual_required',
+      draft_metadata: { reason: 'unroutable_intent', intent, confidence } as Json,
+      ai_draft_body: null,
+    })
+
+    if (!draftId) {
+      // Loud, and it throws. A failed insert here means the reply is back to being invisible,
+      // and the caller's catch leaves the signal unprocessed so the next cron run retries
+      // rather than closing it silently.
+      throw new Error('log_only backstop row insert failed')
+    }
+
+    logger.warn('draft-orchestrator: unroutable intent — wrote a manual_required backstop row', {
+      signal_id: signal.id,
+      organisation_id: signal.organisation_id,
+      intent,
+      reply_draft_id: draftId,
+      fix: 'routeIntent has no rule for this intent. Add one, or remove it from the classifier.',
+    })
+
+    return { kind: 'log_only', reply_draft_id: draftId }
   }
 
   const tier: 2 | 3 = routing === 'tier_2' ? 2 : 3

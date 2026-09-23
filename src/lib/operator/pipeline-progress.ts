@@ -47,7 +47,8 @@ import {
 } from '@/lib/sourcing/pending-verification'
 import {
   OPEN_BATCH_STATES,
-  AWAITING_MODEL_ENTRY_STATES,
+  AWAITING_SUBMISSION_ENTRY_STATE,
+  WITH_PROVIDER_ENTRY_STATES,
 } from '@/lib/agents/research/types'
 import { readCronPeriodMs, readNextRunAt } from '@/lib/sourcing/cron-schedule'
 import { getVerificationRateLimit } from '@/lib/sourcing/verification-limits'
@@ -153,6 +154,7 @@ export interface EnrichmentProgress {
 export type ResearchStage =
   | 'idle'
   | 'fetching_sources'
+  | 'awaiting_submission'
   | 'awaiting_model'
   | 'collecting'
 
@@ -160,6 +162,23 @@ export interface ResearchProgress {
   stage: ResearchStage
   /** research_sources jobs queued or claimed. */
   fetchingSources: number
+  /**
+   * Prospects whose sources are gathered and PAID FOR, and which have not been sent yet.
+   *
+   * ── THE PART OF THE WINDOW THAT WAS STILL DARK ────────────────────────────
+   *
+   * awaitingModel below counts entries through their batch, and an entry has no batch until
+   * the sweep submits it. So between phase 1 finishing and the next firing of the sweep,
+   * every count on this screen was zero, the stage read 'idle', and the whole research panel
+   * disappeared. Measured on production 2026-09-21: phase 1 finished for 107 prospects at
+   * 18:06:17 and the first batch was created at 18:08:01, with a second at 18:13:01 for the
+   * 7 that did not fit the first. Nothing was shown for any of it.
+   *
+   * Counted by STATE ALONE, with no batch filter, which is the only way to see an entry that
+   * has no batch. It is disjoint from awaitingModel by construction: that one asks for the
+   * two states an entry can only be in after it has been submitted.
+   */
+  awaitingSubmission: number
   /**
    * Prospects whose synthesis is with the model and which have NO queue row.
    *
@@ -185,6 +204,18 @@ export interface ResearchProgress {
    * the wait has been rather than only that there is one.
    */
   oldestBatchSubmittedAt: string | null
+  /**
+   * When the sweep that sends the next batch fires, platform-wide.
+   *
+   * THE ANSWER TO "IS ANYTHING COMING". During the wait above there is no queue row, no open
+   * batch and nothing else on the screen that moves, so a count with no time beside it reads
+   * exactly like a stall. Null when the schedule could not be read or is not a plain minute
+   * interval, and the screen then says nothing rather than printing a guess.
+   *
+   * Carried only while something is actually waiting to be sent: naming a firing time for a
+   * sweep that will find nothing to do would be true and useless.
+   */
+  nextSubmissionRunAt: string | null
 }
 
 export interface PipelineProgress {
@@ -242,6 +273,7 @@ export async function getPipelineProgress(
     enrichmentInFlight,
     fetchingSources,
     collecting,
+    awaitingSubmission,
     openBatches,
   ] = await Promise.all([
     countPendingVerification(supabase, organisationId, thresholds),
@@ -271,6 +303,14 @@ export async function getPipelineProgress(
       q.eq('job_type', 'research_sources').in('state', LIVE_JOB_STATES)),
     countScoped(supabase, 'job_queue', organisationId, q =>
       q.eq('job_type', 'research_collect').in('state', LIVE_JOB_STATES)),
+    // ── COUNTED BY STATE, NOT THROUGH A BATCH ────────────────────────────────
+    //
+    // An entry in this state may have no batch_id at all (phase 1 has just written it) or
+    // may still carry the id of an expired batch it was requeued from. Neither can be found
+    // by asking an open batch for its entries, which is why every count on this screen read
+    // zero for the minutes between phase 1 finishing and the sweep firing.
+    countScoped(supabase, 'synthesis_batch_entries', organisationId, q =>
+      q.eq('state', AWAITING_SUBMISSION_ENTRY_STATE)),
     supabase
       .from('synthesis_batches')
       .select('id, request_count, submitted_at')
@@ -314,7 +354,10 @@ export async function getPipelineProgress(
         .select('id', { count: 'exact', head: true })
         .eq('organisation_id', organisationId)
         .in('batch_id', batchIds)
-        .in('state', AWAITING_MODEL_ENTRY_STATES),
+        // THE PROVIDER HALF ONLY. pending_submission is counted above, by state, and
+        // counting it here as well would double a prospect that was requeued from a batch
+        // that is somehow still open.
+        .in('state', WITH_PROVIDER_ENTRY_STATES),
       supabase
         .from('synthesis_batch_entries')
         .select('id', { count: 'exact', head: true })
@@ -346,6 +389,7 @@ export async function getPipelineProgress(
   // drains, which reads as work going in reverse.
   const stage: ResearchStage =
     fetchingSources > 0 ? 'fetching_sources'
+    : awaitingSubmission > 0 ? 'awaiting_submission'
     : awaitingModel > 0 ? 'awaiting_model'
     : collecting > 0 ? 'collecting'
     : 'idle'
@@ -385,11 +429,14 @@ export async function getPipelineProgress(
     research: {
       stage,
       fetchingSources,
+      awaitingSubmission,
       awaitingModel,
       collecting,
       waveDone,
       waveTotal,
       oldestBatchSubmittedAt: batches.find(b => b.submitted_at !== null)?.submitted_at ?? null,
+      // Only while something is actually queued for sending. See the field's own note.
+      nextSubmissionRunAt: awaitingSubmission > 0 ? sweep.batchSubmitNextRunAt : null,
     },
   }
 }
@@ -398,6 +445,14 @@ export async function getPipelineProgress(
 export const VERIFICATION_SWEEP_JOB_NAME = 'verify-pending'
 /** The job that drains the enrichment queue, when the queued path is on. */
 export const QUEUE_WORKER_JOB_NAME = 'queue-worker'
+/**
+ * The sweep that gathers finished phase-1 entries into a batch and sends it.
+ *
+ * IT IS THE ONLY THING THAT EVER STARTS STAGE TWO, so its schedule is the only honest
+ * answer to "when will the waiting end". Declared at '3-59/5 * * * *': every five minutes,
+ * three minutes past. Read from cron_schedule_registry like the others, never guessed.
+ */
+export const SYNTHESIS_BATCH_SWEEP_JOB_NAME = 'synthesis-batch-sweep'
 
 /**
  * Everything about the sweep that is the same for every organisation on the screen.
@@ -418,6 +473,13 @@ export interface SweepContext {
   ratePerMinute: number | null
   /** When the queue worker next fires, for the queued enrichment path. */
   queueNextRunAt: string | null
+  /**
+   * When the synthesis batch sweep next fires, which is when waiting entries get sent.
+   *
+   * Null when the schedule could not be read. The screen then names no time rather than
+   * naming one it invented, on the same rule as every other caption in this module.
+   */
+  batchSubmitNextRunAt: string | null
   /**
    * The moment this context was read.
    *
@@ -441,13 +503,15 @@ export async function readSweepContext(
   supabase: SupabaseClient,
   now: Date = new Date(),
 ): Promise<SweepContext> {
-  const [lastRanAt, nextRunAt, periodMs, rate, queueNextRunAt] = await Promise.all([
-    readSweepHeartbeat(supabase),
-    readNextRunAt(supabase, VERIFICATION_SWEEP_JOB_NAME, now),
-    readCronPeriodMs(supabase, VERIFICATION_SWEEP_JOB_NAME),
-    getVerificationRateLimit(supabase).then(r => r.limitPerMinute).catch(() => null),
-    readNextRunAt(supabase, QUEUE_WORKER_JOB_NAME, now),
-  ])
+  const [lastRanAt, nextRunAt, periodMs, rate, queueNextRunAt, batchSubmitNextRunAt] =
+    await Promise.all([
+      readSweepHeartbeat(supabase),
+      readNextRunAt(supabase, VERIFICATION_SWEEP_JOB_NAME, now),
+      readCronPeriodMs(supabase, VERIFICATION_SWEEP_JOB_NAME),
+      getVerificationRateLimit(supabase).then(r => r.limitPerMinute).catch(() => null),
+      readNextRunAt(supabase, QUEUE_WORKER_JOB_NAME, now),
+      readNextRunAt(supabase, SYNTHESIS_BATCH_SWEEP_JOB_NAME, now),
+    ])
 
   return {
     lastRanAt,
@@ -455,6 +519,7 @@ export async function readSweepContext(
     periodMs,
     ratePerMinute: rate,
     queueNextRunAt: queueNextRunAt?.toISOString() ?? null,
+    batchSubmitNextRunAt: batchSubmitNextRunAt?.toISOString() ?? null,
     readAtMs: now.getTime(),
   }
 }

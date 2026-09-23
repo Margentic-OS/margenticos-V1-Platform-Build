@@ -835,6 +835,72 @@ screen.
 The fifteen-minute window is counted from `synthesis_batch_entries`, because that is the
 only place it exists while it is happening.
 
+### The front of that window was still dark, and it is the part an operator meets first
+
+*Corrected 2026-09-22.*
+
+The count above found entries **through their open batch**, and an entry does not have a
+batch until the sweep submits it. Phase one writes it in `pending_submission` with a null
+`batch_id`; `synthesis-batch-sweep`, every five minutes at three past, gathers those rows
+into a batch and sends it.
+
+So for the minutes between phase one finishing and the next firing, every research count on
+the screen read zero, the stage read `idle`, and **the whole panel rendered nothing**. The
+screen was indistinguishable from one where research had never been started, while a hundred
+prospects sat with their sources bought and paid for. The research button still offered to
+research the same prospects, because a prospect is only marked researched at the very end.
+
+Measured on production 2026-09-21, for a run of 108:
+
+| time (UTC) | what happened |
+| --- | --- |
+| 18:05:27 | 109 `research_sources` jobs created |
+| 18:06:17 | phase one done for 107, entries written with **no batch** |
+| 18:08:01 | first batch created and submitted, 100 entries |
+| 18:13:01 | second batch, the 7 that did not fit `MAX_ENTRIES_PER_BATCH` |
+| 18:16:01 | provider finished the first batch |
+| 18:18:04 | results collected, `research_collect` jobs created |
+| 18:29:35 | last opening line written |
+
+The screen now names a fourth research stage, **"Sources done, waiting to be sent to the
+model"**, counted by entry **state alone** with no batch filter, which is the only way to see
+an entry that has no batch. It also catches an entry requeued from a batch that aged out:
+that returns to `pending_submission` and keeps the old `batch_id`, while the batch itself is
+`expired` and therefore not open.
+
+It says two things, because a count with nothing beside it still reads as a stall: what has
+finished, and **when the next send is**. The time comes from `cron_schedule_registry` and is
+omitted rather than guessed when the schedule cannot be read.
+
+The open-batch count now asks for the provider states only, so the two halves of the wait are
+disjoint and nothing is counted twice.
+
+### Could the wait itself be shorter?
+
+Yes, partly, and **nothing here has been changed**. Measured against the run above, the 11
+minutes 47 seconds between phase one finishing and phase two starting is four separate
+things:
+
+| part | measured | what it is |
+| --- | --- | --- |
+| waiting to be sent | 1m 44s (up to 5m) | the sweep's five-minute period |
+| the provider | 7m 58s | the Batch API doing the work |
+| waiting to be collected | 2m 03s | the sweep's five-minute period again |
+| the 7 that did not fit | a further 5m | `MAX_ENTRIES_PER_BATCH = 100` |
+
+- **The two sweep waits** shrink by shortening the period. They are also *deliberate* on the
+  submit side: five minutes is chosen so a client's prospects join one batch and share one
+  cached prompt prefix. Firing on each prospect would spend that saving.
+- **The provider's eight minutes are not ours**, and they are what is being bought. The Batch
+  API is the 50% discount (ADR-033). Removing this wait means the synchronous API at double
+  the synthesis cost.
+- **The batch cap is the cheapest win.** A run of 108 needs two firings before everything has
+  even been sent. Raising `MAX_ENTRIES_PER_BATCH` above the run size would put them in one
+  batch and remove five minutes for the remainder, with no effect on price.
+
+None of this is a defect. It is a discount bought with latency, and what was wrong was that
+the latency was invisible.
+
 ### What to check if it looks wrong
 
 1. **"Waiting for the model" and the number never moves.** Look at `synthesis_batches` for
@@ -944,6 +1010,16 @@ carried over. The wording lives in one place, `src/lib/operator/run-split.ts`, s
 controls cannot each invent their own. **It says nothing when a count does not span more than
 one run**, deliberately: annotating a single-batch client would bury the cases that matter.
 
+**The run is named by its day AND its clock time.** *Corrected 2026-09-22.* A date alone
+stops identifying a run the moment two happen on one day, which is the ordinary case: the
+live database holds three runs on 2026-09-21 for one client, at 15:38, 15:42 and 15:48 UTC.
+All three were "the run on 21 Sep 2026", so a prospect from the first was reported as carried
+over from an earlier run with nothing to show that the earlier run was twelve minutes before
+this one. The clock is rendered in UTC and says so, because the date half always was and a
+local-time clock beside it could name a different day. A date that carries no clock keeps the
+old date-only wording rather than gaining "at 00:00 UTC", which would assert a run time
+nothing recorded.
+
 ### The publish button was counting the wrong population
 
 It read "Check 190 and publish for the client" where 190 was every prospect that had ever
@@ -1018,3 +1094,67 @@ client's to act on.
 - **Approve appears at the top as well as the foot of the list**, from one function, so the
   two cannot disagree about the count or the confirm step.
 - **The tab counts say what they count** and how they relate to the headline number.
+
+---
+
+## Two operator screens that could not show what they held
+
+*Added 2026-09-22.*
+
+### The opening line an operator could not read
+
+The quality-and-publish screen (`Gate2TieredReview`) carries a column for the first line the
+prospect will read. The cell had `max-w-[320px]`: **a ceiling with no floor**. It is the
+eleventh column of eleven in an auto-laid-out table, so the browser gives the longest text
+column whatever the other ten leave behind, and a ceiling does nothing about that. What
+reached the screen was a few words per line down a narrow ribbon.
+
+Measured on the live `prospects` table 2026-09-22: 222 stored openings, 143 to 341
+characters, average 245. These are paragraphs, not phrases.
+
+The column now has a **minimum width** instead, on a block *inside* the cell rather than on
+the `td`: `min-width` on a table cell under auto layout is a hint the engine may disregard,
+which is how a width silently stops applying, whereas a block child's minimum is a real
+contribution. The header needs nothing, because a column is as wide as its widest cell. The
+table already sits in an `overflow-x-auto` wrapper, so the cost is sideways scrolling on a
+narrow window rather than an unreadable column on every window.
+
+**Why wider and not click-to-expand.** This is a bulk review screen: the operator reads every
+row before publishing, twenty at a time and 108 in the run that prompted this. An expander
+charges a click per prospect for the thing they came to do, and a row-at-a-time reveal cannot
+be scanned down the column to spot four openings that say the same thing. The hover tooltip
+is kept for the rare opening that still runs long.
+
+### The FAQ answer boxes were a quarter the size of an answer
+
+On the operator FAQ screen, both the **Add FAQ** answer box and the **Edit answer** box were
+fixed at three and four rows with resizing turned off, so there was no way to see the rest of
+what you were writing.
+
+Measured on the live `faqs` table 2026-09-22: 12 answers, 146 to 451 characters, average 275,
+and **every one of them contains a line break**. These are multi-paragraph answers being
+written through a slot that fits three lines.
+
+Both now use `AutoGrowTextarea`, which grows with its content **in CSS, with no JavaScript**.
+The usual approach measures `scrollHeight` in an effect and assigns `element.style.height`,
+which writes an inline style the code rules forbid, costs a layout read on every keystroke,
+and jumps visibly on first paint before the effect runs. Instead the wrapper is a one-cell
+grid holding the textarea and an invisible copy of the same text in the same cell: the copy
+wraps, so the grid row is as tall as the text needs, and the textarea is stretched to match.
+Font and line height are set once on the wrapper and inherited by both; the border is on the
+wrapper, outside both, so it cannot count towards one and not the other.
+
+The growth is **capped**. Growing without limit pushes Save and Cancel off the bottom of the
+screen on a long paste, which is a worse failure than scrolling: the operator can no longer
+finish the edit at all. Past the cap the wrapper scrolls.
+
+The **question** stays a single line, at a larger size. `question_canonical` is one question
+and the extraction and merge paths both compare it as a single string.
+
+### What to check if either looks wrong
+
+1. **The opening line column is narrow again.** Something has put a `max-w-*` back on the cell,
+   or moved the `min-w-*` from the block onto the `td`, where the engine may ignore it.
+2. **An answer box stopped growing.** The invisible copy is what makes it tall. If it has been
+   removed, or its padding and font no longer match the textarea's, the box is sized for
+   something other than what is in it.
