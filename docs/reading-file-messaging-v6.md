@@ -305,3 +305,73 @@ the first run, variant C's Email 1 retry reached **1.38** — but at four senten
 What no run has yet produced is both at once, and that is what the prompt change is asking
 for. Whether the model can hold plain vocabulary and a six-sentence split in the same draft
 is untested, because the run that would have tested it never made a call.
+
+---
+
+## The third regeneration attempt, 2026-09-22 — one variant passed, and the reuse gate never fired
+
+Run with credits restored and the two-sentence allowance live. **1 of 4 variants passed**,
+up from 0. Budget spent in 196s over 6 calls. Variant **C passed on retry 1**; A, B and D
+ran out of budget before their next repair. Nothing was written, because the agent requires
+all four variants. v6 is still active.
+
+### What rejected the attempts
+
+**Sixteen rejections: fifteen on reading grade, one on sentence length. Zero on
+cross-variant sentence reuse.**
+
+| attempt | email | grade | words | sentences | syll/word | syll/word needed |
+|---|---|---|---|---|---|---|
+| A first | 1 | 8.00 | 59 | 4 | 1.51 | 1.257 |
+| A first | 4 | 5.80 | 38 | 3 | 1.39 | 1.326 |
+| B first | 1 | 9.80 | 71 | 4 | 1.56 | 1.158 |
+| B first | 2 | 6.60 | 59 | 5 | 1.49 | 1.355 |
+| B first | 3 | 7.10 | 47 | 3 | 1.40 | 1.227 |
+| B first | 4 | 6.50 | 29 | 3 | 1.55 | 1.425 |
+| C first | 1 | 7.90 | 68 | 4 | 1.43 | 1.183 |
+| C first | 2 | 5.30 | 68 | 5 | 1.32 | 1.295 |
+| C first | 3 | 5.20 | 54 | 4 | 1.31 | 1.299 |
+| C first | 4 | 5.10 | 34 | 3 | 1.38 | 1.370 |
+| D first | 1 | 8.60 | 67 | 4 | 1.49 | 1.191 |
+| A retry 1 | 2 | 5.40 | 63 | 5 | 1.37 | 1.328 |
+| B retry 1 | 1 | **5.90** | 48 | **5** | 1.50 | 1.428 |
+| D retry 1 | 1 | 5.80 | 48 | 4 | 1.42 | 1.348 |
+| A retry 2 | 1 | 6.30 | 52 | 4 | 1.42 | 1.315 |
+
+Best grade reached anywhere: **5.10**. Best Email 1: **5.80**.
+
+### THE REUSE GATE DID NOT FIRE, AND THIS RUN COULD NOT HAVE SHOWN IT
+
+Zero reuse violations and zero reuse log lines, against 19 lines mentioning a variant, so
+the search is sound and the absence is real.
+
+**But the absence is not evidence the trade is safe.** `findCrossVariantReuse` runs on
+`result.passed`, that is, only on variants that have already cleared `validateEmails`, and
+it compares each against the registry of variants that passed BEFORE it. **With exactly one
+variant passing, there was nothing for it to collide with.** The gate was never given the
+chance to fire.
+
+The trade the two-sentence allowance introduces is real and remains unmeasured: two extra
+sentences per variant are two more that must be distinct across all four. It cannot be
+observed until at least two variants pass in the same run.
+
+### The allowance is permitted but barely used
+
+**Six of the seven Email 1 attempts still came back at FOUR sentences.** One, B's retry 1,
+used five, and it is also the closest any Email 1 has come at 5.90. The prompt now permits
+four to six and says six is easier; the model is mostly still writing four.
+
+Where the sentence count did rise, the arithmetic moved as predicted: B's Email 1 at five
+sentences needed 1.428 syllables per word rather than the ~1.16 its four-sentence first
+pass needed. It reached 1.50 and missed by 0.07.
+
+### Against the previous run
+
+| | run 1 (four-sentence frame) | run 3 (four to six) |
+|---|---|---|
+| variants passed | 0 of 4 | **1 of 4** |
+| grade rejections | 19 | 15 |
+| best Email 1 | 5.6 | 5.8 |
+| Email 1s at 5+ sentences | 0 | 1 of 7 |
+
+Moving in the right direction, and not yet enough. Nothing loosened.
