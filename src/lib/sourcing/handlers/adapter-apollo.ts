@@ -673,6 +673,19 @@ export interface ApolloSourcingResult {
    * sourced again without changing the query.
    */
   ceilingReached: boolean
+  /**
+   * True when the provider has no more rows for this query.
+   *
+   * SEPARATE FROM ceilingReached, which is about how deep the provider will PAGE. This is
+   * about the query's own result set running out, which is how a run ordinarily ends.
+   *
+   * IT EXISTS BECAUSE THE CALLER CANNOT INFER IT RELIABLY. A windowed caller would otherwise
+   * have to read exhaustion from a window returning fewer records than it asked for, and that
+   * is wrong on the exact boundary: a result set of 300 read in windows of 100 hands back a
+   * full 100 three times, so the caller would open a fourth window and pay a provider call on
+   * an empty page to learn what this loop already knew.
+   */
+  resultSetExhausted: boolean
 }
 
 export const apolloHandler = {
@@ -782,7 +795,7 @@ export const apolloHandler = {
           'This client has consumed every record the provider will page to for this query. ' +
           'Further runs cannot return anyone new. Narrow or change the ICP filter spec.',
       })
-      return { candidates: [], startOffset, recordsRead: 0, ceilingReached: true }
+      return { candidates: [], startOffset, recordsRead: 0, ceilingReached: true, resultSetExhausted: true }
     }
 
     // How many records this run may consume, clamped so the window cannot cross the ceiling.
@@ -809,6 +822,7 @@ export const apolloHandler = {
     let totalFetched = 0
     let morePages = true
     let ceilingReached = false
+    let resultSetExhausted = false
     const firstPage = page
 
     logger.info('Apollo handler: resuming from stored position', {
@@ -975,6 +989,15 @@ export const apolloHandler = {
         // after the first partial page and delivered a fraction of the batch asked for.
         if (startOffset + recordsRead >= totalEntries || data.people.length < PAGE_SIZE) {
           morePages = false
+          // ── REPORTED, NOT JUST ACTED ON ──────────────────────────────────
+          //
+          // This branch is the provider saying "that is everybody". The handler always knew
+          // it and used to keep it to itself, and the caller could only infer exhaustion from
+          // a window returning FEWER records than it asked for. That inference fails on the
+          // exact boundary: a result set of 300 read in windows of 100 hands back a full 100
+          // every time, so the caller had to spend one more provider call on an empty page to
+          // discover there was nothing left. Saying so here costs nothing and saves that call.
+          resultSetExhausted = true
         } else if (isAtCeiling(startOffset + recordsRead)) {
           // WALKED INTO THE WALL MID-RUN. Distinct from starting at it: this run did real
           // work and then ran out of reachable records. Both must say so.
@@ -1015,6 +1038,7 @@ export const apolloHandler = {
       records_read: recordsRead,
       end_offset: startOffset + recordsRead,
       ceiling_reached: ceilingReached,
+      result_set_exhausted: resultSetExhausted,
       pages_fetched: page - firstPage + 1,
       max_pages: MAX_PAGES,
       dropped_total: droppedTotal,
@@ -1029,6 +1053,6 @@ export const apolloHandler = {
       logger.info('Apollo handler: sourcing complete', dropReport)
     }
 
-    return { candidates, startOffset, recordsRead, ceilingReached }
+    return { candidates, startOffset, recordsRead, ceilingReached, resultSetExhausted }
   },
 }

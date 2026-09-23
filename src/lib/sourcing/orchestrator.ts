@@ -15,6 +15,12 @@ import { removeInBatchDuplicates } from '@/lib/sourcing/in-batch-dedupe'
 import { readCursor, advanceCursor } from '@/lib/sourcing/sourcing-cursor'
 import { isAtCeiling, RECORD_CEILING } from '@/lib/sourcing/record-position'
 import { startSourcingRun, type SourcingRunHandle } from '@/lib/sourcing/sourcing-run-record'
+import {
+  planNextWindow,
+  describeStop,
+  SOURCING_RUNTIME_BUDGET_MS,
+  type SourcingStopReason,
+} from '@/lib/sourcing/window-budget'
 
 // Serialize any error (Error, Supabase, or unknown) to human-readable message
 function serializeError(err: unknown): string {
@@ -72,10 +78,28 @@ export async function runSourcing(
   target_batch_size: number,
   // Provenance for the run record. Optional so the CLI and the existing tests keep their
   // four-argument call; the record is created either way, just without a clicker.
-  provenance?: { created_by?: string | null; agent_run_id?: string | null }
+  //
+  // ── budgetMs AND clock ARE HERE SO THE WINDOW LOOP IS TESTABLE ──────────────
+  //
+  // budgetMs is how long this run may spend before it stops opening windows and reports what
+  // remains. It defaults to the same 240s the entry point has always estimated against, so
+  // every existing caller and test keeps its behaviour without passing anything.
+  //
+  // clock is injectable for one reason: the whole point of the loop is what happens when time
+  // runs out, and a test that had to WAIT 240 real seconds to reach that branch would never be
+  // written. It defaults to Date.now, so production has no idea it is there.
+  provenance?: {
+    created_by?: string | null
+    agent_run_id?: string | null
+    budgetMs?: number
+    clock?: () => number
+  }
 ): Promise<SourcingRunResult> {
   const operationId = `sourcing-${client_id.slice(0, 8)}-${trigger_type}`
   const runStartedAt = new Date().toISOString()
+  const clock = provenance?.clock ?? Date.now
+  const budgetMs = provenance?.budgetMs ?? SOURCING_RUNTIME_BUDGET_MS
+  const runStartedMs = clock()
 
   // ── The run record ────────────────────────────────────────────────────────
   //
@@ -400,198 +424,199 @@ export async function runSourcing(
       cursor_was_reset: cursor.wasReset,
     })
 
-    let candidates: ProspectCandidate[] = []
-    let recordsRead = 0
+    // ═══════════════════════════════════════════════════════════════════════
+    // STEPS 5 TO 7, ONE WINDOW AT A TIME
+    //
+    // The run used to make ONE provider call for the whole batch, dedupe once, write once,
+    // and advance the cursor once at the very end. Against a 240s budget and a measured
+    // per-candidate cost spanning 58 ms to 3,535 ms, a large batch finished only on a good
+    // day, and a request killed by the platform timeout lost the cursor advance for
+    // everything it had read while keeping the prospects it had already written. Dedupe meant
+    // nothing was duplicated, but nothing moved either: the next press re-read the same
+    // window and could fail the same way forever.
+    //
+    // Now each window advances the cursor as soon as its own writes land, so progress is
+    // monotonic: a run interrupted at any point has banked every window that finished, and
+    // the only work at risk is the window in flight. See window-budget.ts for the timing
+    // measurement and for why the first window is never refused.
+    //
+    // NO QUEUE AND NO NEW TABLE. The per-client cursor already records position by records
+    // READ, which is exactly what a resumable run needs, and sourcing_runs already records
+    // the batch. Nothing else had to be stored.
+    const totals = {
+      candidatesReturned: 0,
+      written: 0,
+      inBatchDuplicates: 0,
+      verdicts: {
+        new: 0,
+        suppressed_match: 0,
+        duplicate_person_key: 0,
+        duplicate_linkedin: 0,
+        duplicate_email: 0,
+      },
+    }
+
+    let currentOffset = cursor.recordOffset
+    let recordsConsumed = 0
+    let windowsProcessed = 0
     let ceilingReachedDuringRun = false
-    try {
-      const result = await handler.execute(
-        spec as unknown,
-        target_batch_size,
-        cursor.recordOffset,
-      )
-      candidates = result.candidates as ProspectCandidate[]
-      recordsRead = result.recordsRead
-      ceilingReachedDuringRun = result.ceilingReached
-    } catch (err) {
-      const errorMsg = serializeError(err)
-      logger.error('Sourcing orchestrator: handler search failed', {
-        operation_id: operationId,
-        client_id,
-        error: errorMsg,
-      })
-
-      // Log failure to agent_runs
-      await supabase.from('agent_runs').insert({
-        organisation_id: client_id,
-        agent_name: 'sourcing_orchestrator',
-        status: 'failed',
-        output_summary: null,
-        error_message: `Handler search failed: ${errorMsg}`,
-      })
-
-      throw new Error(`Sourcing failed at search step: ${errorMsg}`)
-    }
-
-    progress.candidates_returned = candidates.length
-
-    logger.info('Sourcing orchestrator: search returned candidates', {
-      operation_id: operationId,
-      client_id,
-      candidate_count: candidates.length,
-    })
-
-    // ── Step 5.5: Collapse duplicates WITHIN this batch ─────────────────────
-    //
-    // Before step 6, deliberately. Step 6 asks the database whether each candidate already
-    // exists, and every candidate in this batch is asked before any of them are written, so
-    // two copies of a person nobody has yet are both told they are new. The write loop then
-    // inserts the first and the unique index rejects the second, killing the run
-    // part-written with the provider call already paid for. See in-batch-dedupe.ts for the
-    // 2026-09-21 measurement.
-    //
-    // Doing it here rather than inside the write loop also saves the six dedupe queries a
-    // redundant candidate would otherwise cost.
-    //
-    // candidates_returned above keeps the PROVIDER's count and is not reduced by this. The
-    // drops are reported as their own reason instead, so a batch that arrived with
-    // duplicates is visible in the run record rather than looking like a short page.
-    const inBatch = removeInBatchDuplicates(candidates)
-    const distinctCandidates = inBatch.unique
-    if (inBatch.duplicates.length > 0) {
-      for (const { reason } of inBatch.duplicates) {
-        progress.dropped_by_reason[reason] = (progress.dropped_by_reason[reason] ?? 0) + 1
-      }
-      logger.warn('Sourcing orchestrator: batch contained repeated people', {
-        operation_id: operationId,
-        client_id,
-        candidates_returned: candidates.length,
-        in_batch_duplicates: inBatch.duplicates.length,
-        distinct_people: inBatch.unique.length,
-        by_reason: { ...progress.dropped_by_reason },
-        cause:
-          'The provider returned the same person on more than one page. Page ordering is ' +
-          'not stable between calls, so this is expected on any multi-page run.',
-      })
-    }
-
-    // ── Step 6: Dedupe candidates ───────────────────────────────────────────
-    logger.info('Sourcing orchestrator: running dedupe check', {
-      operation_id: operationId,
-      client_id,
-      candidates_to_check: distinctCandidates.length,
-    })
-
-    let verdicts: Map<string, string>
-    try {
-      verdicts = await checkCandidates(supabase, client_id, distinctCandidates)
-    } catch (err) {
-      const errorMsg = serializeError(err)
-      logger.error('Sourcing orchestrator: dedupe check failed', {
-        operation_id: operationId,
-        client_id,
-        error: errorMsg,
-      })
-
-      await supabase.from('agent_runs').insert({
-        organisation_id: client_id,
-        agent_name: 'sourcing_orchestrator',
-        status: 'failed',
-        output_summary: null,
-        error_message: `Dedupe check failed: ${errorMsg}`,
-      })
-
-      throw new Error(`Sourcing failed at dedupe step: ${errorMsg}`)
-    }
-
-    // Count verdicts by type
-    const verdictCounts = {
-      new: 0,
-      suppressed_match: 0,
-      duplicate_person_key: 0,
-      duplicate_linkedin: 0,
-      duplicate_email: 0,
-    }
-
-    for (const verdict of verdicts.values()) {
-      const v = verdict as string
-      if (v in verdictCounts) {
-        verdictCounts[v as keyof typeof verdictCounts]++
-      }
-    }
-
-    // DERIVED FROM THE VERDICTS THEMSELVES, not from the verdictCounts literal above.
-    // That literal names today's four drop reasons by hand; a fifth verdict would be
-    // counted by neither it nor a column, and the prospects lost to it would simply not
-    // appear anywhere. Walking the map means a new reason lands here the moment it exists.
-    for (const verdict of verdicts.values()) {
-      const v = verdict as string
-      if (v === 'new') continue
-      progress.dropped_by_reason[v] = (progress.dropped_by_reason[v] ?? 0) + 1
-    }
-
-    logger.info('Sourcing orchestrator: dedupe check complete', {
-      operation_id: operationId,
-      client_id,
-      new: verdictCounts.new,
-      suppressed: verdictCounts.suppressed_match,
-      duplicate_person_key: verdictCounts.duplicate_person_key,
-      duplicate_linkedin: verdictCounts.duplicate_linkedin,
-      duplicate_email: verdictCounts.duplicate_email,
-    })
-
-    // ── Step 7: Write survivors to prospects table ──────────────────────────
-    logger.info('Sourcing orchestrator: writing survivor candidates to prospects', {
-      operation_id: operationId,
-      client_id,
-      survivors: verdictCounts.new,
-    })
-
-    let writtenCount = 0
+    let resultSetExhausted = false
+    let lastWindowMs: number | null = null
+    let lastWindowRecords: number | null = null
+    let lastWindowRequested: number | null = null
+    let stopReason: SourcingStopReason = 'target_met'
     const now = new Date().toISOString()
 
-    for (const candidate of distinctCandidates) {
-      const verdict = verdicts.get(candidate.source_person_key)
-      if (verdict !== 'new') {
-        continue
-      }
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const decision = planNextWindow({
+        targetBatchSize: target_batch_size,
+        recordsConsumed,
+        elapsedMs: clock() - runStartedMs,
+        budgetMs,
+        lastWindowMs,
+        lastWindowRecords,
+        lastWindowRequested,
+        ceilingReached: ceilingReachedDuringRun,
+        resultSetExhausted,
+      })
 
-      try {
-        const { error: insertError } = await supabase.from('prospects').insert({
-          organisation_id: client_id,
-          // The batch identity. Written here and nowhere else, and never updated.
-          sourcing_run_id: runRecord.run_id,
-          source_person_key: candidate.source_person_key,
-          first_name: candidate.first_name || null,
-          job_title: candidate.job_title || null,
-          company_name: candidate.company_name || null,
-          sourcing_review_status: 'pending_review',
-          sourced_tier: null,
-          email: null,
-          linkedin_url: null,
-          linkedin_url_normalised: null,
-          website_url: null,
-          country: null, // Will be populated by enrichment agent
-          company_headcount: null, // Will be populated by enrichment agent
-          company_industry: null, // Will be populated by enrichment agent
-        })
-
-        if (insertError) {
-          logger.error('Sourcing orchestrator: failed to insert prospect', {
+      if (!decision.proceed) {
+        stopReason = decision.stop as SourcingStopReason
+        if (stopReason !== 'target_met') {
+          logger.warn('Sourcing orchestrator: stopping before the requested batch was read', {
             operation_id: operationId,
             client_id,
-            source_person_key: candidate.source_person_key,
-            error: insertError.message,
+            stop_reason: stopReason,
+            records_consumed: recordsConsumed,
+            target_batch_size,
+            windows_processed: windowsProcessed,
+            elapsed_ms: clock() - runStartedMs,
+            budget_ms: budgetMs,
+            predicted_next_window_ms: decision.predictedMs === null ? null : Math.round(decision.predictedMs),
+            operator_message: describeStop(stopReason, recordsConsumed, target_batch_size),
           })
-          throw insertError
         }
+        break
+      }
 
-        writtenCount++
-        progress.prospects_written = writtenCount
+      const windowStartedMs = clock()
+      const windowRecords = decision.windowRecords
+
+      // ── Step 5: Call handler to search ──────────────────────────────────────
+      logger.info('Sourcing orchestrator: calling handler to search', {
+        operation_id: operationId,
+        client_id,
+        handler_name: capabilityRow.tool_name,
+        window_index: windowsProcessed + 1,
+        window_records: windowRecords,
+        start_offset: currentOffset,
+      })
+
+      let candidates: ProspectCandidate[] = []
+      let recordsRead = 0
+      try {
+        const result = await handler.execute(
+          spec as unknown,
+          windowRecords,
+          currentOffset,
+        )
+        candidates = result.candidates as ProspectCandidate[]
+        recordsRead = result.recordsRead
+        ceilingReachedDuringRun = result.ceilingReached
+        resultSetExhausted = result.resultSetExhausted
       } catch (err) {
         const errorMsg = serializeError(err)
-        logger.error('Sourcing orchestrator: prospect insert failed', {
+        logger.error('Sourcing orchestrator: handler search failed', {
           operation_id: operationId,
           client_id,
+          window_index: windowsProcessed + 1,
+          start_offset: currentOffset,
+          error: errorMsg,
+        })
+
+        // Log failure to agent_runs
+        await supabase.from('agent_runs').insert({
+          organisation_id: client_id,
+          agent_name: 'sourcing_orchestrator',
+          status: 'failed',
+          output_summary: null,
+          error_message: `Handler search failed: ${errorMsg}`,
+        })
+
+        throw new Error(`Sourcing failed at search step: ${errorMsg}`)
+      }
+
+      totals.candidatesReturned += candidates.length
+      progress.candidates_returned = totals.candidatesReturned
+
+      logger.info('Sourcing orchestrator: search returned candidates', {
+        operation_id: operationId,
+        client_id,
+        window_index: windowsProcessed + 1,
+        candidate_count: candidates.length,
+        records_read: recordsRead,
+      })
+
+      // ── Step 5.5: Collapse duplicates WITHIN this window ────────────────────
+      //
+      // Before step 6, deliberately. Step 6 asks the database whether each candidate already
+      // exists, and every candidate in this window is asked before any of them are written, so
+      // two copies of a person nobody has yet are both told they are new. The write loop then
+      // inserts the first and the unique index rejects the second, killing the run
+      // part-written with the provider call already paid for. See in-batch-dedupe.ts for the
+      // 2026-09-21 measurement.
+      //
+      // Doing it here rather than inside the write loop also saves the six dedupe queries a
+      // redundant candidate would otherwise cost.
+      //
+      // PER WINDOW, NOT PER RUN, and that is correct rather than a weakening: a person
+      // repeated across two WINDOWS is caught by step 6 instead, because the earlier window's
+      // write is already committed by the time the later window asks the database. Only
+      // repeats inside one provider call are invisible to step 6, and those are exactly what
+      // this collapse covers.
+      //
+      // candidatesReturned above keeps the PROVIDER's count and is not reduced by this. The
+      // drops are reported as their own reason instead, so a batch that arrived with
+      // duplicates is visible in the run record rather than looking like a short page.
+      const inBatch = removeInBatchDuplicates(candidates)
+      const distinctCandidates = inBatch.unique
+      if (inBatch.duplicates.length > 0) {
+        totals.inBatchDuplicates += inBatch.duplicates.length
+        for (const { reason } of inBatch.duplicates) {
+          progress.dropped_by_reason[reason] = (progress.dropped_by_reason[reason] ?? 0) + 1
+        }
+        logger.warn('Sourcing orchestrator: window contained repeated people', {
+          operation_id: operationId,
+          client_id,
+          window_index: windowsProcessed + 1,
+          candidates_returned: candidates.length,
+          in_batch_duplicates: inBatch.duplicates.length,
+          distinct_people: inBatch.unique.length,
+          by_reason: { ...progress.dropped_by_reason },
+          cause:
+            'The provider returned the same person on more than one page. Page ordering is ' +
+            'not stable between calls, so this is expected on any multi-page run.',
+        })
+      }
+
+      // ── Step 6: Dedupe candidates ─────────────────────────────────────────
+      logger.info('Sourcing orchestrator: running dedupe check', {
+        operation_id: operationId,
+        client_id,
+        window_index: windowsProcessed + 1,
+        candidates_to_check: distinctCandidates.length,
+      })
+
+      let verdicts: Map<string, string>
+      try {
+        verdicts = await checkCandidates(supabase, client_id, distinctCandidates)
+      } catch (err) {
+        const errorMsg = serializeError(err)
+        logger.error('Sourcing orchestrator: dedupe check failed', {
+          operation_id: operationId,
+          client_id,
+          window_index: windowsProcessed + 1,
           error: errorMsg,
         })
 
@@ -600,50 +625,186 @@ export async function runSourcing(
           agent_name: 'sourcing_orchestrator',
           status: 'failed',
           output_summary: null,
-          error_message: `Prospect write failed: ${errorMsg}`,
+          error_message: `Dedupe check failed: ${errorMsg}`,
         })
 
-        throw new Error(`Sourcing failed at prospect write step: ${errorMsg}`)
+        throw new Error(`Sourcing failed at dedupe step: ${errorMsg}`)
+      }
+
+      // Count verdicts by type
+      const verdictCounts = {
+        new: 0,
+        suppressed_match: 0,
+        duplicate_person_key: 0,
+        duplicate_linkedin: 0,
+        duplicate_email: 0,
+      }
+
+      for (const verdict of verdicts.values()) {
+        const v = verdict as string
+        if (v in verdictCounts) {
+          verdictCounts[v as keyof typeof verdictCounts]++
+          totals.verdicts[v as keyof typeof verdictCounts]++
+        }
+      }
+
+      // DERIVED FROM THE VERDICTS THEMSELVES, not from the verdictCounts literal above.
+      // That literal names today's four drop reasons by hand; a fifth verdict would be
+      // counted by neither it nor a column, and the prospects lost to it would simply not
+      // appear anywhere. Walking the map means a new reason lands here the moment it exists.
+      for (const verdict of verdicts.values()) {
+        const v = verdict as string
+        if (v === 'new') continue
+        progress.dropped_by_reason[v] = (progress.dropped_by_reason[v] ?? 0) + 1
+      }
+
+      logger.info('Sourcing orchestrator: dedupe check complete', {
+        operation_id: operationId,
+        client_id,
+        window_index: windowsProcessed + 1,
+        new: verdictCounts.new,
+        suppressed: verdictCounts.suppressed_match,
+        duplicate_person_key: verdictCounts.duplicate_person_key,
+        duplicate_linkedin: verdictCounts.duplicate_linkedin,
+        duplicate_email: verdictCounts.duplicate_email,
+      })
+
+      // ── Step 7: Write survivors to prospects table ────────────────────────
+      logger.info('Sourcing orchestrator: writing survivor candidates to prospects', {
+        operation_id: operationId,
+        client_id,
+        window_index: windowsProcessed + 1,
+        survivors: verdictCounts.new,
+      })
+
+      for (const candidate of distinctCandidates) {
+        const verdict = verdicts.get(candidate.source_person_key)
+        if (verdict !== 'new') {
+          continue
+        }
+
+        try {
+          const { error: insertError } = await supabase.from('prospects').insert({
+            organisation_id: client_id,
+            // The batch identity. Written here and nowhere else, and never updated.
+            sourcing_run_id: runRecord.run_id,
+            source_person_key: candidate.source_person_key,
+            first_name: candidate.first_name || null,
+            job_title: candidate.job_title || null,
+            company_name: candidate.company_name || null,
+            sourcing_review_status: 'pending_review',
+            sourced_tier: null,
+            email: null,
+            linkedin_url: null,
+            linkedin_url_normalised: null,
+            website_url: null,
+            country: null, // Will be populated by enrichment agent
+            company_headcount: null, // Will be populated by enrichment agent
+            company_industry: null, // Will be populated by enrichment agent
+          })
+
+          if (insertError) {
+            logger.error('Sourcing orchestrator: failed to insert prospect', {
+              operation_id: operationId,
+              client_id,
+              source_person_key: candidate.source_person_key,
+              error: insertError.message,
+            })
+            throw insertError
+          }
+
+          totals.written++
+          progress.prospects_written = totals.written
+        } catch (err) {
+          const errorMsg = serializeError(err)
+          logger.error('Sourcing orchestrator: prospect insert failed', {
+            operation_id: operationId,
+            client_id,
+            window_index: windowsProcessed + 1,
+            error: errorMsg,
+          })
+
+          await supabase.from('agent_runs').insert({
+            organisation_id: client_id,
+            agent_name: 'sourcing_orchestrator',
+            status: 'failed',
+            output_summary: null,
+            error_message: `Prospect write failed: ${errorMsg}`,
+          })
+
+          throw new Error(`Sourcing failed at prospect write step: ${errorMsg}`)
+        }
+      }
+
+      logger.info('Sourcing orchestrator: prospects written', {
+        operation_id: operationId,
+        client_id,
+        window_index: windowsProcessed + 1,
+        written_count: totals.written,
+      })
+
+      // ── ADVANCE THE CURSOR, FOR THIS WINDOW ───────────────────────────────
+      //
+      // AFTER this window's writes, deliberately, and BEFORE the next window opens. That
+      // ordering is the whole mechanism:
+      //
+      //   after the writes, because advancing first would mean a window that read 100
+      //   records and then failed to write them had moved the position past 100 people
+      //   nobody has, and no later run would ever go back for them.
+      //
+      //   before the next window, because THIS is what a run interrupted by the platform
+      //   timeout keeps. Advancing once at the end of the whole run, which is what this used
+      //   to do, meant a killed request banked nothing however many windows it had finished.
+      //
+      // It advances by recordsRead, NOT by the number written. The handler's post-filters and
+      // dedupe both drop rows, and a cursor that moved only by survivors would re-read every
+      // dropped record on every subsequent run, forever, dropping each one again for the same
+      // reason.
+      const endOffset = await advanceCursor(
+        supabase,
+        client_id,
+        icpDoc.id as string,
+        currentOffset,
+        recordsRead,
+      )
+
+      // FROM THE RETURN VALUE, not from local arithmetic. advanceCursor returns the offset
+      // it actually recorded, and on a failed write that is the UNCHANGED start offset. Doing
+      // the addition here instead would march the run forward through a position the database
+      // never stored, so the next window would read past records this one has to repeat.
+      currentOffset = endOffset
+      recordsConsumed += recordsRead
+      windowsProcessed++
+
+      lastWindowMs = clock() - windowStartedMs
+      lastWindowRecords = recordsRead
+      lastWindowRequested = windowRecords
+
+      logger.info('Sourcing orchestrator: window complete', {
+        operation_id: operationId,
+        client_id,
+        window_index: windowsProcessed,
+        window_ms: lastWindowMs,
+        records_read: recordsRead,
+        records_consumed: recordsConsumed,
+        end_offset: currentOffset,
+        written_so_far: totals.written,
+      })
+
+      if (ceilingReachedDuringRun) {
+        logger.error('Sourcing orchestrator: this run consumed the last reachable records', {
+          operation_id: operationId,
+          client_id,
+          end_offset: currentOffset,
+          record_ceiling: RECORD_CEILING,
+          consequence:
+            'The next run for this client will refuse to start. Narrow or change the ICP ' +
+            'filter spec to reach a different result set.',
+        })
       }
     }
 
-    logger.info('Sourcing orchestrator: prospects written', {
-      operation_id: operationId,
-      client_id,
-      written_count: writtenCount,
-    })
-
-    // ── ADVANCE THE CURSOR ───────────────────────────────────────────────────
-    //
-    // AFTER the write, deliberately. Advancing before it would mean a run that read 40
-    // records and then failed to write them had moved the position past 40 people nobody
-    // has, and no later run would ever go back for them. Advancing here means a failed run
-    // re-reads its window next time: dedupe discards whatever did land, and anyone missed
-    // gets another chance. That is the conservative direction of the two.
-    //
-    // It advances by recordsRead, NOT by writtenCount. The handler's post-filters and dedupe
-    // both drop rows, and a cursor that moved only by survivors would re-read every dropped
-    // record on every subsequent run, forever, dropping each one again for the same reason.
-    const endOffset = await advanceCursor(
-      supabase,
-      client_id,
-      icpDoc.id as string,
-      cursor.recordOffset,
-      recordsRead,
-    )
-
-    if (ceilingReachedDuringRun) {
-      logger.error('Sourcing orchestrator: this run consumed the last reachable records', {
-        operation_id: operationId,
-        client_id,
-        end_offset: endOffset,
-        record_ceiling: RECORD_CEILING,
-        consequence:
-          'The next run for this client will refuse to start. Narrow or change the ICP ' +
-          'filter spec to reach a different result set.',
-      })
-    }
-
+    const writtenCount = totals.written
     // ── Step 7.5: Validation guard — prevent empty-shell writes ────────────────
     if (writtenCount > 0) {
       const { data: writtenRows, error: checkError } = await supabase
@@ -679,31 +840,42 @@ export async function runSourcing(
     // it out would make a run that received the same person twice read as "returned 200,
     // written 199, dropped 0", and the one number that does not add up is the one nobody
     // checks.
+    // SUMMED OVER EVERY WINDOW, not read off the last one. These were the last window's
+    // locals before the loop existed; leaving them that way would have made a five-window run
+    // report the fifth window's numbers as the whole run's, which reads as a short batch
+    // rather than as a reporting fault.
     const droppedCount =
-      inBatch.duplicates.length +
-      verdictCounts.suppressed_match +
-      verdictCounts.duplicate_person_key +
-      verdictCounts.duplicate_linkedin +
-      verdictCounts.duplicate_email
+      totals.inBatchDuplicates +
+      totals.verdicts.suppressed_match +
+      totals.verdicts.duplicate_person_key +
+      totals.verdicts.duplicate_linkedin +
+      totals.verdicts.duplicate_email
 
     const outputSummary =
-      `candidates returned ${candidates.length}, ` +
+      `candidates returned ${totals.candidatesReturned}, ` +
       `written ${writtenCount}, ` +
       `dropped ${droppedCount} ` +
-      `(repeated in batch: ${inBatch.duplicates.length}, ` +
-      `suppressed: ${verdictCounts.suppressed_match}, ` +
-      `duplicate_person_key: ${verdictCounts.duplicate_person_key}, ` +
-      `duplicate_linkedin: ${verdictCounts.duplicate_linkedin}, ` +
-      `duplicate_email: ${verdictCounts.duplicate_email})`
+      `(repeated in batch: ${totals.inBatchDuplicates}, ` +
+      `suppressed: ${totals.verdicts.suppressed_match}, ` +
+      `duplicate_person_key: ${totals.verdicts.duplicate_person_key}, ` +
+      `duplicate_linkedin: ${totals.verdicts.duplicate_linkedin}, ` +
+      `duplicate_email: ${totals.verdicts.duplicate_email}) ` +
+      `over ${windowsProcessed} window(s), read ${recordsConsumed} of ${target_batch_size} ` +
+      `requested records, stopped: ${stopReason}`
 
     logger.info('Sourcing orchestrator: run complete', {
       operation_id: operationId,
       client_id,
       summary: outputSummary,
+      windows_processed: windowsProcessed,
+      records_consumed: recordsConsumed,
+      records_remaining: Math.max(0, target_batch_size - recordsConsumed),
+      stop_reason: stopReason,
+      elapsed_ms: clock() - runStartedMs,
     })
 
     await runRecord.complete({
-      candidates_returned: candidates.length,
+      candidates_returned: totals.candidatesReturned,
       prospects_written: writtenCount,
       dropped_by_reason: progress.dropped_by_reason,
     })
@@ -731,13 +903,22 @@ export async function runSourcing(
     }
 
     // ── Step 9: Return result ───────────────────────────────────────────────
+    //
+    // records_consumed / records_remaining / stop_reason are what let the caller tell the
+    // operator plainly that more remain and how many, instead of leaving a run that stopped at
+    // 100 of 500 looking identical to one that found only 100 people in the world.
     return {
       organisation_id: client_id,
       trigger_type,
-      candidates_sourced: candidates.length,
+      candidates_sourced: totals.candidatesReturned,
       candidates_qualified: writtenCount,
       run_timestamp: now,
       sourcing_run_id: runRecord.run_id,
+      windows_processed: windowsProcessed,
+      records_consumed: recordsConsumed,
+      records_remaining: Math.max(0, target_batch_size - recordsConsumed),
+      stop_reason: stopReason,
+      stop_message: describeStop(stopReason, recordsConsumed, target_batch_size),
     }
   } catch (err) {
     const errorMsg = serializeError(err)
@@ -773,11 +954,15 @@ export async function runSourcing(
       })
     }
 
+    // THE PARTIAL RESULT, NOT ZEROES, for the same reason runRecord.fail is handed `progress`
+    // above: a run that finished three windows and died in the fourth really did read and write
+    // what those three produced, and the cursor has already banked them. Reporting zero here
+    // would make the caller re-describe work that is done and is not coming back.
     return {
       organisation_id: client_id,
       trigger_type,
-      candidates_sourced: 0,
-      candidates_qualified: 0,
+      candidates_sourced: progress.candidates_returned,
+      candidates_qualified: progress.prospects_written,
       run_timestamp: new Date().toISOString(),
       sourcing_run_id: runRecord.run_id,
       error: errorMsg,

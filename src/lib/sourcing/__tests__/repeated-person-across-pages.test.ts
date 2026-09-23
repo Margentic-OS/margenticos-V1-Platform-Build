@@ -20,6 +20,24 @@
 // pages of 100, apollo:676ef86aa5bcbe000107a6a7 came back on both, was written as the 34th
 // row and presented again as the 35th candidate. The run died there with 34 rows kept and
 // the provider call for all 200 records already paid.
+//
+// ─── WHICH MECHANISM CATCHES IT MOVED WHEN SOURCING BECAME WINDOWED ──────────
+//
+// Read this before changing an assertion here. The OUTCOME is unchanged and still asserted:
+// the repeated person is written exactly once, 199 distinct people land, the run survives.
+// What changed is which guard does it.
+//
+// A run now reads the provider in windows of 100 records, one window per handler call, so
+// the two pages of this fixture are two SEPARATE windows. Window one's writes are committed
+// before window two asks the database anything, so the repeat is caught by step 6's database
+// check as `duplicate_person_key` rather than by step 5.5's in-batch collapse as
+// `duplicate_in_batch_person_key`. It costs the two dedupe queries that candidate used to be
+// spared, and the cursor now advances twice rather than once.
+//
+// THE IN-BATCH COLLAPSE IS STILL LOAD-BEARING and still has a test below: it covers a person
+// repeated WITHIN one window, which is the only repeat step 6 cannot see, because every
+// candidate in one window is asked about before any of them is written. Windowing narrowed its
+// job; it did not remove it.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -385,7 +403,11 @@ describe('Sourcing: the provider returns the same person on two pages', () => {
     // page. dropped_by_reason lives on the sourcing_runs row, not on the returned result.
     const completion = completionPatch(state)
     expect(completion.status).toBe('completed')
-    expect(completion.dropped_by_reason.duplicate_in_batch_person_key).toBe(1)
+    // BY THE DATABASE CHECK, not the in-batch collapse, because the two pages are now two
+    // windows. See the note at the top of this file. The drop is still counted and still
+    // visible in the run record, which is what the assertion is for.
+    expect(completion.dropped_by_reason.duplicate_person_key).toBe(1)
+    expect(completion.dropped_by_reason.duplicate_in_batch_person_key).toBeUndefined()
     expect(completion.candidates_returned).toBe(200)
     expect(completion.prospects_written).toBe(199)
 
@@ -393,9 +415,11 @@ describe('Sourcing: the provider returns the same person on two pages', () => {
     expect(result.candidates_sourced).toBe(200)
     expect(result.candidates_qualified).toBe(199)
 
-    // The cursor advanced by records READ, not by people written.
-    expect(state.cursorUpserts).toHaveLength(1)
-    expect(state.cursorUpserts[0].record_offset).toBe(200)
+    // The cursor advanced by records READ, not by people written, and ONCE PER WINDOW. Two
+    // windows of 100, banked as each one finished. A single advance at the end is the shape
+    // that lost everything when the platform killed a slow request: see
+    // interrupted-run-resumes.test.ts.
+    expect(state.cursorUpserts.map(u => u.record_offset)).toEqual([100, 200])
   })
 
   it('does not pay dedupe queries for the redundant copy', async () => {
@@ -409,8 +433,14 @@ describe('Sourcing: the provider returns the same person on two pages', () => {
 
     // Candidates carry a person key only (no email, no LinkedIn at sourcing time), so
     // dedupe asks 2 questions each: suppressed-by-key, then duplicate-by-key.
-    // 199 distinct candidates, plus the single empty-shell read-back in step 7.5.
-    expect(state.prospectSelects).toBe(199 * 2 + 1)
+    //
+    // 200 candidates, not 199, and that is the cost of windowing rather than a regression: the
+    // repeated person is in a different window from its twin, so it reaches step 6 and is asked
+    // about like everybody else. Plus the single empty-shell read-back in step 7.5.
+    //
+    // The collapse still saves the queries it was built to save, for a repeat inside ONE
+    // window, which the test below covers.
+    expect(state.prospectSelects).toBe(200 * 2 + 1)
   })
 
   it('still drops a person this organisation already has', async () => {
@@ -432,9 +462,61 @@ describe('Sourcing: the provider returns the same person on two pages', () => {
     expect(result.error).toBeUndefined()
     expect(state.prospects.filter(p => p.source_person_key === 'apollo:p005')).toHaveLength(1)
     const dropped = completionPatch(state).dropped_by_reason
-    expect(dropped.duplicate_person_key).toBe(1)
-    expect(dropped.duplicate_in_batch_person_key).toBe(1)
+    // TWO now, not one and one: the seeded person AND the cross-window repeat are both database
+    // duplicates. Under a single un-windowed call the repeat was an in-batch drop instead.
+    expect(dropped.duplicate_person_key).toBe(2)
+    expect(dropped.duplicate_in_batch_person_key).toBeUndefined()
     // 199 distinct, one of them already present, so 198 new rows on top of the seeded one.
     expect(state.prospects).toHaveLength(199)
+  })
+
+  // ── THE IN-BATCH COLLAPSE, ON THE REPEAT IT IS STILL THE ONLY GUARD FOR ────
+  //
+  // Windowing moved the cross-page case to the database check, which would leave step 5.5
+  // with no failing test and make it look like dead code the next person could delete. This
+  // is the case it is still the ONLY guard for: the same person twice inside ONE window.
+  // Step 6 cannot see it, because every candidate in a window is asked about before any of
+  // them is written, so both copies are correctly told they are new and the write loop hits
+  // the unique index on the second.
+  it('collapses a person repeated INSIDE one window, which step 6 cannot see', async () => {
+    const state = freshState()
+    const supabase = makeSupabase(state)
+
+    // One window of 100 holding the repeat twice, so the whole batch is a single window and
+    // the database check has had no chance to learn about anyone.
+    const onePageWithInternalRepeat = [
+      ...Array.from({ length: 98 }, (_, i) => person(`q${String(i).padStart(3, '0')}`)),
+      person(REPEATED_PERSON_ID),
+      person(REPEATED_PERSON_ID),
+    ]
+    fetchSpy.mockImplementation(async (_url: unknown, init: unknown) => {
+      const body = JSON.parse((init as { body: string }).body) as { page: number }
+      pagesServed.push(body.page)
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          people: body.page === 1 ? onePageWithInternalRepeat : [],
+          total_entries: 100,
+        }),
+        text: async () => '',
+        headers: { get: () => null },
+      } as unknown as Response
+    })
+
+    const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 100)
+
+    // POSITIVE CONTROL: exactly one window, so nothing here can be the database check.
+    expect(pagesServed).toEqual([1])
+
+    expect(result.error).toBeUndefined()
+    expect(state.prospects.filter(p => p.source_person_key === REPEATED_KEY)).toHaveLength(1)
+    expect(state.prospects).toHaveLength(99)
+
+    // COUNTED AS AN IN-BATCH DROP. Deleting removeInBatchDuplicates makes the run die at the
+    // write step on 23505, exactly as production did on 2026-09-21.
+    const dropped = completionPatch(state).dropped_by_reason
+    expect(dropped.duplicate_in_batch_person_key).toBe(1)
+    expect(dropped.duplicate_person_key).toBeUndefined()
   })
 })

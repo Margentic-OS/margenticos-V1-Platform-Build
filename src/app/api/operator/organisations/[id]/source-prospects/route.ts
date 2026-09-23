@@ -7,8 +7,14 @@
 // Auth, client construction and failure reporting follow the send path exactly. See
 // /api/operator/organisations/[id]/enrich-approved-batch, which is the same shape.
 //
-// Long work: the batch runs inside this request. There is no queue. runSourcingForOrg
-// refuses a batch size that would not finish inside the budget, with an explicit error.
+// Long work: the batch runs inside this request. There is no queue.
+//
+// IT NO LONGER HAS TO FINISH IN ONE REQUEST. The run reads the provider in windows and saves
+// its per-client position after each one, so a run that runs out of time stops cleanly having
+// banked everything it read, and the response says how many records remain and that another
+// press will reach them. `more_remain` is that condition, named rather than left for the
+// caller to infer from a count. runSourcingForOrg still refuses a batch size above
+// SOURCING_MAX_BATCH_SIZE outright. See src/lib/sourcing/window-budget.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { asServiceRoleClient } from '@/lib/supabase/service-role'
@@ -113,6 +119,10 @@ export async function POST(
       organisation_id: organisationId,
       candidates_sourced: result.candidates_sourced,
       candidates_qualified: result.candidates_qualified,
+      records_consumed: result.records_consumed,
+      records_remaining: result.records_remaining,
+      windows_processed: result.windows_processed,
+      stop_reason: result.stop_reason,
     })
 
     return NextResponse.json({
@@ -123,6 +133,19 @@ export async function POST(
         run_timestamp: result.run_timestamp,
         estimated_seconds: result.estimated_seconds,
         sourcing_run_id: result.sourcing_run_id,
+        // ── SAID PLAINLY, IN THE RESPONSE THE OPERATOR'S PRESS GETS BACK ────────
+        //
+        // A run stopping at 100 of 500 is a SUCCESS with a count, and so is a run that found
+        // only 100 people in the world. Without these the two are the same answer, which is
+        // what made the operator babysit the button: press, watch a number, guess whether that
+        // was the design. stop_message is the sentence; the numbers are there so a screen can
+        // render it its own way without re-deriving the arithmetic.
+        windows_processed: result.windows_processed,
+        records_consumed: result.records_consumed,
+        records_remaining: result.records_remaining,
+        stop_reason: result.stop_reason,
+        stop_message: result.stop_message,
+        more_remain: result.records_remaining > 0 && result.stop_reason === 'budget_exhausted',
       },
     })
   } catch (err) {

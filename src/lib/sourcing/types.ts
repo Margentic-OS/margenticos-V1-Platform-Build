@@ -25,6 +25,8 @@
 // Placeholder for future sourcing type definitions
 // (Will expand as sourcing handlers and composition logic are built)
 
+import type { SourcingStopReason } from '@/lib/sourcing/window-budget'
+
 export type SourcingTriggerType = 'inventory_monitor' | 'operator_manual'
 
 export interface SourcingRunResult {
@@ -36,6 +38,28 @@ export interface SourcingRunResult {
   /** The batch identity every prospect this run wrote points at. NULL if the record could not be created. */
   sourcing_run_id: string | null
   error?: string
+
+  // ── HOW FAR THE RUN GOT, AND WHY IT STOPPED ────────────────────────────────
+  //
+  // A sourcing run reads the provider in windows and stops when the requested batch is done,
+  // when its runtime budget runs out, when the provider has no more rows, or at the provider's
+  // reachable-record ceiling. All four produce a COMPLETED run with a count, so without these
+  // fields "sourced 100 of 500" and "there are only 100 people" are the same answer.
+  //
+  // OPTIONAL, so every existing caller and test that builds a SourcingRunResult by hand still
+  // compiles. The failure path leaves them unset, because a run that threw does not know which
+  // of the four it would have been.
+
+  /** Provider windows this run completed. */
+  windows_processed?: number
+  /** Provider records this run consumed, summed over its windows. The cursor advanced by this. */
+  records_consumed?: number
+  /** Requested records this run never reached. Another press picks these up. */
+  records_remaining?: number
+  /** Which of the four endings this was. See SourcingStopReason. */
+  stop_reason?: SourcingStopReason
+  /** The one sentence an operator reads. Built by describeStop, in one place. */
+  stop_message?: string
 }
 
 export interface SourcingHandler {
@@ -114,6 +138,19 @@ export interface SourcingExecuteResult {
   recordsRead: number
   /** True when the run stopped at the provider's reachable-record ceiling. */
   ceilingReached: boolean
+  /**
+   * True when the provider has no more rows for this query, so a further window is pointless.
+   *
+   * DISTINCT FROM ceilingReached. That one means the provider will not PAGE any deeper (50,000
+   * records) and is a property of the provider. This one means the result set itself ran out,
+   * which is a property of the query, and is the ordinary way a run ends.
+   *
+   * REQUIRED, not optional, so a handler cannot omit it and leave the caller to infer
+   * exhaustion from a short window. That inference is wrong on the exact boundary: a result set
+   * of 300 read in windows of 100 returns a full window every time, and the caller would spend
+   * one more provider call on an empty page to find out there was nothing left.
+   */
+  resultSetExhausted: boolean
 }
 
 // Re-exported from the ONE list in icp-filter-spec.ts. See "Layer G" there.
