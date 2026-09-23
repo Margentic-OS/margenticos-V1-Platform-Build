@@ -9,6 +9,8 @@ import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import { isIntakeAnswerEdit } from '@/lib/intake/document-staleness'
 import { flagDocumentsStaleForIntakeEditSafely } from '@/lib/intake/flag-stale-documents'
+import { renderAnswerValue } from '@/lib/intake/answer-change'
+import { notifyOperatorOfIntakeEditSafely } from '@/lib/intake/notify-intake-edit'
 
 export async function saveIntakeResponse(
   fieldKey: string,
@@ -84,14 +86,37 @@ export async function saveIntakeResponse(
   // An answer that CHANGED, not one written for the first time. A first answer cannot
   // invalidate a document, because no document was built without it: either it predates
   // generation, or generation has not happened yet.
+  //
+  // THE SAME PREDICATE GATES THE NOTIFICATION. A first save must not email the operator
+  // either, for the same reason it must not flag a document: there is nothing to look at.
+  // One `if`, so the two can never disagree about what an edit is.
   if (isIntakeAnswerEdit(existing?.response_value ?? null, responseValue)) {
     // organisation_id is the caller's own, resolved from auth.getUser() above and never from
     // an argument. That is what makes the service-role write inside here safe; the reasoning
     // is written out in full in flag-stale-documents.ts.
-    await flagDocumentsStaleForIntakeEditSafely(
+    const flaggedDocumentTypes = await flagDocumentsStaleForIntakeEditSafely(
       userRecord.organisation_id,
       [fieldKey],
     )
+
+    // Told, never acted on. The flagging above is the durable half and has already happened;
+    // this cannot fail it. What the operator is told about the documents is what was ACTUALLY
+    // flagged, returned from the call above rather than recomputed from the field key, which
+    // would name documents that were already stale.
+    await notifyOperatorOfIntakeEditSafely({
+      organisationId: userRecord.organisation_id,
+      changes: [{
+        fieldKey,
+        fieldLabel,
+        // existing.response_value is non-null here: isIntakeAnswerEdit returns false for a
+        // null previous, so this branch is only reached when there WAS an older answer. The
+        // fallback is for the stored empty string, which is a real previous value and renders
+        // as "(blank)" rather than as nothing.
+        previous: renderAnswerValue(existing?.response_value ?? ''),
+        next: renderAnswerValue(responseValue),
+      }],
+      flaggedDocumentTypes,
+    })
   }
 
   return { success: true, wordCount }

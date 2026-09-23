@@ -21,6 +21,8 @@ import {
   changedBuyerProfileFields,
 } from '@/lib/intake/buyer-profile-store'
 import { flagDocumentsStaleForIntakeEditSafely } from '@/lib/intake/flag-stale-documents'
+import { buyerProfileAnswerChanges } from '@/lib/intake/answer-change'
+import { notifyOperatorOfIntakeEditSafely } from '@/lib/intake/notify-intake-edit'
 
 /**
  * The caller's own organisation, from their session. THE ONLY SOURCE OF organisationId here.
@@ -85,13 +87,46 @@ export async function saveBuyerProfile(
     return { error: 'Failed to save' }
   }
 
+  // ONE COMPARISON, TWO CONSUMERS. The flagging and the notification must never disagree
+  // about which answers moved, so changedBuyerProfileFields is called once and its result is
+  // handed to both. Calling it twice would be two derivations of one fact, which is the shape
+  // this file's neighbours keep paying for.
+  //
+  // It returns NOTHING when `previous` is null, which is how a first save is told from an
+  // edit here. That is why the read above is readBuyerProfileRow and not readBuyerProfile:
+  // see its header, and isIntakeAnswerEdit on the other path for the same decision.
+  const changedFields = changedBuyerProfileFields(previous, profile)
+
   // Flags only; never regenerates. Never throws: the answers are already saved, and losing a
   // flag is a smaller harm than failing a save that succeeded. See flag-stale-documents.ts
   // for why this needs the service-role client and why that is safe with the id above.
-  await flagDocumentsStaleForIntakeEditSafely(
+  const flaggedDocumentTypes = await flagDocumentsStaleForIntakeEditSafely(
     organisationId,
-    changedBuyerProfileFields(previous, profile),
+    changedFields,
   )
+
+  // Told, never acted on.
+  //
+  // GATED HERE, not only inside the callee. notifyOperatorOfIntakeEditSafely does return
+  // immediately on an empty change list, so an unconditional call would behave correctly
+  // today. It would put the first-save rule in one place on this path and another place on
+  // the intake path, and leave nothing at this call site saying that a first save must not
+  // notify. The `if` mirrors isIntakeAnswerEdit in actions.ts so both paths state the same
+  // rule in the same shape.
+  //
+  // `previous` is non-null whenever changedFields is non-empty: changedBuyerProfileFields
+  // returns [] for a null previous, which is exactly how a first save is told from an edit.
+  const changes = previous
+    ? buyerProfileAnswerChanges(previous, profile, changedFields)
+    : []
+
+  if (changes.length > 0) {
+    await notifyOperatorOfIntakeEditSafely({
+      organisationId,
+      changes,
+      flaggedDocumentTypes,
+    })
+  }
 
   return { success: true }
 }

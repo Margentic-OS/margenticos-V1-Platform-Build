@@ -104,6 +104,12 @@ const UNMATCHED_BOOKING: UnmatchedBookingNotice = {
 // ─── OPERATOR-FACING ─────────────────────────────────────────────────────────
 // Verified by reading each call site's `to:` on 2026-09-07. Every one of these resolves to
 // RESEND_OPERATOR_EMAIL or a users row with role 'operator'. None can reach a client.
+// RULE ZERO: names no industry, job title, sector, country or company.
+const REVISION_CHANGES = [
+  { fieldLabel: 'What does your company do?', previous: 'The old answer.', next: 'The new answer.' },
+  { fieldLabel: 'Who do you serve?', previous: '(blank)', next: 'The new answer.' },
+]
+
 const OPERATOR_TEMPLATES: RenderedTemplate[] = [
   {
     file: 'agent-failure.ts',
@@ -140,9 +146,13 @@ const OPERATOR_TEMPLATES: RenderedTemplate[] = [
   {
     file: 'client-revision-notify.ts',
     audience: 'operator',
-    subject: clientRevisionNotifySubject(ORG, 'positioning'),
-    html: clientRevisionNotifyTemplate({ orgName: ORG, orgId: ORG_ID, docType: 'positioning', revisionNote: NOTE }),
-    text: clientRevisionNotifyTemplateText({ orgName: ORG, orgId: ORG_ID, docType: 'positioning', revisionNote: NOTE }),
+    // Two changes and one flagged document, which exercises the plural subject, the repeated
+    // row block and the non-empty staleness sentence in one fixture. The single-change and
+    // nothing-flagged renderings have their own tests in
+    // src/lib/email/__tests__/client-revision-notify.test.ts.
+    subject: clientRevisionNotifySubject(ORG, REVISION_CHANGES),
+    html: clientRevisionNotifyTemplate({ orgName: ORG, orgId: ORG_ID, changes: REVISION_CHANGES, flaggedDocumentTypes: ['icp'] }),
+    text: clientRevisionNotifyTemplateText({ orgName: ORG, orgId: ORG_ID, changes: REVISION_CHANGES, flaggedDocumentTypes: ['icp'] }),
   },
   {
     file: 'intake-complete.ts',

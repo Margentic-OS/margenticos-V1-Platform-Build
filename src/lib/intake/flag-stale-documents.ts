@@ -45,7 +45,16 @@
 // MARKS ONLY. Nothing regenerates and nothing is republished: a live document keeps its
 // content and a human decides what to do. Replacing copy the client has already seen with
 // something they have not is the failure this must never cause.
+//
+// IT RETURNS WHAT IT FLAGGED, and that is not decoration. The operator notification sent
+// alongside this has to name the documents that are now possibly out of date, and the only
+// thing that knows which those are is the code that flagged them. Recomputing the list from
+// documentsAffectedBy() at the call site would be a SECOND answer to the same question: it
+// would name documents that were already stale, and documents that exist for no such client,
+// because it cannot see the read this function does. Two derivations of one fact is the
+// parallel-list shape this file's own header was written to end.
 
+import type { StrategyDocType } from '@/lib/agents/cascade/document-dependencies'
 import { documentsAffectedBy, intakeStaleReason } from '@/lib/intake/document-staleness'
 import { logger } from '@/lib/logger'
 import { createServiceRoleClient, type ServiceRoleClient } from '@/lib/supabase/service-role'
@@ -61,12 +70,18 @@ import { createServiceRoleClient, type ServiceRoleClient } from '@/lib/supabase/
  *                         no document was built without it, so nothing it feeds can have
  *                         been written on a different premise. Both callers decide that
  *                         before calling, because only they can see the previous value.
+ *
+ * @returns the document types this call actually moved from live to stale, in the order they
+ *          were flagged. EMPTY IS THE COMMON CASE and does not mean failure: the document may
+ *          already have been stale, or may not exist for this organisation yet. A caller
+ *          reporting to a human must say "nothing was newly flagged" rather than treating an
+ *          empty list as an error.
  */
 export async function flagDocumentsStaleForIntakeEdit(
   service: ServiceRoleClient,
   organisationId: string,
   changedFieldKeys: readonly string[],
-): Promise<void> {
+): Promise<StrategyDocType[]> {
   // A document already flagged by an earlier field in THIS save must not be counted as a
   // candidate for a later one. Without this, saving two answers that feed the same document
   // makes the second one read as a refusal: the first set is_stale, so the second matches
@@ -150,6 +165,11 @@ export async function flagDocumentsStaleForIntakeEdit(
       })
     }
   }
+
+  // The set is already exactly "what this call flagged": every branch above that did NOT
+  // flag something continues without adding to it, including the two error paths and the
+  // zero-row alarm. So a document that failed to flag is never reported as flagged.
+  return [...flaggedInThisSave] as StrategyDocType[]
 }
 
 /**
@@ -161,16 +181,21 @@ export async function flagDocumentsStaleForIntakeEdit(
  * It builds the client rather than accepting one so that no call site can hand it a session
  * client by mistake. That is belt and braces over the ServiceRoleClient brand, which already
  * makes doing so a compile error.
+ *
+ * @returns what was flagged, or an empty list when nothing was. A caller cannot tell a
+ *          "nothing needed flagging" from a "the service-role client could not be built"
+ *          from the return value alone, and deliberately so: both mean the notification
+ *          must not claim a document was flagged. The difference is in the log.
  */
 export async function flagDocumentsStaleForIntakeEditSafely(
   organisationId: string,
   changedFieldKeys: readonly string[],
-): Promise<void> {
-  if (changedFieldKeys.length === 0) return
+): Promise<StrategyDocType[]> {
+  if (changedFieldKeys.length === 0) return []
 
   try {
     const service = await createServiceRoleClient()
-    await flagDocumentsStaleForIntakeEdit(service, organisationId, changedFieldKeys)
+    return await flagDocumentsStaleForIntakeEdit(service, organisationId, changedFieldKeys)
   } catch (err) {
     // createServiceRoleClient throws when SUPABASE_SERVICE_ROLE_KEY is absent. Per-field
     // failures are already caught inside, so reaching here means no field was attempted.
@@ -178,5 +203,6 @@ export async function flagDocumentsStaleForIntakeEditSafely(
       organisation_id: organisationId, changedFieldKeys, error: String(err),
       consequence: 'The answers are saved and NO document was flagged.',
     })
+    return []
   }
 }
