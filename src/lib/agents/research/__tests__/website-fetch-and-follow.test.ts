@@ -93,6 +93,19 @@ describe('dates are read off the page and never inferred', () => {
     expect(findDatedPosts('<h2>A post with no date at all</h2><p>body</p>', 'p')).toEqual([])
   })
 
+  it('drops an ORPHAN date that belongs to no entry', () => {
+    // FOUND BY MUTATION, 2026-09-23: deleting the title requirement left every test green.
+    // A footer line like "Last updated March 4, 2026", or a date sitting under no heading
+    // at all, would otherwise be emitted as a post with an empty title, and the research
+    // would read it as a dated event. A date is only evidence when it is a date FOR
+    // something, and a post we cannot name is not a post.
+    expect(findDatedPosts('<p>Last updated March 4, 2026</p>', 'p')).toEqual([])
+    expect(findDatedPosts('<div>Site refreshed 12 January 2026</div>', 'p')).toEqual([])
+    // And the positive control, so this is not passing because the parser is broken:
+    // give the same date a heading and it IS a post.
+    expect(findDatedPosts('<h3>A real entry</h3><p>March 4, 2026</p>', 'p')).toHaveLength(1)
+  })
+
   it('drops a date it cannot parse rather than emitting Invalid Date', () => {
     expect(findDatedPosts('<time datetime="not-a-date">x</time>', 'p')).toEqual([])
   })
