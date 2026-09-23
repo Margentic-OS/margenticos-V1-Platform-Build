@@ -108,7 +108,14 @@ describe('the export hands the writer what a production reuse run hands it', () 
 describe('writerInputFromSynthesis, the one mapping every caller uses', () => {
   it('passes a fresh synthesis\'s selection through, so a fresh run still marks it', () => {
     const input = writerInputFromSynthesis({ candidates: [candidate], selected_candidate_id: 'c1', relevance_reason: 'R' })
-    expect(input).toEqual({ candidates: [candidate], selectedCandidateId: 'c1', relevanceReason: 'R' })
+    // EXHAUSTIVE ON PURPOSE. toEqual fails when a field is ADDED, which is what this file is
+    // for: a field that reaches the mapping must reach all three callers or none. It caught
+    // selectionReason on 2026-09-23, added with the selection-ordering change.
+    // selectionReason is null here because this caller passed no selection_reason, which is
+    // what a run that recorded no choice looks like.
+    expect(input).toEqual({
+      candidates: [candidate], selectedCandidateId: 'c1', relevanceReason: 'R', selectionReason: null,
+    })
     expect(describeHandover(input).findings_block).toContain('[SELECTED BY SYNTHESIS]')
   })
 })
