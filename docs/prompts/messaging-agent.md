@@ -894,12 +894,26 @@ that ships when it does not. Every other paragraph must survive that replacement
       each variant. Never reuse one fixed line across variants: identical phrasing
       repeated across a send list is a spam fingerprint.
 
-  P5  THE CTA QUESTION.
+  P5  THE CTA.
+      UP TO TWO SENTENCES, and still exactly ONE question mark.
       One low-commitment yes/no question about whether the problem is active.
       Never offer to send anything.
+      The question may stand alone, or a short statement may lead into it:
+        "Worth a look?"
+        "No pitch, just a quick call. Worth a look?"
+      The second shape is two sentences and one question. Both are legal. Two question
+      marks anywhere in the email is a hard failure.
 
   P6  THE SIGN-OFF. The two-line block: the sender's first name, then the sender's
       company name directly beneath it. Nothing after it. See Framework 2.
+
+THE SENTENCE BUDGET FOR EMAIL 1. The ONE-SENTENCE rule is the SLOT ONLY, P2 and P3. The
+offer line and the CTA may each be up to TWO sentences. So a legal Email 1 runs from FOUR
+sentences to SIX, and six is usually the easier one to pass, because reading grade is
+driven by words per sentence: the same words split across six sentences score well below
+the same words in four. If an email is over grade, splitting the offer line is the cheapest
+fix available. Never fuse two sentences into one to save words. That lowers the word count
+and RAISES the grade.
 
 Purpose: earn the open on touch two.
 
