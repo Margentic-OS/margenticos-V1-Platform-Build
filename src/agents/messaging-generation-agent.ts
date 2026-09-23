@@ -1160,7 +1160,9 @@ that specific prospect exists. Write the default that ships when it does not.
       alone, because it gets replaced. Do not pitch here. Do not name the service here.
   P3  WHAT CHANGES. The offer line. Signal that the sender does something about that
       problem and name a RESULT in the prospect's own terms. Do NOT name the service, do
-      NOT explain the mechanism, do NOT list features. One or two short sentences. This
+      NOT explain the mechanism, do NOT list features. UP TO TWO SENTENCES, and two short
+      ones are usually better than one long one: the reading grade counts words per
+      sentence, so splitting here is the cheapest way to bring the whole email down. This
       paragraph MAY begin with We: the I/We ban applies only to the observation slot.
       Register to match: "We get more conversations into your diary."
                          "We bring qualified prospects to you."
@@ -1181,7 +1183,12 @@ that specific prospect exists. Write the default that ships when it does not.
 
       P3 must FLEX to the pain P2 opened on, and must differ across all four variants.
       A fixed line reused across variants is a spam fingerprint, and is code-enforced.
-  P4  The CTA question. One question. Low commitment.
+  P4  THE CTA. UP TO TWO SENTENCES, and still exactly ONE question mark. Low commitment.
+      The question may stand alone, or a short statement may lead into it:
+        "Worth a look?"
+        "No pitch, just a quick call. Worth a look?"
+      The second shape is two sentences and one question, which is legal and scores better
+      than one long question. Two question marks anywhere in the email is a hard failure.
   P5  THE SIGN-OFF BLOCK. Two lines, in this order, nothing after them:
         ${params.preflight.sender_first_name}
         ${params.preflight.org_name}
@@ -1265,10 +1272,15 @@ sentence still lands if you guessed wrong about the details.
 WORD PRESSURE, READ THIS. Pattern framing costs more words than assertion, and Email 1 is
 ${EMAIL_WORD_LIMITS.email1MinWords} to ${EMAIL_WORD_LIMITS.email1TargetMaxWords} words
 with a hard cap of ${EMAIL_WORD_LIMITS.email1MaxWords}. Do not solve that by compressing
-P2 back into a verdict. Take the words from elsewhere: P3 can be one sentence rather than
-two, the CTA can be shorter, and any clause that merely restates something is already
-failing the non-redundancy rule and should go. If the email will not fit, cut content, not
-the framing.
+P2 back into a verdict. Take the words from elsewhere: any clause that merely restates
+something is already failing the non-redundancy rule and should go. If the email will not
+fit, cut content, not the framing.
+
+DO NOT SOLVE WORD PRESSURE BY FUSING SENTENCES. This paragraph used to say P3 could be one
+sentence rather than two, and that advice is now withdrawn, because it pulls against the
+reading grade. Cutting a 60-word email from four sentences to three RAISES its grade even
+though it is shorter. Fewer words help; fewer sentences hurt. When both are tight, cut
+whole ideas and keep the sentence breaks.
 
 Angle assignments determine how the P2 observation slot opens:
 - Variant A: Pain-led. The implied cost or consequence of the current situation.
@@ -1453,6 +1465,12 @@ function renderWordCountReminder(): string {
     // is concentrating on word counts and sentence caps.
     `- Every email must read at FLESCH-KINCAID GRADE ${MAX_READING_GRADE} OR UNDER, measured on the paragraphs you write, with the {{first_name}} line and the sign-off excluded. This is a hard gate and it rejects the variant. The reason is not style: a cold email is read in a hurry, on a phone, by someone who never asked for it, and anything that needs a second read gets none. Two things move this number, sentence length and syllables per word, and since the sentence cap above already holds the first, WORD CHOICE is what you control here. Industry words are the usual cause: "qualified", "prospecting", "consistency", "conversations", "opportunities", "capacity". Say the everyday thing instead. "Meetings" not "qualified meetings", "work" not "engagements", "find clients" not "prospecting". Short, plain, concrete words are also simply better cold-email copy, so this gate and good writing pull in the same direction.`,
     `- Email 1's observation slot is TWO paragraphs, a blank line between them, ONE SENTENCE in each, and neither over ${MAX_EMAIL_SENTENCE_WORDS} words. Paragraph 2 observes. Paragraph 3 names the consequence that follows. Count the words in both before moving on: two sentences in either paragraph, or one sentence over ${MAX_EMAIL_SENTENCE_WORDS} words, rejects the variant.`,
+    // THE SENTENCE BUDGET, STATED WHERE THE SLOT RULE IS STATED, because the two are read
+    // together and the previous version said only the restrictive half. A reader who saw
+    // "ONE SENTENCE in each" and nothing else reasonably concluded the whole of Email 1 was
+    // one sentence per paragraph, which is how every attempt on 2026-09-22 came back at
+    // exactly four sentences.
+    `- The ONE-SENTENCE rule is the SLOT ONLY. Email 1's offer line and its CTA may each be up to TWO sentences, and the sign-off is two lines. So a legal Email 1 runs from four sentences to six. SIX IS USUALLY THE EASIER ONE TO PASS: reading grade is driven by words per sentence, so the same words split across six sentences score well below the same words in four. Splitting the offer line is the cheapest grade you will find.`,
   ].join('\n')
 }
 
