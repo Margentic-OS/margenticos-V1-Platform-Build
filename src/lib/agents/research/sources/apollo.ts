@@ -6,6 +6,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
+import { isFatalSourceStatus, readErrorBody, SourceHttpError, throwIfFatalSource } from './source-http'
 import type { ProspectContext, ApolloSourceResult } from '../types'
 
 interface ApolloEmployment {
@@ -153,6 +154,17 @@ export async function fetchApolloSource(prospect: ProspectContext): Promise<Apol
       return { available: false, formatted: null, raw: null, error: 'Apollo access denied (403)' }
     }
 
+    // BILLING AND AUTH FIRST, because the generic `!response.ok` branch below would
+    // otherwise record a 402 as "Apollo unexpected error (402)" and carry on to the next
+    // prospect, which is the 2026-09-21 Apify failure with a different provider's name on
+    // it. 401, 402 and 403 mean the account cannot call Apollo at all.
+    if (isFatalSourceStatus(response.status)) {
+      throwIfFatalSource(
+        new SourceHttpError('Apollo people/match', response.status, await readErrorBody(response)),
+        'research/apollo',
+      )
+    }
+
     if (response.status === 429) {
       const retryAfter = response.headers.get('Retry-After')
       logger.info('research/apollo: rate limited (429)', { retry_after: retryAfter ?? 'unknown' })
@@ -195,6 +207,10 @@ export async function fetchApolloSource(prospect: ProspectContext): Promise<Apol
     return { available: true, formatted, raw: data.person as Record<string, unknown> }
 
   } catch (err) {
+    // Lets a FatalApiError raised above travel out rather than being flattened into a
+    // per-prospect error string by the return below.
+    throwIfFatalSource(err, 'research/apollo')
+
     logger.warn('research/apollo: fetch failed', { error: String(err) })
     return { available: false, formatted: null, raw: null, error: String(err) }
   }

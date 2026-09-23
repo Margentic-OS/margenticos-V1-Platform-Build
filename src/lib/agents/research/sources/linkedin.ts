@@ -35,6 +35,7 @@
 // and set APIFY_API_KEY in .env.local and Vercel env vars.
 
 import { logger } from '@/lib/logger'
+import { raiseForStatus, throwIfFatalSource } from './source-http'
 import type { ProspectContext, LinkedInSourceResult } from '../types'
 
 const APIFY_POSTS_ACTOR   = 'harvestapi~linkedin-profile-posts'
@@ -57,9 +58,11 @@ async function runApifyActor(
     signal: AbortSignal.timeout(APIFY_FETCH_TIMEOUT),
   })
 
-  if (!response.ok) {
-    throw new Error(`Apify actor ${actorId} returned ${response.status}`)
-  }
+  // READ THE BODY. This line used to be `throw new Error(...returned ${response.status})`,
+  // which is why the 50 HTTP 402s on 2026-09-21 left no record of what Apify actually
+  // said: the response was discarded here, and Apify keeps no run record for a call it
+  // refused to start, so the reason was unrecoverable two days later.
+  await raiseForStatus(`Apify actor ${actorId}`, response)
 
   return await response.json() as Array<Record<string, unknown>>
 }
@@ -144,6 +147,15 @@ export async function fetchLinkedInSource(prospect: ProspectContext): Promise<Li
       formatted,
     }
   } catch (err) {
+    // A BILLING OR AUTH FAILURE IS NOT THIS PROSPECT'S PROBLEM. 401, 402 and 403 mean the
+    // account cannot call Apify at all, so the next 50 prospects will fail identically.
+    // Rethrown as FatalApiError, which aborts the run. Everything else degrades as before.
+    //
+    // This catch swallowing a 402 is precisely the 2026-09-21 incident: 50 prospects were
+    // researched without LinkedIn, the run reported success, and the copy that shipped was
+    // built on employment history because that was all that was left.
+    throwIfFatalSource(err, 'research/linkedin')
+
     logger.warn('research/linkedin: Apify call failed', { error: String(err) })
     return {
       available: false,

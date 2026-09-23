@@ -526,6 +526,23 @@ export interface ResearchBatchSummary {
   skipped: number
   failed: number
   failures: ResearchBatchFailure[]
+  /**
+   * How many prospects each source failed for, counted across the batch.
+   *
+   * ADDED 2026-09-23. The 2026-09-21 run had LinkedIn fail on 50 of 84 prospects and its
+   * summary said `completed 84, failed 0`, because a source failing was not a prospect
+   * failing and nothing else counted it. A per-source count is the number that would have
+   * made that run visibly wrong at the moment it finished.
+   *
+   * Empty object means every source came back for every prospect.
+   */
+  source_failures: Record<string, number>
+  /**
+   * Prospects HELD because a source they needed did not come back. Distinct from `failed`,
+   * which includes every other reason a prospect did not finish. A held prospect has no
+   * research row and is safe to retry once the source is working.
+   */
+  held_incomplete: number
   failed_log_path: string | null
   /**
    * Repeated sentence frames across the OBSERVATION half of shipped triggers. Report only:

@@ -39,6 +39,7 @@ import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { loadProspectContext } from './research/prospect-context'
 import { fetchAllSources } from './research/fetch-sources'
+import { assessSourceIntegrity, ResearchIncompleteError } from './research/source-integrity'
 import { buildSynthesisRequest } from './research/synthesize'
 import { buildSourceTracking, loadStoredFindings, runProspectResearchAgentV2 } from './prospect-research-agent-v2'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
@@ -151,6 +152,29 @@ export async function runProspectResearchSources({
     const rawData = await fetchAllSources(ctx, extras)
     const { sources_attempted, sources_successful } = buildSourceTracking(rawData)
     logger.debug('prospect-research-sources: sources complete', { sources_attempted, sources_successful })
+
+    // ── THE SAME HOLD AS THE INLINE AGENT, AND IT HAS TO BE HERE TOO ─────────
+    //
+    // This file and runProspectResearchAgentV2 are two callers of fetchAllSources, so a
+    // guard in one of them is not a guard. Phase 1 is the path a real 84-prospect batch
+    // takes, which means the 2026-09-21 run went through HERE: putting the check only in
+    // the inline agent would have left the incident able to happen again by the route it
+    // actually happened by.
+    //
+    // Before the batch submission, so an incomplete prospect never reaches the Batch API
+    // and is never paid for.
+    const integrity = assessSourceIntegrity(rawData)
+    if (!integrity.complete) {
+      logger.error('prospect-research-sources: research incomplete, prospect held — not submitted', {
+        prospect_id,
+        client_id,
+        failed_sources: integrity.failed.map(f => f.source),
+        failures: integrity.failed,
+        successful: integrity.successful,
+        skipped: integrity.skipped,
+      })
+      throw new ResearchIncompleteError(prospect_id, integrity.failed)
+    }
 
     // Builds the request WITHOUT sending it, and hands back the two things that cannot be
     // recomputed on the far side of the wait: the recency signal, which takes the clock,

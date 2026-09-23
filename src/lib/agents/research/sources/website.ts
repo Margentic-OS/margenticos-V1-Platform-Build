@@ -4,6 +4,7 @@
 // Never throws — returns available: false on all failure paths.
 
 import { logger } from '@/lib/logger'
+import { isFatalSourceStatus, readErrorBody, SourceHttpError, throwIfFatalSource } from './source-http'
 import type { ProspectContext, WebsiteSourceResult } from '../types'
 
 const USER_AGENTS = [
@@ -41,6 +42,18 @@ function extractText(html: string): string {
   )
 }
 
+/**
+ * A STATUS FROM THE PROSPECT'S OWN SITE IS NEVER FATAL.
+ *
+ * This matters and it is easy to get backwards. 401, 402 and 403 abort the run when they
+ * come from a PROVIDER WE PAY, because the account cannot make the call and the next
+ * prospect will fail identically. A 403 from a prospect's website is the opposite: it is
+ * Cloudflare deciding about that one site, and aborting a 900-prospect run over it would
+ * turn one bot-blocked homepage into an outage.
+ *
+ * So this function throws SourceHttpError, which carries the status for the record, and
+ * the caller catches it without ever consulting throwIfFatalSource.
+ */
 async function fetchDirect(url: string): Promise<string | null> {
   const response = await fetch(url, {
     headers: {
@@ -50,7 +63,13 @@ async function fetchDirect(url: string): Promise<string | null> {
     },
     signal: AbortSignal.timeout(10000),
   })
-  if (!response.ok) return null
+  // `return null` used to stand here, discarding the status. That is why the 68 website
+  // failures of 2026-09-21 all recorded the identical string "Both direct and Jina fetch
+  // failed" and not one of them says whether the site 403'd, 404'd, or returned a page
+  // with no text in it.
+  if (!response.ok) {
+    throw new SourceHttpError(`website ${url}`, response.status, await readErrorBody(response))
+  }
   const html = await response.text()
   return extractText(html)
 }
@@ -64,7 +83,12 @@ async function fetchViaJina(url: string): Promise<string | null> {
     },
     signal: AbortSignal.timeout(15000),
   })
-  if (!response.ok) return null
+  // JINA IS A PROVIDER WE CALL, so its statuses DO abort the run: unauthenticated
+  // r.jina.ai is rate limited per IP, and a 401/402/403 from it applies to every
+  // remaining prospect exactly as an Apify 402 does.
+  if (!response.ok) {
+    throw new SourceHttpError('Jina Reader', response.status, await readErrorBody(response))
+  }
   const text = await response.text()
   const trimmed = text.trim()
   if (!trimmed || trimmed.length < 50) return null
@@ -78,6 +102,12 @@ export async function fetchWebsiteSource(prospect: ProspectContext): Promise<Web
 
   const url = prospect.website_url ?? deriveWebsiteUrl(prospect.company_name!)
 
+  // WHY BOTH REASONS ARE KEPT. The single string this used to return told whoever read it
+  // back that two things had failed and nothing about why either did, so 68 failures in
+  // one run were undiagnosable. Each attempt now records its own reason and both travel
+  // into the stored error.
+  const reasons: string[] = []
+
   // Try direct fetch first.
   try {
     const content = await fetchDirect(url)
@@ -85,7 +115,11 @@ export async function fetchWebsiteSource(prospect: ProspectContext): Promise<Web
       logger.debug('research/website: direct fetch succeeded', { url, chars: content.length })
       return { available: true, url, content, fetch_method: 'direct' }
     }
+    // Reached the site and got a page with almost no text in it, which is what a
+    // JavaScript-rendered site looks like to a raw HTML fetch. Distinct from an error.
+    reasons.push(`direct: 200 but only ${content?.length ?? 0} chars of text`)
   } catch (err) {
+    reasons.push(`direct: ${err instanceof SourceHttpError ? `HTTP ${err.status}` : String(err)}`)
     logger.debug('research/website: direct fetch failed, trying Jina', { url, error: String(err) })
   }
 
@@ -96,7 +130,14 @@ export async function fetchWebsiteSource(prospect: ProspectContext): Promise<Web
       logger.debug('research/website: Jina fetch succeeded', { url, chars: content.length })
       return { available: true, url, content, fetch_method: 'jina' }
     }
+    reasons.push(`jina: 200 but only ${content?.length ?? 0} chars of text`)
   } catch (err) {
+    // Only Jina's own statuses can stop the run. fetchDirect's SourceHttpError never
+    // reaches this call, so a bot-blocked prospect site cannot abort anything.
+    if (err instanceof SourceHttpError && isFatalSourceStatus(err.status)) {
+      throwIfFatalSource(err, 'research/website')
+    }
+    reasons.push(`jina: ${err instanceof SourceHttpError ? `HTTP ${err.status}` : String(err)}`)
     logger.debug('research/website: Jina fetch failed', { url, error: String(err) })
   }
 
@@ -105,6 +146,6 @@ export async function fetchWebsiteSource(prospect: ProspectContext): Promise<Web
     url,
     content: null,
     fetch_method: null,
-    error: `Both direct and Jina fetch failed for ${url}`,
+    error: `Website fetch failed for ${url} — ${reasons.join('; ')}`,
   }
 }
