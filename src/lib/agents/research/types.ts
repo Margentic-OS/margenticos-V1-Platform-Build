@@ -677,6 +677,25 @@ export interface ResearchBatchSummary {
   abstract_noun_hits: ResearchAbstractNounHit[]
   /** Total across the batch. Zero is the target and is not enforced. */
   abstract_noun_total: number
+  /**
+   * Copy that claims something about the prospect's time, or about who does their selling.
+   * REPORT ONLY, and deliberately so: the same detector BLOCKS on a generated trigger
+   * reason, where the text is short and a rewrite costs one call, and only counts here,
+   * where a false positive would throw away a researched email. Count first, decide later.
+   */
+  assumed_capacity_hits: ResearchAssumedCapacityHit[]
+  assumed_capacity_total: number
+}
+
+/** One prospect's assumed-capacity claims, for the batch report. */
+export interface ResearchAssumedCapacityHit {
+  prospect_id: string
+  /** Which part said it: the second line, the closing question, or the prospect's reason. */
+  part: 'second_line' | 'question' | 'prospect_reason'
+  kind: 'their_time' | 'who_sells'
+  /** What matched, and the sentence it was in, so the report is actionable. */
+  matched: string
+  sentence: string
 }
 
 /** One prospect's abstract-noun count, for the batch report. */

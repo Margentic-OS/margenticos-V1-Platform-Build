@@ -18,6 +18,7 @@ import { fetchAllSources } from './research/fetch-sources'
 import { synthesizeResearch, loadClientContext }  from './research/synthesize'
 import { FrameRegistry, frameShingles, sentenceKey } from '@/lib/style/sentence-frames'
 import { BatchUniquenessRegistry, overusedPhrases, OVERUSE_FRACTION, type OverusedPhrase } from '@/lib/agents/research/batch-uniqueness'
+import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
 import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
@@ -39,6 +40,7 @@ import type {
   ResearchBatchFailure,
   ResearchFrameCollision,
   ResearchAbstractNounHit,
+  ResearchAssumedCapacityHit,
   ObservationCandidate,
   SynthesisOutput,
   IcpFit,
@@ -926,6 +928,7 @@ export async function runProspectResearchAgentV2Batch({
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
   const failures: ResearchBatchFailure[] = []
   const frame_collisions: ResearchFrameCollision[] = []
+  const assumed_capacity_hits: ResearchAssumedCapacityHit[] = []
   const bridge_frame_collisions: ResearchFrameCollision[] = []
   const question_collisions: ResearchFrameCollision[] = []
   let overused_phrases: OverusedPhrase[] = []
@@ -943,6 +946,8 @@ export async function runProspectResearchAgentV2Batch({
     bridge_frame_collisions,
     question_collisions,
     overused_phrases,
+    assumed_capacity_hits: [],
+    assumed_capacity_total: 0,
     distinct_questions: 0,
     abstract_noun_hits,
     abstract_noun_total: 0,
@@ -1054,6 +1059,21 @@ export async function runProspectResearchAgentV2Batch({
             ...findAbstractNouns(copy).map(h => ({ word: h.noun, count: h.count })),
             ...findFigurativeVerbs(copy).map(h => ({ word: h.verb, count: h.count })),
           ]
+          // THE ASSUMED-CAPACITY COUNTER. Report only. The second line is the bridge, which
+          // is the second paragraph of the stored trigger; the question is its own field.
+          // Both are scored separately so a batch that fixes one and not the other is
+          // visible as such rather than as a win, which is the lesson the abstract-noun
+          // counter above learned by under-reporting.
+          const secondLine = String(result.trigger_text ?? '').split('\n\n')[1] ?? ''
+          for (const [part, text] of [
+            ['second_line', secondLine],
+            ['question', result.question_text ?? ''],
+          ] as const) {
+            for (const h of findAssumedCapacityClaims(text)) {
+              assumed_capacity_hits.push({ prospect_id, part, kind: h.kind, matched: h.matched, sentence: h.sentence })
+            }
+          }
+
           if (abstract.length > 0) {
             abstract_noun_hits.push({
               prospect_id,
@@ -1196,6 +1216,18 @@ export async function runProspectResearchAgentV2Batch({
 
   summary.distinct_questions = shippedQuestions.size
   summary.abstract_noun_total = abstract_noun_hits.reduce((t, h) => t + h.count, 0)
+  summary.assumed_capacity_hits = assumed_capacity_hits
+  summary.assumed_capacity_total = assumed_capacity_hits.length
+
+  // REPORT ONLY. A non-zero total is worth reading and is never a failure. This is the
+  // counter that says how often the copy still asserts something about the reader's time or
+  // staffing, which is the fault the trigger reasons exist to stop feeding.
+  logger.info('prospect-research-v2 batch: claims about the prospect\'s time or who sells', {
+    prospects_with_hits: new Set(assumed_capacity_hits.map(h => h.prospect_id)).size,
+    total:               assumed_capacity_hits.length,
+    by_part:             assumed_capacity_hits.reduce<Record<string, number>>((a, h) => ({ ...a, [h.part]: (a[h.part] ?? 0) + 1 }), {}),
+    examples:            assumed_capacity_hits.slice(0, 5).map(h => ({ part: h.part, kind: h.kind, matched: h.matched })),
+  })
 
   // Report only. A non-zero total is worth reading and is never a failure.
   logger.info('prospect-research-v2 batch: abstract nouns in shipped copy', {
