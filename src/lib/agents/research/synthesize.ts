@@ -797,8 +797,28 @@ export function findProspectReasonFaults(reason: string): string[] {
  * this list is how a candidate too weak to be chosen gets stapled to one that was.
  */
 export function isHookEligible(c: ObservationCandidate): boolean {
+  // ── READABILITY IS NOT A REASON TO DISQUALIFY A CANDIDATE. Removed 2026-09-24. ──
+  //
+  // This read `&& !c.readability?.hard_fail`, and that one clause was the whole of the
+  // disqualification. It fed three places: the tier-1 set, the supporting-event filter, and
+  // the set the MODEL'S OWN preferred candidate is looked up in, so a model pick naming a
+  // hard-failed candidate was silently discarded and the arithmetic winner took its place.
+  //
+  // A CANDIDATE OBSERVATION IS AN INTERNAL NOTE, NOT COPY. The writer reads it and writes
+  // its own sentence from it; not one word of it reaches a prospect. readabilityScore is
+  // built for customer-facing text: hard_fail is true for a sentence over 25 words or for
+  // any hedge phrase, so a 26-word note describing a real event was disqualified exactly as
+  // an over-long shipped sentence would be. Measured on 2026-09-24, three of the strongest
+  // findings in that run were rejected this way at 26, 28 and 26 words.
+  //
+  // WHAT IS DELIBERATELY LEFT ALONE, because both govern real copy:
+  //   applyTriggerReadabilityGate, which reads the same hard_fail on trigger_text and
+  //   demotes it to mention_only. trigger_text SHIPS.
+  //   the writer's own per-sentence cap in write-opening.ts, which reads longSentences.
+  // Nominalisation never set hard_fail at all: it is penalty-only, and appears in the
+  // demotion note only because the reason string is concatenated there. That string still
+  // records what was measured, and now records it without acting on it.
   return c.passes_all
-    && !c.readability?.hard_fail
     && c.inference_direction !== 'ambiguous_unhandled'
     && !isReshareWrittenAsTheirOwn(c)
 }
