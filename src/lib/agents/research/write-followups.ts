@@ -46,7 +46,7 @@ import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { EMAIL_WORD_LIMITS } from '@/agents/messaging-generation-agent'
 import { countWords } from '@/lib/composition/personalization'
-import { checkFollowupGates, checkFollowupPairGates } from '@/lib/style/followup-gates'
+import { checkFollowupGates, checkFollowupPairGates, reformatParagraphs } from '@/lib/style/followup-gates'
 import {
   composeFollowupBody,
   EMPTY_FOLLOWUP,
@@ -296,7 +296,10 @@ export function parseFollowupOutput(raw: string): { email2: string; email3: stri
   const m3 = raw.match(/EMAIL3:\s*([\s\S]+)/i)
   const clean = (t: string) =>
     t.replace(/^(here (?:is|are)[^\n:]*:|email\s*[23]\s*:)\s*/i, '').trim()
-  return { email2: clean(m2?.[1] ?? ''), email3: clean(m3?.[1] ?? '') }
+  // REFORMATTED HERE, before any gate sees it, so every check runs on the text that ships.
+  // Paragraph length is the one fault with a correct answer computable without asking the
+  // model again, and spending a retry on it costs a prospect their personalised follow-ups.
+  return { email2: reformatParagraphs(clean(m2?.[1] ?? '')), email3: reformatParagraphs(clean(m3?.[1] ?? '')) }
 }
 
 export async function writeFollowups(params: WriteFollowupsParams): Promise<FollowupResult> {

@@ -255,12 +255,43 @@ function firstParagraphOf(text: string): string {
 }
 
 /**
- * The most sentences one paragraph of a generated follow-up may hold.
+ * The most sentences one paragraph of a generated follow-up holds AFTER REFORMATTING.
  *
  * TWO, because a follow-up is read in a thread by someone who did not reply to the first
  * one. One constant, so disagreeing with it is a one-line change.
  */
 export const MAX_SENTENCES_PER_PARAGRAPH = 2
+
+/**
+ * SPLITS OVERLONG PARAGRAPHS. IT REJECTS NOTHING.
+ *
+ * Paragraph length is the one fault here that has a correct answer computable without
+ * asking again: the words are right and only the line breaks are wrong. A gate would spend
+ * a model call, and an exhausted retry costs the prospect a personalised email, to arrive
+ * at a result this function produces for free.
+ *
+ * WORD-FOR-WORD IDENTICAL, guaranteed by construction: it re-joins the sentences
+ * splitIntoSentences returns and inserts blank lines between groups of two. It never
+ * rewrites, drops or reorders anything.
+ *
+ * Run BEFORE the gates, so every other check sees the text as it will ship.
+ */
+export function reformatParagraphs(prose: string): string {
+  return (prose ?? '')
+    .split(/\n\s*\n/)
+    .map(p => p.trim())
+    .filter(Boolean)
+    .flatMap(para => {
+      const sentences = splitIntoSentences(para)
+      if (sentences.length <= MAX_SENTENCES_PER_PARAGRAPH) return [para]
+      const groups: string[] = []
+      for (let i = 0; i < sentences.length; i += MAX_SENTENCES_PER_PARAGRAPH) {
+        groups.push(sentences.slice(i, i + MAX_SENTENCES_PER_PARAGRAPH).join(' '))
+      }
+      return groups
+    })
+    .join('\n\n')
+}
 
 function wordsIn(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length
@@ -341,21 +372,6 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
   }
 
   const sentences = sentencesOf(text)
-
-  // ── NO PARAGRAPH HOLDS MORE THAN TWO SENTENCES ────────────────────────────
-  //
-  // A follow-up is read on a phone, in a thread, by someone who did not reply to the first
-  // one. Three sentences in one block is where a follow-up stops being read. Fails soft
-  // like every other gate here: the approved template follow-ups ship instead.
-  for (const [i, para] of paragraphsOf(text).entries()) {
-    const n = splitIntoSentences(para).length
-    if (n > MAX_SENTENCES_PER_PARAGRAPH) {
-      failures.push(
-        `${label} paragraph ${i + 1} has ${n} sentences and no paragraph may hold more than ` +
-        `${MAX_SENTENCES_PER_PARAGRAPH}: ${quote(para)}. Split it, or cut the sentence that carries least.`,
-      )
-    }
-  }
 
   // ── The opening sentence is about THIS READER ──────────────────────────────
   const first = sentences[0] ?? text

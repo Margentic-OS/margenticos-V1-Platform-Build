@@ -321,7 +321,7 @@ export async function produceOpening({
     prospectReason,
     supportingCandidateId,
     p3: frame.p3,
-    cta: frame.cta,
+    // frame.cta is deliberately NOT passed. See WriteAndJudgeParams.
     // The version the written opening has to beat: the variant's own approved opener.
     templateOpening: frame.authoredOpening,
     // The judge must read the real artifact, so this calls the exact production path.

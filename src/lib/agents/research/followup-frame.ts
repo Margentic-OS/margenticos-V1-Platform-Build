@@ -159,19 +159,38 @@ export function splitFollowupFrame(body: string): FollowupFrame | null {
 
 /**
  * The tone-and-length reference for one template follow-up: its middle paragraphs with
- * the FIRST one removed.
+ * the FIRST one removed, and the CLOSING QUESTION removed from the end.
  *
  * The first middle paragraph is the opener, and the opener is the one part of this
  * reference that must not transfer. See the header of this file for the measurement.
  *
- * Returns the empty string when nothing survives the strip, which happens whenever the
- * template follow-up is a single paragraph. Callers treat an empty reference as "no
- * reference available" and decline, rather than passing a blank heading to the writer.
+ * THE CLOSING QUESTION IS STRIPPED FOR THE SAME REASON, ADDED 2026-09-24. It is the last
+ * middle paragraph, and it is the second most copyable position in the reference after the
+ * opener, because it is the other part the reference and the task have in common. Measured
+ * on Email 1 the same day: shown the variant's approved question and told plainly that it
+ * was there for register and length only, the writer handed it back, and eight of nine
+ * shipped questions ended in the same four words. Email 1's question was removed from
+ * everything its writer sees; this is the follow-up half of that change. The register and
+ * the length are STATED in the system prompt, which is what the sample was said to be for.
+ *
+ * WHAT IS LEFT IS STILL THE THING THE REFERENCE IS FOR: how the service is described, the
+ * sentence length, the register. Only the two positions that get copied verbatim are gone.
+ *
+ * Returns the empty string when nothing survives the strip, which now happens whenever the
+ * template follow-up is an opener and a question and nothing else. Callers treat an empty
+ * reference as "no reference available" and decline. That is the correct outcome and not a
+ * regression to work around: a reference whose entire surviving content is the approved
+ * question is exactly what this strip exists to prevent reaching the writer.
  */
 export function buildFollowupReference(body: string): string {
   const frame = splitFollowupFrame(body)
   if (frame === null) return ''
-  return frame.middle.slice(1).join('\n\n')
+  const withoutOpener = frame.middle.slice(1)
+  const last = withoutOpener[withoutOpener.length - 1]
+  const kept = last !== undefined && last.trimEnd().endsWith('?')
+    ? withoutOpener.slice(0, -1)
+    : withoutOpener
+  return kept.join('\n\n')
 }
 
 /**

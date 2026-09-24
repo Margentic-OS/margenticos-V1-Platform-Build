@@ -20,6 +20,7 @@ import {
   companyShortForm,
   companyNameForms,
   MAX_SENTENCES_PER_PARAGRAPH,
+  reformatParagraphs,
 } from '../followup-gates'
 
 /** A reference block, already stripped of its opening paragraph. */
@@ -362,25 +363,41 @@ describe('the acronym short form: the SECOND measured false positive', () => {
 
 // ═══ THE FOUR RULES ADDED 2026-09-24, each measured before it was written ═══
 
-describe('no paragraph holds more than two sentences', () => {
-  it('rejects three sentences in one paragraph', () => {
-    const f = checkFollowupGates({ ...base, prose: 'You took the unit on. It is bigger now. Worth a look?' })
-    expect(f.some(x => x.includes('no paragraph may hold more than'))).toBe(true)
+// REPLACED 2026-09-24. This was a GATE and is now a deterministic REFORMAT. Paragraph length
+// is the one fault here with a correct answer computable without asking the model again: the
+// words are right and only the line breaks are wrong. A gate spent a retry, and an exhausted
+// retry costs the prospect a personalised email, to reach a result this produces for free.
+describe('overlong paragraphs are reformatted, not rejected', () => {
+  it('splits three sentences into two paragraphs', () => {
+    expect(reformatParagraphs('You took the unit on. It is bigger now. Worth a look?'))
+      .toBe('You took the unit on. It is bigger now.\n\nWorth a look?')
   })
 
-  it('accepts the same three sentences split across paragraphs', () => {
-    // POSITIVE CONTROL. Without it, a rule that rejected every follow-up would pass the
-    // test above and look like a working gate.
-    const f = checkFollowupGates({ ...base, prose: 'You took the unit on.\n\nIt is bigger now. Worth a look?' })
+  it('THE WORDS ARE IDENTICAL, which is the whole claim', () => {
+    // A reformat that changed a word would be a rewrite nobody reviewed.
+    const before = 'One thing happened. A second thing happened. A third thing happened. A fourth did too.'
+    const words = (t: string) => t.replace(/\s+/g, ' ').trim()
+    expect(words(reformatParagraphs(before))).toBe(words(before))
+  })
+
+  it('leaves a paragraph already within the limit exactly as it was', () => {
+    const ok = 'You took the unit on. It is bigger now.'
+    expect(reformatParagraphs(ok)).toBe(ok)
+  })
+
+  it('splits each overlong paragraph independently, keeping the existing breaks', () => {
+    const before = 'One. Two.\n\nThree. Four. Five.'
+    expect(reformatParagraphs(before)).toBe('One. Two.\n\nThree. Four.\n\nFive.')
+  })
+
+  it('NOTHING is rejected for paragraph length any more', () => {
+    // The positive control for the removal. A three-sentence paragraph reaching the gates
+    // unreformatted must now pass, or the gate is still there under another name.
+    const f = checkFollowupGates({ ...base, prose: 'You took the unit on. It is bigger now. Worth a look?' })
     expect(f.some(x => x.includes('no paragraph may hold more than'))).toBe(false)
   })
 
-  it('names which paragraph, because a follow-up has several', () => {
-    const f = checkFollowupGates({ ...base, prose: 'You took the unit on.\n\nIt is bigger. It runs two shifts. Worth a look?' })
-    expect(f.some(x => x.includes('paragraph 2 has 3 sentences'))).toBe(true)
-  })
-
-  it('the cap is one exported constant', () => {
+  it('the cap is still one exported constant, now used by the reformatter', () => {
     expect(MAX_SENTENCES_PER_PARAGRAPH).toBe(2)
   })
 })

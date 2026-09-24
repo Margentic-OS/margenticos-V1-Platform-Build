@@ -71,7 +71,6 @@ function run(uniqueness?: BatchUniquenessRegistry) {
     candidates: [CANDIDATE],
     selectedCandidateId: 'c1',
     p3: 'We keep the work arriving without you chasing it.',
-    cta: 'Worth a short conversation?',
     templateOpening: TEMPLATE_OPENING,
     composeEmail1: (opening, question, subj) =>
       `Subject: ${subj ?? 'a note about capacity'}\n\nRobin\n\n${opening}\n\n${question ?? 'Worth a short conversation?'}`,

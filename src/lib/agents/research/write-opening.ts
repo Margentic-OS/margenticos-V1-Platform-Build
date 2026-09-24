@@ -267,7 +267,6 @@ export function buildWriterAssignment(params: {
    * would miss the cache on every writer call in the system.
    */
   buyer: string
-  cta: string
   /**
    * Why what was found gives THIS prospect a reason to want what the sender offers, from
    * synthesis. Optional: a run that reached no winner has none, and the block then reads
@@ -292,8 +291,7 @@ You are writing for: ${params.clientName}
 
 Who you are writing to: ${params.buyer}
 ${reason}${supporting}
-The approved closing question for this particular variant is "${params.cta}", and it shows
-register and length. It is not an instruction to reuse it.`
+`
 }
 
 export function buildWriterPrompt(): string {
@@ -388,15 +386,14 @@ Third, the closing question. It goes where [YOUR CLOSING QUESTION GOES HERE] sit
 is the obvious thing to ask THIS person once they have read the observation and the bridge. One question, ending in a question mark. Low
 commitment and easy to answer. No meeting request, no calendar link, no "worth a call".
 
-WRITE THE CLOSING QUESTION. DO NOT PICK ONE.
+WRITE THE CLOSING QUESTION. YOU ARE NOT SHOWN ONE.
 
-The approved question for this particular variant is named in the ASSIGNMENT block. It is
-there to show you REGISTER AND LENGTH: one question, about ${OPENING_BUDGET.question} words,
-answerable yes or no, about the problem in the reader's own terms. It is not a menu.
+There is no approved question in front of you, deliberately. Every question this writer has
+been shown, it has handed back: on 2026-09-24 eight of nine shipped questions ended in the
+same four words. You write this one from the reason, for this person.
 
-Your default is to WRITE a question for this prospect. Using the approved question
-verbatim is permitted only when it genuinely is the right question for this person,
-which will be rare.
+REGISTER AND LENGTH: one question, about ${OPENING_BUDGET.question} words, answerable yes or
+no, about the problem in the reader's own terms.
 And no two prospects in this batch may get the same closing question. If you are told
 yours is already taken, ask about a different aspect of the problem.
 THE QUESTION MUST ASK ABOUT THE CONSEQUENCE THE REASON NAMES.
@@ -1948,7 +1945,14 @@ export interface WriteAndJudgeParams {
    */
   now?: Date
   p3: string
-  cta: string
+  /**
+   * NO `cta`. REMOVED 2026-09-24, the same way `offerLine` was removed the same day and for
+   * the same measured reason: a writer shown an approved line hands it back. On 2026-09-24
+   * eight of nine shipped questions ended in the same four words. The variant's approved
+   * question is still composed in on the TEMPLATE side of the judge's comparison, via
+   * composeEmail1 with `question` omitted, so the comparison stays honest. The writer
+   * simply never sees it.
+   */
   /**
    * Builds the complete Email 1, subject line included. `question` and `subject` are both
    * optional so the TEMPLATE side of the comparison keeps its own approved CTA and its own
@@ -2110,7 +2114,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     ? params.candidates.find(c => c.id === params.supportingCandidateId)?.observation ?? null
     : null
   const assignment = buildWriterAssignment({
-    clientName: params.clientName, buyer: params.buyer, cta: params.cta,
+    clientName: params.clientName, buyer: params.buyer,
     prospectReason: params.prospectReason ?? null,
     supportingEvent,
   })

@@ -61,7 +61,6 @@ describe.runIf(process.env.RUN_CACHE_PROBE)('prompt cache receipt (live API)', (
     const assignment = buildWriterAssignment({
       clientName: CLIENT_CTX.clientName,
       buyer: 'Operations Lead',
-      cta: 'Is this a gap you are looking to close?',
     })
 
     console.log(`\nsystem prompt chars — synthesis ${synthesisSystem.length}, writer ${writerSystem.length}\n`)

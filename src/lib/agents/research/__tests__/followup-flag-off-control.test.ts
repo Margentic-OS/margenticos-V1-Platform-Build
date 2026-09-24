@@ -172,13 +172,51 @@ describe('the follow-up parser', () => {
 })
 
 describe('the frame is split deterministically, or not at all', () => {
-  it('strips exactly the first middle paragraph', () => {
+  // CHANGED 2026-09-24. This used to assert the reference KEPT the approved closing
+  // question. It is now stripped, the same way Email 1's approved question was removed from
+  // everything its writer sees on the same day, and for the same measured reason: shown an
+  // approved question as a sample of register, this writer hands it back.
+  it('strips the first middle paragraph AND the closing question, keeping the middle', () => {
     const ref = buildFollowupReference(TEMPLATE_2)
     expect(ref).not.toContain('Most workshops')
+    expect(ref).not.toContain('Does that match what you see?')
+    expect(ref).not.toContain('?')
+    // POSITIVE CONTROL. The paragraph the reference actually exists for must survive, or
+    // the two absences above would also pass on an empty string.
     expect(ref).toContain('The gap is not the work itself.')
-    expect(ref).toContain('Does that match what you see?')
     expect(ref).not.toContain('{{first_name}}')
     expect(ref).not.toContain('Example Co')
+  })
+
+  it('keeps a trailing paragraph that is not a question', () => {
+    // The strip is keyed on the paragraph ENDING in a question mark, not on position, so a
+    // template whose last middle paragraph is a statement keeps it. Without this, the rule
+    // would silently delete a paragraph of real reference copy from any template that ends
+    // on a statement.
+    const statementEnding = [
+      '{{first_name}},',
+      'An opener that gets stripped.',
+      'The middle paragraph that carries the register.',
+      'A closing line that makes an offer rather than asking anything.',
+      'Sam\nExample Co',
+    ].join('\n\n')
+    const ref = buildFollowupReference(statementEnding)
+    expect(ref).not.toContain('An opener that gets stripped.')
+    expect(ref).toContain('The middle paragraph that carries the register.')
+    expect(ref).toContain('A closing line that makes an offer rather than asking anything.')
+  })
+
+  it('returns nothing when an opener and a question are all there is', () => {
+    // Callers read an empty reference as "no reference available" and ship the template
+    // follow-ups. That is the correct outcome here: the only thing left to show the writer
+    // would be the approved question, which is the thing being withheld.
+    const openerAndQuestion = [
+      '{{first_name}},',
+      'An opener that gets stripped.',
+      'Does that match what you see?',
+      'Sam\nExample Co',
+    ].join('\n\n')
+    expect(buildFollowupReference(openerAndQuestion)).toBe('')
   })
 
   it('returns null rather than a wrong answer when there is no frame', () => {

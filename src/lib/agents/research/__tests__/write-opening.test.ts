@@ -288,15 +288,21 @@ describe('prompt shape', () => {
   // no longer shown it at all: told to lead into it, the writer restated it, and the echo
   // gate rejected the whole variant. Measured across two identical cohorts of 20, the echo
   // went from 1 to 5. The offer line is composed in afterwards and the gate is unchanged.
-  it('the assignment block carries the CTA and the reason, and NOT the offer line', () => {
+  it('the assignment block carries the reason, and NOT the offer line or the approved question', () => {
     const a = buildWriterAssignment({
-      clientName: 'Acme', buyer: 'THE_BUYER_TITLE', cta: 'THE_CTA_LINE',
+      clientName: 'Acme', buyer: 'THE_BUYER_TITLE',
       prospectReason: 'THE_REASON_SENTENCE',
     })
-    expect(a).toContain('THE_CTA_LINE')
     expect(a).toContain('THE_REASON_SENTENCE')
     expect(a).toContain('Acme')
     expect(a).not.toMatch(/OFFER LINE/i)
+    // CHANGED 2026-09-24, second half of the same day's change. The assignment used to
+    // carry the variant's approved closing question "to show register and length". The
+    // writer handed it back: eight of nine shipped questions ended in the same four words.
+    // The signature no longer accepts it, so there is no value to leak; this asserts the
+    // block cannot grow one back by any other route.
+    expect(a).not.toMatch(/approved closing question/i)
+    expect(a).not.toMatch(/\?/)
   })
 
   // THE CACHE INVARIANT. If any per-prospect, per-variant or per-client value gets
@@ -546,13 +552,13 @@ describe('the writer prompt carries the question job and the Rowan failure', () 
     // The second of the four still appears inside two FAILING examples, as the question the
     // bridge ran into, so a whole-prompt check on it would pass for the wrong reason. The
     // closing-question section is checked on its own instead.
-    const from = p.indexOf('WRITE THE CLOSING QUESTION. DO NOT PICK ONE.')
+    const from = p.indexOf('WRITE THE CLOSING QUESTION. YOU ARE NOT SHOWN ONE.')
     const to = p.indexOf('And no two prospects in this batch')
     expect(from).toBeGreaterThan(-1)
     expect(to).toBeGreaterThan(from)
     const section = p.slice(from, to)
     expect(section).not.toMatch(/"[^"]*\?"/)
-    expect(section.replace(/\s+/g, ' ')).toContain('It is there to show you REGISTER AND LENGTH')
+    expect(section.replace(/\s+/g, ' ')).toContain('There is no approved question in front of you, deliberately')
   })
 
   it('carries the Rowan browsers-versus-buyers failure verbatim, with a correction', () => {
@@ -772,33 +778,38 @@ describe('the writer prompt varies the bridge construction', () => {
 describe('the writer prompt treats the approved questions as register, not a menu', () => {
   const prompt = () => buildWriterPrompt()
 
-  it('says write, do not pick', () => {
+  it('says write, and says there is nothing to pick from', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('WRITE THE CLOSING QUESTION. DO NOT PICK ONE')
-    expect(flat).toContain('It is not a menu')
-    expect(flat).toContain('Your default is to WRITE a question for this prospect')
-    expect(flat).toContain('which will be rare')
+    expect(flat).toContain('WRITE THE CLOSING QUESTION. YOU ARE NOT SHOWN ONE')
+    expect(flat).toContain('There is no approved question in front of you, deliberately')
   })
 
   it('cites the actual collapse so the instruction has a reason attached', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('Using the approved question verbatim is permitted only when it genuinely is the right question')
+    // WAS the 2026-09-10 collapse, where six of twelve shipped one of four prompt-resident
+    // questions verbatim. The fix then was to delete the four and keep the variant's own,
+    // which collapsed the same way on 2026-09-24. The reason attached is now that one.
+    expect(flat).toContain('eight of nine shipped questions ended in the same four words')
   })
 
-  // The variant CTA moved into the assignment block so the system prompt could become a
-  // cacheable constant. The register-only framing still has to reach the writer, so it is
-  // now asserted on both halves: the prompt points at the assignment, the assignment carries
-  // the question and repeats the framing.
-  it('extends the register-only framing to the variant CTA it is handed', () => {
+  // CHANGED 2026-09-24. This used to assert the opposite: that the variant's approved
+  // question reached the writer through the assignment block, framed as register only. It
+  // did reach it, and the writer handed it back. Both halves are now asserted ABSENT,
+  // which is the same shape as the offer-line removal earlier the same day. If a future
+  // change puts a question in front of the writer again, exactly one of these goes red.
+  it('shows the writer no approved question, in the prompt or in the assignment', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('The approved question for this particular variant is named in the ASSIGNMENT block')
-    expect(flat).toContain('It is there to show you REGISTER AND LENGTH')
+    expect(flat).not.toContain('The approved question for this particular variant is named in the ASSIGNMENT block')
+    expect(flat).not.toContain('It is there to show you REGISTER AND LENGTH')
 
-    const assignment = buildWriterAssignment({ clientName: 'Acme', buyer: 'THE_BUYER_TITLE', cta: 'Worth a look?' })
+    const assignment = buildWriterAssignment({ clientName: 'Acme', buyer: 'THE_BUYER_TITLE' })
       .replace(/\s+/g, ' ')
-    expect(assignment).toContain('The approved closing question for this particular variant is "Worth a look?"')
-    expect(assignment).toContain('it shows register and length')
-    expect(assignment).toContain('It is not an instruction to reuse it')
+    expect(assignment).not.toMatch(/approved closing question/i)
+    expect(assignment).not.toContain('it shows register and length')
+
+    // POSITIVE CONTROL. The register and length still have to be STATED, or this pair of
+    // absences would also pass on a prompt that says nothing about the question at all.
+    expect(flat).toContain(`REGISTER AND LENGTH: one question, about ${OPENING_BUDGET.question} words`)
   })
 
   it('states the batch-uniqueness rule for questions too', () => {

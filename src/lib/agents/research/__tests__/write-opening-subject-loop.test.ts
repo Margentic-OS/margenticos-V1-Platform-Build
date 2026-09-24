@@ -60,7 +60,6 @@ function run(subject: string) {
     prospectFirstName: 'Robin',
     candidates: [CANDIDATE],
     p3: 'We keep the work arriving without you chasing it.',
-    cta: 'Worth a short conversation?',
     templateOpening: 'The authored opener.',
     // The subject the floor and the judge are handed, recorded for assertion.
     composeEmail1: (opening, question, subj) =>
