@@ -480,10 +480,21 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
     ].join('\n')
   }
 
+  // EVERY REASON, INCLUDING THE FACT-CHECK'S. This read failures2.concat(failures3) and the
+  // fact-check's failures live on their own field, so a pair rejected ONLY by the fact-check
+  // logged an EMPTY reasons array and the backfill printed "follow-ups rejected:" with
+  // nothing after it. Three of eight rejections on 2026-09-24 were unreadable for that
+  // reason, which is the same shape as every other check in this codebase that reported a
+  // verdict without the evidence behind it.
+  const lastAttempt = attempts[attempts.length - 1]
   logger.warn('research/write-followups: every attempt rejected, template follow-ups will ship', {
     prospect_id: params.prospectId,
     attempts: attempts.length,
-    reasons: attempts[attempts.length - 1]?.failures2.concat(attempts[attempts.length - 1].failures3),
+    reasons: [
+      ...(lastAttempt?.failures2 ?? []),
+      ...(lastAttempt?.failures3 ?? []),
+      ...(lastAttempt?.fact_check?.failures ?? []),
+    ],
   })
   const last = attempts[attempts.length - 1]
   return {

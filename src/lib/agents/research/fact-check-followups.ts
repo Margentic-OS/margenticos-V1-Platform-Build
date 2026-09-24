@@ -258,11 +258,19 @@ export async function factCheckFollowups(params: FactCheckParams): Promise<FactC
   const claims = parseFactCheckResponse(raw)
   const failures = checkCitations(claims, params.findingsEvidence, params.prose2, params.prose3)
 
+  // THE FAILURES THEMSELVES, not just how many. Counted-only logging was enough to know the
+  // check fired and useless for saying WHAT it rejected: after the run of 2026-09-24 the
+  // rejected claims could not be quoted at all, because the prose that carried them is
+  // discarded and follow-up attempts are not persisted the way Email 1's are.
   logger.info('fact-check-followups: checked', {
     prospect_id: params.prospectId,
     claims: claims.length,
     unsupported: claims.filter(c => !c.supported).length,
     failures: failures.length,
+    rejected: failures,
+    unsupported_claims: claims.filter(c => !c.supported).map(c => ({
+      email: c.email, claim: c.claim, why: c.why,
+    })),
   })
 
   return { claims, failures, usage, raw }
