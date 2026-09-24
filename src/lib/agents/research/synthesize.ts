@@ -708,7 +708,13 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
  * It has to say they shared it, which is the writer's rule, but what it reports is theirs.
  */
 const AUTHORSHIP_VERBS = /\b(posted|wrote|said|announced|argued|published|made the case)\b/i
-const SHARING_VERBS = /\b(shared|reshared|re-shared|amplified|passed on|reposted|boosted)\b/i
+// NOUN FORMS AS WELL AS VERBS. The first version matched only "reshared" and "shared", so
+// an observation that DISCLOSED the reshare in a noun ("announced via a reshare of the
+// network's post") was excluded for using "announced" beside it. Caught on a real candidate:
+// a firm's own partner-network news, correctly labelled, thrown away.
+//
+// BARE "share" IS DELIBERATELY ABSENT, because "market share" is a different word.
+const SHARING_VERBS = /\b(shar(?:ed|es|ing)|reshar(?:e|ed|es|ing)|re-shar(?:e|ed|es|ing)|repost(?:s|ed|ing)?|amplif(?:y|ies|ied|ying)|passed on|boosted)\b/i
 
 /**
  * THE PROSPECT'S REASON IS HELD TO THE TRIGGER REASON'S RULES, using the same modules.
