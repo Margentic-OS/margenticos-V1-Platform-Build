@@ -57,6 +57,20 @@ Every reason must be:
 
   A CONSEQUENCE OF THE EVENT. What is now true, or now needed, that was not before.
 
+  ABOUT THE PROSPECT'S NEED, NEVER ABOUT THE SENDER'S OFFER. Say what the event leaves the
+  company needing. Do not say what this client's service does, why it works, or what it
+  converts.
+
+  FREE OF ANY ASSERTION THE EVENT DOES NOT ESTABLISH. The event is all you know. You do not
+  know what their pipeline does, what they already have running, or what they lack.
+
+  FREE OF ANY JUDGEMENT ON WHAT THEY HAVE DONE. Not wasted, not missed, not squandered.
+
+  PLAIN WORDS, SHORT ONES. It must read at a reading grade of 6 or below. Strategy vocabulary
+  fails that on its own: pipeline generation, inbound interest, credibility anchor,
+  conversion, systematic, qualified conversations, revenue expectations. Prefer one-syllable
+  and two-syllable words and keep the sentence short.
+
 You must also return the trigger SENTENCE with any inference clause removed. A trigger
 sentence names the event only. Clauses beginning "signalling", "suggesting", "leaving",
 "creating" or "which means" are the reason in the wrong place: move that meaning into the
@@ -105,10 +119,15 @@ async function main() {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, timeout: 300_000, maxRetries: 2 })
 
   let feedback: string | null = null
-  // ONE RETRY, quoting the offending items. The same shape the ICP generator's own gate
-  // uses: the rule is already in the system prompt, and what the model has not been shown
-  // is which of its own lines broke it.
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // FOUR ATTEMPTS, quoting the offending items each time. The same shape the ICP generator's
+  // own gate uses: the rule is already in the system prompt, and what the model has not been
+  // shown is which of its own lines broke it.
+  //
+  // FOUR RATHER THAN TWO because a reading grade of 6 inside 15 words is a genuinely tight
+  // target, and the first run under it failed all eleven at grades of 10 to 14. A gate that
+  // is hard to satisfy needs more chances to satisfy it, or it becomes a gate nobody can
+  // pass and therefore a gate somebody exempts.
+  for (let attempt = 0; attempt < 4; attempt++) {
     const user = [
       `THE CLIENT'S DOCUMENTS:\n${JSON.stringify(context, null, 2)}`,
       `THE TRIGGERS, in order:\n${JSON.stringify(triggers.map((t, i) => ({ index: i + 1, trigger: t.trigger })), null, 2)}`,

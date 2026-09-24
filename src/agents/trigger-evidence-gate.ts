@@ -27,6 +27,8 @@
 
 import { findFirmographicFigures } from '@/lib/style/firmographic'
 import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
+import { fleschKincaidGrade, EMAIL1_MAX_READING_GRADE } from '@/lib/style/reading-grade'
+import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 
 /**
  * The firmographic labels that mean A FIGURE FROM THE COMPANY RECORD, as opposed to a way
@@ -149,14 +151,28 @@ export interface EvidenceFault {
    * 'reason_long'     the reason is over the word cap
    * 'reason_assumes'  the reason claims something about the reader's time or staffing
    * 'trigger_infers'  the trigger SENTENCE carries a clause that belongs in the reason
+   * 'reason_hard'     the reason reads above the grade ceiling
+   * 'reason_verdict'  the reason passes judgement on the prospect's own activity
    */
-  kind: 'figure' | 'absence' | 'record_field' | 'reason_missing' | 'reason_long' | 'reason_assumes' | 'trigger_infers'
+  kind: 'figure' | 'absence' | 'record_field' | 'reason_missing' | 'reason_long' | 'reason_assumes'
+      | 'trigger_infers' | 'reason_hard' | 'reason_verdict'
   /** What matched: a firmographic label, or the span the absence detector found. */
   detail: string
 }
 
 /** The reason's word cap, from HOW TO WRITE TRIGGERS. One constant, stated once. */
 export const TRIGGER_REASON_MAX_WORDS = 15
+
+/**
+ * THE READING-GRADE CEILING FOR A REASON, reusing EMAIL1_MAX_READING_GRADE rather than
+ * declaring a number of its own.
+ *
+ * Not a coincidence and not a borrowed constant: the writer copies the reason into the
+ * email's second line nearly verbatim, so the reason is Email 1 copy in everything but
+ * where it is stored. Giving it a ceiling of its own would let the two drift, and the drift
+ * would show up as copy that passes at the trigger and fails in the email.
+ */
+export const TRIGGER_REASON_MAX_GRADE = EMAIL1_MAX_READING_GRADE
 
 /**
  * Clauses that turn a trigger SENTENCE into an inference. Each one introduces what the
@@ -212,6 +228,34 @@ export function findEvidenceFaults(triggers: unknown): EvidenceFault[] {
         faults.push({
           trigger_index: i + 1, trigger: triggerText, evidence: reason, kind: 'reason_assumes',
           detail: `${h.kind}: "${h.matched}"`,
+        })
+      }
+
+      // READING GRADE. The same measurement and the same ceiling Email 1 is held to, because
+      // the reason lands in Email 1. A null grade means the text was too short to score,
+      // which is not a fault: the word cap above is what guards short reasons.
+      const grade = fleschKincaidGrade(reason)
+      if (grade && grade.grade > TRIGGER_REASON_MAX_GRADE) {
+        faults.push({
+          trigger_index: i + 1, trigger: triggerText, evidence: reason, kind: 'reason_hard',
+          detail: `grade ${grade.grade.toFixed(1)} against a ceiling of ${TRIGGER_REASON_MAX_GRADE}`,
+        })
+      }
+
+      // A VERDICT ON THEIR ACTIVITY. The same detector the writer's own copy is gated on,
+      // passed the reason as the observation half: a verdict is the same fault in a trigger
+      // reason as it is in an email, and it reaches the email either way.
+      //
+      // MODE IS PASSED EXPLICITLY, and it is 'block' because that is the mode in which this
+      // function RETURNS its hits: in 'report' it logs them and returns an empty array, which
+      // is exactly what report-only means there. Passing 'report' here made this gate accept
+      // every verdict silently, and the test that proves it rejects one is what caught that.
+      // Passing it explicitly also means flipping the module's own constant cannot change
+      // what this gate does.
+      for (const v of checkActivityVerdict(reason, '', { prospectId: `trigger-${i + 1}` }, 'block')) {
+        faults.push({
+          trigger_index: i + 1, trigger: triggerText, evidence: reason, kind: 'reason_verdict',
+          detail: v,
         })
       }
     }
@@ -271,6 +315,8 @@ export function evidenceFaultFeedback(faults: EvidenceFault[]): string {
     reason_missing: 'no reason at all',
     reason_long:    `a reason over ${TRIGGER_REASON_MAX_WORDS} words`,
     reason_assumes: "a claim about the reader's time or who does their selling",
+    reason_hard:    'a reason that reads above the grade ceiling',
+    reason_verdict: "a verdict on the prospect's own activity",
     trigger_infers: 'an inference clause that belongs in the reason, not the trigger sentence',
   }
   const lines = faults.map(f => f.evidence

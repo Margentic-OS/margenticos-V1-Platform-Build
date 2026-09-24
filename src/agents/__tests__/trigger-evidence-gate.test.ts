@@ -5,7 +5,8 @@
 // stands between the generator and a landable suggestion.
 
 import { describe, it, expect } from 'vitest'
-import { findEvidenceFaults, evidenceFaultFeedback, findEvidenceAbsenceReport, findRecordFields, TRIGGER_REASON_MAX_WORDS } from '../trigger-evidence-gate'
+import { findEvidenceFaults, evidenceFaultFeedback, findEvidenceAbsenceReport, findRecordFields, TRIGGER_REASON_MAX_WORDS, TRIGGER_REASON_MAX_GRADE } from '../trigger-evidence-gate'
+import { EMAIL1_MAX_READING_GRADE } from '@/lib/style/reading-grade'
 
 // A VALID REASON ON EVERY FIXTURE, added 2026-09-23 when the reason became required.
 // These fixtures exist to exercise the EVIDENCE rules, so they carry a reason that passes
@@ -215,9 +216,9 @@ describe('every trigger carries a reason, and the gate checks its shape', () => 
 
   it.each([
     'The event changes what the company needs next.',
-    'New capacity is committed before the work that pays for it exists.',
+    'New work is booked before the team is free.',
     'A new offer has no existing buyers to sell it to.',
-    'Revenue that was predictable has ended and has to be replaced.',
+    'Steady income has stopped and must be replaced.',
   ])('a clean reason passes: %s', (reason) => {
     // POSITIVE CONTROL for the four rejections above. A gate that fails every reason is an
     // outage, and these are the shapes a correct generator produces.
@@ -272,5 +273,65 @@ describe('the feedback covers the new faults too', () => {
       { trigger: 'A thing happened, signalling trouble.', reason: 'The event changes what is needed.', evidence_to_find: ['a post'] },
     ])
     expect(evidenceFaultFeedback(faults)).toContain('A thing happened, signalling trouble.')
+  })
+})
+
+// ─── THE TWO REUSED CHECKS ───────────────────────────────────────────────────
+//
+// Added 2026-09-23 after eleven derived reasons were rejected. Both reuse a module that
+// already exists and is already trusted elsewhere; neither is a new detector.
+//
+// MEASURED at the time: every one of the eleven read between grade 10.2 and grade 14.0
+// against a ceiling of 6, which is why "high reading grade" was the fault on most of them.
+
+describe('a reason is held to Email 1\'s reading grade, because it becomes Email 1', () => {
+  const withReason = (reason: string) =>
+    [{ trigger: 'A thing happened on a date.', reason, evidence_to_find: ['a post naming it, with its date'] }]
+
+  it('the ceiling IS Email 1\'s, not a second number that could drift from it', () => {
+    expect(TRIGGER_REASON_MAX_GRADE).toBe(EMAIL1_MAX_READING_GRADE)
+  })
+
+  it.each([
+    'A major engagement starting or ending resets active pipeline to zero.',
+    'Visibility without a system to convert inbound interest into meetings wastes the exposure.',
+    'Third-party validation is a credibility anchor that makes cold outreach convert higher.',
+  ])('flags strategy vocabulary that reads too hard: %s', (reason) => {
+    const faults = findEvidenceFaults(withReason(reason))
+    expect(faults.map(f => f.kind)).toContain('reason_hard')
+  })
+
+  it('a plain short sentence passes, so the ceiling is reachable and not an outage', () => {
+    // POSITIVE CONTROL. A gate nobody can pass is a gate somebody exempts.
+    expect(findEvidenceFaults(withReason('They have more work to fill.'))).toEqual([])
+  })
+
+  it('text too short to score is not a fault: the word cap guards that end', () => {
+    const faults = findEvidenceFaults(withReason('More work.'))
+    expect(faults.map(f => f.kind)).not.toContain('reason_hard')
+  })
+})
+
+describe('a reason may not pass judgement on the prospect\'s activity', () => {
+  const withReason = (reason: string) =>
+    [{ trigger: 'A thing happened on a date.', reason, evidence_to_find: ['a post naming it, with its date'] }]
+
+  it.each([
+    'The work they have done is not reaching new people.',
+    'What they set up is not working.',
+  ])('flags %s', (reason) => {
+    expect(findEvidenceFaults(withReason(reason)).map(f => f.kind)).toContain('reason_verdict')
+  })
+
+  it('runs in report mode, so the module\'s own constant cannot switch this gate off', () => {
+    // checkActivityVerdict is passed 'report' explicitly and the FAULT is what blocks. If the
+    // mode were left to the module constant, flipping that constant back would silently stop
+    // this gate rejecting anything, and nothing here would fail.
+    const faults = findEvidenceFaults(withReason('What they set up is not working.'))
+    expect(faults.some(f => f.kind === 'reason_verdict')).toBe(true)
+  })
+
+  it('a plain statement of a need is not a verdict', () => {
+    expect(findEvidenceFaults(withReason('They have more work to fill.'))).toEqual([])
   })
 })

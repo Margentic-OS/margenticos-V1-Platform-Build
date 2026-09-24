@@ -516,6 +516,25 @@ The `reason` is about the EVENT, never about the reader:
 
   IT NAMES A CONSEQUENCE OF THE EVENT. What is now true, or now needed, that was not before.
 
+  IT IS ABOUT THE PROSPECT'S NEED, NEVER ABOUT THE SENDER'S OFFER. Say what the event leaves
+  the company needing. Do not say what this client's service does, why it works, or what it
+  converts. An argument for the offer is a different sentence with a different job, and it
+  belongs further down the email.
+
+  IT ASSERTS NOTHING ABOUT THE COMPANY THAT THE EVENT DOES NOT ESTABLISH. The event is all
+  you know. You do not know what their pipeline does, what they already have running, or
+  what they lack, so do not say.
+
+  IT PASSES NO JUDGEMENT ON WHAT THEY HAVE DONE. Not wasted, not missed, not squandered, not
+  left on the table. The event is a thing that happened, not a mistake to be pointed out.
+
+  PLAIN WORDS, SHORT ONES. It must read at a reading grade of 6 or below, which is roughly a
+  short sentence of everyday words. Strategy vocabulary fails that test on its own: pipeline
+  generation, inbound interest, credibility anchor, conversion, systematic, qualified
+  conversations, revenue expectations. The writer copies this line into the email almost
+  word for word, so anything that sounds like a strategy deck here reaches a stranger's
+  inbox sounding like one.
+
 **The trigger sentence names the EVENT ONLY.** Do not append the reason to it, and do not
 write "signalling that...", "suggesting they...", or "leaving them...". Those clauses are the
 reason in the wrong field, and a trigger sentence carrying one is matched against prospects
