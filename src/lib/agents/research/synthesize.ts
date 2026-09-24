@@ -1024,6 +1024,12 @@ export function parseSynthesisResponse(
   detectedSignal: DetectedSignal,
   dimensions: FitDimension[] | null,
   material: string,
+  /**
+   * The client's own triggers, so a dropped prospect reason can fall back to the APPROVED
+   * reason of the trigger the winner matched. Optional: a caller that does not supply them
+   * gets the last-resort fallback, which is the behaviour every caller had before this.
+   */
+  triggers: ReadonlyArray<{ trigger: string; reason: string }> = [],
 ): SynthesisOutput {
   const reasoning = parseReasoningBlock(raw)
   const jsonStr   = extractJson(raw)
@@ -1073,12 +1079,56 @@ export function parseSynthesisResponse(
   // falls back to relevance_reason, which is what the writer read before this existed.
   const rawProspectReason = typeof parsed.prospect_reason === 'string' ? parsed.prospect_reason.trim() : ''
   const prospectReasonFaults = rawProspectReason ? findProspectReasonFaults(rawProspectReason) : ['empty']
+
+  // ═══ THE FALLBACK CHAIN, AND ITS ORDER IS THE WHOLE POINT ═══
+  //
+  // 1. the model's own sentence for this prospect, when it passes its checks
+  // 2. THE MATCHED TRIGGER'S APPROVED REASON. Generic rather than specific to this
+  //    prospect, and that is its only weakness. It was written from the client's documents,
+  //    passed the same gates, and says why this KIND of event creates a need.
+  // 3. relevance_reason, ONLY when nothing matched a trigger, and logged when used.
+  //
+  // WHY 3 IS LAST AND LOUD. relevance_reason is derived from the ICP's push forces, and a
+  // client whose push forces describe a busy founder produces a reason asserting that this
+  // reader is short of time and personally does the selling. Measured across four prospects
+  // on 2026-09-23, every unmatched one said exactly that. It is the assumption this whole
+  // change removes, so reaching for it is a last resort and has to be visible when it
+  // happens, not a silent default that quietly reinstates what was just taken out.
+  const winnerTriggerIndex = winner?.matched_trigger ?? null
+  const approvedTriggerReason = winnerTriggerIndex != null
+    ? triggers[winnerTriggerIndex - 1]?.reason?.trim() ?? ''
+    : ''
+
+  let prospect_reason = ''
+  let reasonSource: 'prospect' | 'trigger' | 'relevance_fallback' | 'none' = 'none'
+  if (prospectReasonFaults.length === 0) {
+    prospect_reason = rawProspectReason
+    reasonSource = 'prospect'
+  } else if (approvedTriggerReason) {
+    prospect_reason = approvedTriggerReason
+    reasonSource = 'trigger'
+  } else if (winner) {
+    // Nothing matched a trigger, or the matched trigger carries no reason yet. The writer
+    // reads relevance_reason in this case, which is where it read before any of this.
+    reasonSource = 'relevance_fallback'
+  }
+
   if (rawProspectReason && prospectReasonFaults.length > 0) {
     logger.warn('synthesis: the prospect reason failed its own shape rules and was dropped', {
       prospect_id: prospect.id, reason: rawProspectReason, faults: prospectReasonFaults,
+      fell_back_to: reasonSource,
     })
   }
-  const prospect_reason = prospectReasonFaults.length === 0 ? rawProspectReason : ''
+  if (reasonSource === 'relevance_fallback') {
+    // WARN, NOT INFO. This is the path that can reintroduce a claim about the reader's time
+    // or their staffing, so it is meant to be noticed in a run's output rather than found
+    // later by someone reading the copy.
+    logger.warn('synthesis: no trigger reason available, falling back to the ICP relevance reason', {
+      prospect_id: prospect.id,
+      matched_trigger: winnerTriggerIndex,
+      why: winnerTriggerIndex == null ? 'no trigger matched' : 'the matched trigger carries no reason',
+    })
+  }
 
   // A SUPPORTING EVENT IS KEPT ONLY IF IT IS A REAL, DIFFERENT, ELIGIBLE CANDIDATE. The
   // model naming the winner twice, or naming something the code excluded, is not a cluster.
@@ -1166,6 +1216,7 @@ export function parseSynthesisResponse(
     selected_candidate_id: winner?.id ?? null,
     selection_reason,
     prospect_reason,
+    prospect_reason_source: reasonSource,
     supporting_candidate_id,
     selection_basis: basis ?? null,
     trigger_readability,
@@ -1235,6 +1286,7 @@ function buildFallbackSynthesis(
     selected_candidate_id: null,
     selection_reason: '',
     prospect_reason: '',
+    prospect_reason_source: 'none',
     supporting_candidate_id: null,
     selection_basis: null,
     // Measured on the proxy so the audit row still records its readability.
@@ -1561,7 +1613,7 @@ export function synthesisFromMessage(
   // The material is built only when there is a dimension list to check quotations for.
   const dimensions = clientCtx.fitDimensions?.length ? clientCtx.fitDimensions : null
   const material = dimensions ? buildSynthesisUserMessage(prospect, rawData, detectedSignal) : ''
-  const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal, dimensions, material)
+  const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal, dimensions, material, clientCtx.triggers)
 
   // Scrubbing rewrites the trigger (em dashes become full stops, AI tells are replaced),
   // so the readability verdict is recomputed on the text that actually ships.

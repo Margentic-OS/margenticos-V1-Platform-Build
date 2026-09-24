@@ -300,6 +300,26 @@ export async function produceOpening({
     candidates,
     selectedCandidateId,
     relevanceReason,
+    // ═══ THE THREE FIELDS THAT NEVER REACHED EMAIL 1'S WRITER UNTIL 2026-09-24 ═══
+    //
+    // selectionReason has been declared on WriteAndJudgeParams since 2026-09-23 and was
+    // never passed here, so it was `undefined` in production for its whole life. The other
+    // two shipped the same way one day later, in the commit whose entire purpose was to put
+    // the reason in front of this writer.
+    //
+    // WHY NOTHING FAILED. All three are optional on WriteAndJudgeParams, so tsc is silent;
+    // the assignment block's REASON section is built with `?? null` and then `?.trim()`, so
+    // an absent value renders as an empty string rather than throwing; and the tests cover
+    // the two ENDS of the hop, the writerInputFromSynthesis mapping and the prompt text,
+    // and nothing covered the hop itself. That is this project's "half-tests cannot see a
+    // join" exactly: both ends green, the join missing.
+    //
+    // It was an active regression, not just a gap: the same commit REPLACED the writer's
+    // only other target instruction, so the prompt told the model to read a block section
+    // that was never emitted, while emails 2 and 3 argued from a reason Email 1 never saw.
+    selectionReason,
+    prospectReason,
+    supportingCandidateId,
     p3: frame.p3,
     cta: frame.cta,
     // The version the written opening has to beat: the variant's own approved opener.

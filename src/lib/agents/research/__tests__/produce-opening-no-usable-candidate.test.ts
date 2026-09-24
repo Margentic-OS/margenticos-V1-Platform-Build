@@ -147,3 +147,54 @@ describe('hasUsableCandidate is the selection rule, both ways', () => {
     expect(hasUsableCandidate([candidate({ relevant: false })])).toBe(false)
   })
 })
+
+// ═══ THE HOP ITSELF, WHICH NOTHING COVERED UNTIL 2026-09-24 ═══
+//
+// Found by an adversarial review, not by a test, and it had already shipped twice:
+// selectionReason was declared on WriteAndJudgeParams on 2026-09-23 and never passed here,
+// so it was `undefined` in production for its whole life; prospectReason and
+// supportingCandidateId shipped the same way a day later, in the commit whose entire
+// purpose was to put the reason in front of this writer.
+//
+// NOTHING FAILED, and that is the part worth keeping. All three are OPTIONAL on
+// WriteAndJudgeParams so tsc stays silent; the assignment block renders an absent value as
+// an empty string rather than throwing; and both ENDS of the hop were tested, the
+// writerInputFromSynthesis mapping and the prompt text. The join was not.
+//
+// These assertions are deliberately about the ARGUMENT OBJECT rather than about any
+// resulting text. A test that read the prompt would pass again the moment somebody wired
+// the field to a different consumer.
+describe('every field synthesis hands over reaches the Email 1 writer', () => {
+  function runWith(extra: Record<string, unknown>) {
+    return produceOpening({
+      apiKey: 'k', clientName: 'Client', ctx, candidates: [candidate()], selectedCandidateId: 'c1',
+      relevanceReason: 'R', messagingContent: {} as never, variantId: 'A', ...extra,
+    } as never)
+  }
+
+  it.each([
+    ['selectionReason', 'THE_SELECTION_REASON'],
+    ['prospectReason', 'THE_PROSPECT_REASON'],
+    ['supportingCandidateId', 'c1'],
+  ])('passes %s through', async (field, value) => {
+    await runWith({ [field]: value })
+    expect(writeAndJudgeOpening).toHaveBeenCalledTimes(1)
+    expect(writeAndJudgeOpening.mock.calls[0][0][field]).toBe(value)
+  })
+
+  it('passes relevanceReason and the selection too, so the list above is not the whole hop', async () => {
+    // POSITIVE CONTROL for the three above: these two always worked, so a harness that
+    // could not see ANY field would fail here as well and the three would not look special.
+    await runWith({})
+    const args = writeAndJudgeOpening.mock.calls[0][0]
+    expect(args.relevanceReason).toBe('R')
+    expect(args.selectedCandidateId).toBe('c1')
+  })
+
+  it('omits nothing silently: an unset field arrives as undefined, not as a wrong value', async () => {
+    await runWith({})
+    const args = writeAndJudgeOpening.mock.calls[0][0]
+    expect(args.prospectReason).toBeUndefined()
+    expect(args.supportingCandidateId).toBeUndefined()
+  })
+})

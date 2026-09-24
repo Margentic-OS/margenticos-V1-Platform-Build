@@ -574,6 +574,9 @@ export async function synthesisFromStored(
     // blanking it would send the writer back to the core-pain fallback for a prospect whose
     // source row has a perfectly good one.
     prospect_reason: stored.prospect_reason ?? '',
+    // A REUSE RUN MAKES NO CHOICE, so it records none. The reason itself is carried; where
+    // it originally came from belongs to the run that made it.
+    prospect_reason_source: stored.prospect_reason ? 'prospect' : 'none',
     supporting_candidate_id: stored.supporting_candidate_id ?? null,
     selection_basis: stored.selection_basis,
     trigger_readability: {

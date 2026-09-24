@@ -335,6 +335,16 @@ export interface SynthesisOutput {
    * from, so all four emails argue one thing. Empty when synthesis reached no winner.
    */
   prospect_reason: string
+  /**
+   * WHERE prospect_reason CAME FROM, so a run can be read without guessing:
+   *   'prospect'            the model's own sentence, which passed its checks
+   *   'trigger'             the matched trigger's approved reason, generic but safe
+   *   'relevance_fallback'  nothing matched a trigger; the writer reads relevance_reason,
+   *                         which is the only path that can reintroduce a claim about the
+   *                         reader's time or staffing
+   *   'none'                synthesis reached no winner at all
+   */
+  prospect_reason_source: 'prospect' | 'trigger' | 'relevance_fallback' | 'none'
   /** A second event that strengthens the SAME reason. Null when one event is enough. */
   supporting_candidate_id: string | null
   /**
