@@ -103,8 +103,19 @@ going elsewhere" names no one and is a claim about how their week is spent. "Del
 consuming the week" is the same. Ask who the sentence would be false about if it were
 wrong: if the answer is this reader, it is a claim about them.
 
+THE SUBJECT DECIDES, NOT THE TOPIC. A sentence whose subject is the READER or their
+company is ALWAYS a claim about them, even when what it describes sounds like the sender's
+service. "Your outbound runs on a retained basis" is a claim about how THEIR outbound is
+arranged, and needs a finding saying so. "We run outbound on a retained basis" is the
+sender's offer and needs nothing. The two sentences describe the same service and only one
+of them is a claim about the reader.
+
+THAT COVERS THEIR ACTIVITIES, METHODS AND ARRANGEMENTS: how they sell, how they hire, how
+they run delivery, what they have in place, what is or is not already working. Every one of
+those is a fact about their business that somebody has to have established.
+
 WHAT IS NOT A CLAIM ABOUT THEM, and must not be returned:
-  what the SENDER does or offers
+  what the SENDER does or offers, with the SENDER as the subject
   a question
   a statement about a whole market that would be equally true of any firm in it
   a greeting or a sign-off
@@ -159,6 +170,46 @@ export function parseFactCheckResponse(raw: string): CheckedClaim[] {
 }
 
 /**
+ * A SENTENCE ASSERTING HOW THE READER'S OWN BUSINESS IS ARRANGED.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * WHY THIS IS IN CODE AND NOT IN THE PROMPT. Measured 2026-09-24: a follow-up shipped
+ * "Your outbound runs on a retained basis, meaning conversations are in motion before a
+ * role needs filling." That is the SENDER'S SERVICE described as the reader's existing
+ * arrangement, and the fact-check passed it: asked to exclude "what the sender does or
+ * offers", the model read a sentence about retained outbound as an offer and returned an
+ * empty list. The prompt was corrected to say the SUBJECT decides, with that exact sentence
+ * as its worked example, and the model still returned a bare {"claims":[]} with no
+ * reasoning. Three iterations, no movement.
+ *
+ * ADR-028: a prompt instruction is advisory and a code gate binds. So the SHAPE is detected
+ * here, and the model's job is reduced to the part it is good at: saying which finding
+ * supports it. A sentence of this shape that the fact-check did not cover is a failure
+ * naming the sentence, rather than a silent pass.
+ *
+ * THE SHAPE IS NARROW ON PURPOSE: a second-person possessive SUBJECT, then a verb of state
+ * or arrangement. "Your outbound runs...", "Your content is...", "Your pipeline depends...".
+ * It is a claim about how their business works, which somebody has to have established.
+ * Not matched: "Your 15 September post used X to name Y", which reports an event rather
+ * than asserting an arrangement, and which the findings carry.
+ */
+const READER_ARRANGEMENT =
+  /\byour\s+[a-z][\w-]*(?:\s+[a-z][\w-]*){0,2}\s+(runs?|run|works?|is|are|goes|go|sits?|relies|depends?|operates?|happens?)\b/i
+
+export function findReaderArrangements(text: string): string[] {
+  return splitIntoSentences(text).filter(s => READER_ARRANGEMENT.test(s)).map(s => s.trim())
+}
+
+/** Loose containment, so a claim quoted with different trimming still counts as covering. */
+function covers(claim: string, sentence: string): boolean {
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const c = norm(claim)
+  const x = norm(sentence)
+  if (!c || !x) return false
+  return c.includes(x.slice(0, 40)) || x.includes(c.slice(0, 40))
+}
+
+/**
  * THE CODE HALF. Every failure here is derived from the verifier's own output plus the
  * corpus, never from trusting it.
  */
@@ -185,6 +236,22 @@ export function checkCitations(
       failures.push(
         `email ${c.email} states ${JSON.stringify(c.claim)}, which the findings do not support` +
         (c.why ? `: ${c.why}` : ''),
+      )
+    }
+  }
+
+  // EVERY SENTENCE ASSERTING AN ARRANGEMENT MUST BE COVERED BY A SUPPORTED CLAIM.
+  //
+  // This is the fix for a sentence the model would not classify at all. Detecting the shape
+  // is code's job; saying which finding supports it is the model's. An uncovered one is a
+  // failure that NAMES THE SENTENCE, so the rewrite has something specific to change,
+  // instead of the blunt "returned no claims" the shortfall check gives.
+  for (const sentence of [...findReaderArrangements(prose2), ...findReaderArrangements(prose3)]) {
+    const covered = claims.some(c => c.supported && covers(c.claim, sentence))
+    if (!covered) {
+      failures.push(
+        `states how their business is arranged, with nothing cited for it: ${JSON.stringify(sentence)}. ` +
+        'Say what the sender does, or name the finding that establishes this.',
       )
     }
   }

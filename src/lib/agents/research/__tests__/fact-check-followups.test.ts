@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   countFindingLines, parseFactCheckResponse, checkCitations, buildFactCheckPrompt,
+  findReaderArrangements,
 } from '../fact-check-followups'
 
 const CORPUS = [
@@ -107,6 +108,65 @@ describe('checkCitations', () => {
   })
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// A SENTENCE ASSERTING HOW THE READER'S BUSINESS IS ARRANGED.
+//
+// Measured 2026-09-24: "Your outbound runs on a retained basis" shipped. It is the SENDER'S
+// SERVICE described as the reader's existing arrangement, and the fact-check passed it,
+// reading it as an offer. The prompt was corrected with that exact sentence as its worked
+// example and the model still returned a bare empty list. ADR-028: the prompt is advisory,
+// so the SHAPE is detected in code and the model only has to cite it.
+describe('findReaderArrangements', () => {
+  it('finds a claim about how their business runs', () => {
+    expect(findReaderArrangements('Your outbound runs on a retained basis, meaning conversations are in motion.'))
+      .toEqual(['Your outbound runs on a retained basis, meaning conversations are in motion.'])
+    expect(findReaderArrangements('Your LinkedIn content is consistent.')).toHaveLength(1)
+    expect(findReaderArrangements('Your pipeline depends on referrals.')).toHaveLength(1)
+  })
+
+  it('does NOT match the same service with the SENDER as the subject', () => {
+    // THE CONTROL THAT MATTERS. The two sentences describe the same thing and only one is a
+    // claim about the reader. A rule that could not tell them apart would ban the offer.
+    expect(findReaderArrangements('We run outbound on a retained basis, so conversations are in motion.')).toEqual([])
+  })
+
+  it('does NOT match reporting an event, which the findings carry', () => {
+    expect(findReaderArrangements('Your 15 September post used a sharp line to name what transactional recruiters do.')).toEqual([])
+    expect(findReaderArrangements('You opened a second site in March.')).toEqual([])
+  })
+})
+
+describe('an arrangement must be covered by a supported claim', () => {
+  const CORPUS_2 = '1. The firm posted for a site manager on 13 August 2026.\n   source: linkedin | a post'
+  const ARRANGED = 'Your outbound runs on a retained basis.\n\nWe build and work the list.'
+
+  it('REJECTS it by name when the fact-check covered nothing', () => {
+    const f = checkCitations([], CORPUS_2, ARRANGED, 'Worth a quick call?')
+    expect(f.some(x => x.includes('states how their business is arranged'))).toBe(true)
+    expect(f.some(x => x.includes('Your outbound runs on a retained basis.'))).toBe(true)
+  })
+
+  it('ACCEPTS it when a supported claim covers that sentence', () => {
+    // POSITIVE CONTROL. The rule is about COVERAGE, not about banning the construction: a
+    // finding that establishes the arrangement makes the sentence legitimate.
+    const claims = [{
+      email: 2, claim: 'Your outbound runs on a retained basis.', finding: 1,
+      supported: true, why: 'finding 1 establishes it',
+    }]
+    const f = checkCitations(claims, CORPUS_2, ARRANGED, 'Worth a quick call?')
+    expect(f.filter(x => x.includes('states how their business is arranged'))).toEqual([])
+  })
+
+  it('does not accept it on an UNSUPPORTED claim that merely mentions it', () => {
+    const claims = [{
+      email: 2, claim: 'Your outbound runs on a retained basis.', finding: null,
+      supported: false, why: 'nothing says so',
+    }]
+    const f = checkCitations(claims, CORPUS_2, ARRANGED, 'Worth a quick call?')
+    expect(f.some(x => x.includes('states how their business is arranged'))).toBe(true)
+  })
+})
+
 describe('the fact-check prompt', () => {
   const p = buildFactCheckPrompt()
 
@@ -126,7 +186,14 @@ describe('the fact-check prompt', () => {
     expect(p).toContain('RETURN EVERY CLAIM')
   })
 
-  it('excludes what the SENDER does, so an offer is not checked as a claim about them', () => {
-    expect(p).toContain('what the SENDER does or offers')
+  it('says the SUBJECT decides, not the topic', () => {
+    // The correction that followed a shipped line describing the sender's service as the
+    // reader's arrangement.
+    expect(p).toContain('THE SUBJECT DECIDES, NOT THE TOPIC')
+    expect(p).toContain('their activities, methods and arrangements'.toUpperCase())
+  })
+
+  it('excludes the sender only when the SENDER is the subject', () => {
+    expect(p).toContain('with the SENDER as the subject')
   })
 })
