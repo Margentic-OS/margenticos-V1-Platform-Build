@@ -469,6 +469,9 @@ const EMPTY_OPENING = {
   // the writer never ran at all.
   comparisons: [],
   gate_failures: [],
+  // Found by the same `satisfies` when attempts were added on 2026-09-24, which is the
+  // second time this line has caught an omission the cast it replaced would have shipped.
+  attempts: [],
 } satisfies OpeningResult
 
 /** When the batch finished, or null when that is unknown and now() should apply. */

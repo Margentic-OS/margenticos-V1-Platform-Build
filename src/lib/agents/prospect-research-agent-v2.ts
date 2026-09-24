@@ -200,6 +200,13 @@ export async function storeResearchResult(
       prospect_reason:       synthesis.prospect_reason || null,
       prospect_reason_source: synthesis.prospect_reason_source,
       supporting_candidate_id: synthesis.supporting_candidate_id,
+      // EVERY WRITER ATTEMPT, rejected ones included. Same reason `candidates` above keeps
+      // the losers: the selection is auditable because the rejects are kept, and until this
+      // column existed the WRITING was not, because a rejected attempt's text lived only
+      // inside the loop. Both production callers reach this one insert, so neither can
+      // forget it. stripNulls for the same reason every other text field here gets it: the
+      // attempt text comes from the model and can carry a NUL byte Postgres will not store.
+      writer_attempts:       stripNulls(opening.attempts),
       // Omitted entirely when null so the column's own DEFAULT now() applies. Passing
       // null explicitly would violate NOT NULL.
       ...(synthesizedAt ? { synthesized_at: synthesizedAt } : {}),

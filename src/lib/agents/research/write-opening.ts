@@ -238,6 +238,28 @@ export type NotWrittenReason = 'no_usable_candidate'
 
 export interface OpeningResult {
   /**
+   * EVERY ATTEMPT THIS PROSPECT MADE, in order, including the ones that were thrown away.
+   *
+   * ─── WHY THIS IS ON THE RESULT AND NOT LEFT TO THE CALLER ───────────────────
+   *
+   * `onAttempt` already reported this and nothing in production passed one, so the text of
+   * a rejected attempt existed only inside the loop and was overwritten by the next
+   * iteration. A prospect that fell back to the approved template left a verdict with no
+   * text behind it: the gate codes said an attempt failed and never said what failed, and
+   * reading it back meant re-running the writer and paying for it again. Every question
+   * asked of the 2026-09-24 runs needed a second paid run to answer.
+   *
+   * COLLECTED AT THE SAME EMIT POINT AS onAttempt, once per loop iteration, so the stored
+   * record and the reported one cannot disagree. Returned on the result rather than
+   * accumulated by each caller, because there are two production callers and an accumulator
+   * in each is the parallel-list shape this codebase keeps paying for: one of them forgets,
+   * that path stores nothing, and a missing row looks exactly like a prospect with no
+   * attempts.
+   *
+   * Empty only when the writer never ran.
+   */
+  attempts: AttemptObservation[]
+  /**
    * Every Anthropic call this prospect made, summed: writer, floor and judge across all
    * attempts, including the attempts that were discarded. Written into
    * job_queue.spend_detail so a retried prospect's real cost is visible.
@@ -2187,7 +2209,29 @@ export function joinOpening(observation: string, bridge: string): string {
   return [observation.trim(), bridge.trim()].filter(Boolean).join('\n\n')
 }
 
+/**
+ * Collect every attempt and stamp them onto whatever the inner function returns.
+ *
+ * A WRAPPER RATHER THAN A FIELD ON EACH RETURN. The inner function has several exit paths,
+ * one per way an opening can end, and adding `attempts` to each of them is a list that has
+ * to be kept in step by hand: a new exit path added later would compile, return, and carry
+ * no attempts, and nothing downstream could tell that from a prospect that made none.
+ * Stamping once here is the only place the field is set, so it cannot be forgotten.
+ */
 export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise<OpeningResult> {
+  const attempts: AttemptObservation[] = []
+  const result = await writeAndJudgeOpeningInner({
+    ...params,
+    // The caller's own observer still runs, and runs on the same object that is stored.
+    onAttempt: observation => {
+      attempts.push(observation)
+      params.onAttempt?.(observation)
+    },
+  })
+  return { ...result, attempts }
+}
+
+async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<Omit<OpeningResult, 'attempts'>> {
   const client = new Anthropic({ apiKey: params.apiKey })
   // THE PROMPT BLOCK AND THE GATE CORPUS ARE DIFFERENT STRINGS. See buildFindingsBlock:
   // the gates substring-match the written opening against their corpus, so the counter-

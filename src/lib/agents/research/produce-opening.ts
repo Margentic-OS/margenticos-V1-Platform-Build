@@ -211,6 +211,9 @@ function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningWithF
     usage: ZERO_TOKEN_USAGE,
     comparisons: [],
     gate_failures: [],
+    // The writer never ran, so there is nothing to record. Distinct from an empty array on
+    // a prospect that DID run: written_won and not_written_reason tell those apart.
+    attempts: [],
     // The sixth fallback path, and the only one that never enters writeAndJudgeOpening.
     // The approved template Email 1 ships, so no follow-up may reference it.
     email2: EMPTY_FOLLOWUP,

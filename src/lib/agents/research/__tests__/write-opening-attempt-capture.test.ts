@@ -225,6 +225,54 @@ describe("every comparison's reasoning survives, not only the final one", () => 
   })
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE RESULT CARRIES THE ATTEMPTS, WHETHER OR NOT ANYONE PASSED A CALLBACK.
+//
+// This is the join the callback alone could not make. onAttempt existed for weeks and no
+// production caller passed one, so a rejected attempt's text was overwritten by the next
+// iteration and a prospect that fell back to the template left a verdict with nothing
+// behind it. Reading it back meant paying for a second run of the writer.
+//
+// Both halves are asserted, because either alone is the shape this project keeps paying
+// for: that the result carries them, and that the collected array is the SAME data the
+// callback reports rather than a second copy free to drift.
+describe('OpeningResult carries every attempt without a callback', () => {
+  it('collects the attempts even when no observer is passed', async () => {
+    script(
+      [writerReply(BRIDGE_GATED, SUBJECT_OK), writerReply(BRIDGE_CLEAN, SUBJECT_OK)],
+      [true],
+      ['it reads faster.'],
+    )
+
+    // NO onAttempt. This is what both production callers do.
+    const result = await run()
+
+    expect(result.attempts).toHaveLength(2)
+    expect(result.attempts[0].kind).toBe('gated')
+    expect(result.attempts[0].gate_failures.length).toBeGreaterThan(0)
+    expect(result.attempts[0].bridge).toBe(BRIDGE_GATED)
+    expect(result.attempts[1].kind).toBe('compared')
+    expect(result.attempts[1].judge_reasoning).toBe('it reads faster.')
+  })
+
+  it('reports the SAME objects to a callback that it stores, so the two cannot drift', async () => {
+    script(
+      [writerReply(BRIDGE_GATED, SUBJECT_OK), writerReply(BRIDGE_CLEAN, SUBJECT_OK)],
+      [true],
+      ['it reads faster.'],
+    )
+
+    const observed: AttemptObservation[] = []
+    const result = await run(o => observed.push(o))
+
+    expect(result.attempts).toEqual(observed)
+    // Identity, not just equality: a second copy assembled at the emit could be equal today
+    // and diverge on the next field added to one and not the other.
+    expect(result.attempts[0]).toBe(observed[0])
+    expect(result.attempts[1]).toBe(observed[1])
+  })
+})
+
 describe('the callback is observation only, so production is unchanged', () => {
   it('produces an identical result and identical model calls with and without it', async () => {
     const scriptIt = () => script(
