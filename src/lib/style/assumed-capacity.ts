@@ -27,6 +27,8 @@
 //   "A panel puts the firm in front of a room it has not met."
 // ═════════════════════════════════════════════════════════════════════════════
 
+import { splitIntoSentences } from './sentence-count'
+
 export type AssumedCapacityKind = 'their_time' | 'who_sells'
 
 export interface AssumedCapacityHit {
@@ -147,7 +149,7 @@ const WHO_SELLS: RegExp[] = [
 
 /** Split on sentence ends, keeping it simple: this reports, it does not parse. */
 function sentencesOf(text: string): string[] {
-  return text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean)
+  return splitIntoSentences(text)
 }
 
 export function findAssumedCapacityClaims(text: string): AssumedCapacityHit[] {

@@ -20,6 +20,7 @@
 
 import { checkActivityVerdict } from './activity-verdict'
 import { findFirmographicFigures } from './firmographic'
+import { splitIntoSentences } from './sentence-count'
 
 /** Lowercased, punctuation-stripped, single-spaced. For comparing prose to prose. */
 export function normaliseForEcho(text: string): string {
@@ -226,10 +227,7 @@ export const FOLLOWUP_MAX_SENTENCE_WORDS = 24
 
 /** Sentences, split on terminal punctuation. Good enough for counting length. */
 function sentencesOf(text: string): string[] {
-  return text
-    .split(/(?<=[.!?])\s+/)
-    .map(s => s.trim())
-    .filter(Boolean)
+  return splitIntoSentences(text)
 }
 
 function wordsIn(text: string): number {

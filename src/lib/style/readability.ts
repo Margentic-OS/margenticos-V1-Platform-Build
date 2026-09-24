@@ -34,6 +34,7 @@
 //   contributes demerits that rank candidates and never rejects one on its own.
 
 import { nominalisationDensity, type NominalisationScore } from './nominalisation'
+import { splitIntoSentences } from './sentence-count'
 
 // A sentence a thirteen-year-old follows on first read. Two short sentences beat one
 // long one, so the cap is per sentence, not per observation.
@@ -90,14 +91,12 @@ export interface ReadabilityScore {
   reasons: string[]
 }
 
-// Splits on sentence-ending punctuation followed by whitespace, and on a trailing
-// terminator. Abbreviations inside an observation ("Jul. 2024") would over-split, so the
-// split requires the following character to start a new word rather than continue one.
+// ONE DEFINITION OF A SENTENCE, shared. This was a bare /(?<=[.!?])\s+/ and so counted a
+// personal initial and a company suffix as sentence ends: "Acme Inc. announced" was two
+// sentences, which lowers words-per-sentence and therefore under-reports the reading grade.
+// See splitIntoSentences.
 export function splitSentences(text: string): string[] {
-  return text
-    .split(/(?<=[.!?])\s+/)
-    .map(s => s.trim())
-    .filter(s => s.length > 0)
+  return splitIntoSentences(text)
 }
 
 function countWords(text: string): number {

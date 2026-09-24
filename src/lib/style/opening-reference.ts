@@ -72,6 +72,7 @@
 
 import { logger } from '@/lib/logger'
 import { findBackReferences } from './back-reference'
+import { splitIntoSentences } from './sentence-count'
 
 // REPORT-ONLY ON INTRODUCTION, and unlike the sentence-initial gate this one has NOT been
 // measured at a zero false-positive rate. It cannot be flipped on the strength of the
@@ -177,7 +178,7 @@ export interface OpeningReferenceHit {
 
 /** The sentence containing `needle`, for the log line. Falls back to the whole part. */
 function sentenceContaining(text: string, needle: string): string {
-  const sentences = text.split(/(?<=[.!?])\s+/)
+  const sentences = splitIntoSentences(text)
   return (sentences.find(s => s.toLowerCase().includes(needle.toLowerCase())) ?? text).trim()
 }
 

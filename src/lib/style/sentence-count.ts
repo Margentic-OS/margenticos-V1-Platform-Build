@@ -43,13 +43,34 @@ const INITIAL = /\b(\p{Lu})\.(?=\s|$)/gu
 // keeps its shape without being read as a break.
 const PLACEHOLDER = '․'
 
-export function countSentences(text: string): number {
-  let t = text.trim()
-  if (!t) return 0
+/**
+ * THE ONE DEFINITION OF A SENTENCE IN THIS CODEBASE.
+ *
+ * There were six, each a bare /(?<=[.!?])\s+/ with its own local wrapper, and five of them
+ * carried the defect this module was fixed for on 2026-09-24: a personal initial or a
+ * company suffix read as a sentence end. Each one would have had to be found and fixed
+ * separately, which is how a rule with six copies stops being one rule.
+ *
+ * `clauseBreaks` is the only thing callers differ on, and it is a real difference rather
+ * than drift: the one-sentence gates count a semicolon and a colon as breaks, because that
+ * is how a second sentence gets past a full-stop count. A reading-grade split must not,
+ * because the formula's denominator is sentences as a reader meets them.
+ */
+export function splitIntoSentences(text: string, opts: { clauseBreaks?: boolean } = {}): string[] {
+  let t = (text ?? '').trim()
+  if (!t) return []
   for (const a of ABBREVIATIONS) t = t.split(a).join(a.replace(/\./g, PLACEHOLDER))
   t = t.replace(INITIAL, (_m, letter: string) => `${letter}${PLACEHOLDER}`)
+  const breaker = opts.clauseBreaks
+    ? /(?<=[.!?;:]["'”’)\]]*)\s+(?=\S)/
+    : /(?<=[.!?]["'”’)\]]*)\s+(?=\S)/
   return t
-    .split(/(?<=[.!?;:]["'”’)\]]*)\s+(?=\S)/)
+    .split(breaker)
+    // RESTORED, so a caller measuring the text gets the text and not the placeholder.
+    .map(part => part.split(PLACEHOLDER).join('.').trim())
     .filter(part => /[\p{L}\p{N}]/u.test(part))
-    .length
+}
+
+export function countSentences(text: string): number {
+  return splitIntoSentences(text, { clauseBreaks: true }).length
 }

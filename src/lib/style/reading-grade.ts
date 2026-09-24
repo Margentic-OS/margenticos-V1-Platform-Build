@@ -27,8 +27,10 @@
 // and promoted here unchanged in logic, so every grade measured during that analysis is
 // reproducible by this module.
 
+import { splitIntoSentences } from './sentence-count'
+
 export function splitSentencesFk(text: string): string[] {
-  return text
+  const normalised = text
     // Newlines become spaces, so a paragraph break does NOT by itself end a sentence.
     // Terminal punctuation does. This is deliberate and it is safe on email bodies for a
     // measured reason: after emailProse() strips the greeting and the two sign-off lines,
@@ -42,9 +44,11 @@ export function splitSentencesFk(text: string): string[] {
     // is left as it is rather than guessing sentence boundaries from layout.
     .replace(/\n{2,}/g, ' ')
     .replace(/\n/g, ' ')
-    .split(/(?<=[.!?])\s+/)
-    .map(s => s.trim())
-    .filter(s => /[A-Za-z]/.test(s))
+  // ONE DEFINITION OF A SENTENCE, shared. See splitIntoSentences: a personal initial or a
+  // company suffix used to end a sentence here, which SPLITS one sentence into two, lowers
+  // words-per-sentence and under-reports the grade. Fixing it moves measured grades UP
+  // wherever copy names a person by initial or a company by suffix.
+  return splitIntoSentences(normalised).filter(s => /[A-Za-z]/.test(s))
 }
 
 export function wordsOf(text: string): string[] {
