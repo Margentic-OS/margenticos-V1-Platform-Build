@@ -134,6 +134,12 @@ describe('a role being moved into the work, or the work landing on a role', () =
     'That job now falls to the founder.',
     'The work now rests with the owner.',
     'The person who found new deals is gone.',
+    // PAST TENSE, every verb. The list was patched twice for a single missing past form
+    // before it was written out properly, and "who used to do the job" is the more common
+    // shape because the trigger is usually that they left.
+    'The person who ran new deals is gone.',
+    'The person who led sales has left.',
+    'The person who managed the pipeline moved on.',
   ])('flags %s', (sentence) => {
     expect(hit(sentence)).not.toEqual([])
   })

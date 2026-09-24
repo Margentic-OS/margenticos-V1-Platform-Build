@@ -122,7 +122,11 @@ const WHO_SELLS: RegExp[] = [
   new RegExp(`\\b${SELL_VERB}\\s+(generation\\s+)?has\\s+no\\s+(operator|owner|one)\\b`, 'i'),
   // ── SECOND MEASURED WIDENING, same day, same method ───────────────────────
   // WHO BRINGS THE WORK IN: "changing who generates new business".
-  /\bwho\s+(generates?|creates?|brings?\s+in|wins?|finds?|found|lands?|books?|drives?|owns?|does|handles?|runs?|sources?)\s+(the\s+|new\s+|its\s+|their\s+)*(business|pipeline|leads?|meetings?|clients?|deals?|work|revenue|outreach|outbound|prospecting|sales)\b/i,
+  // PAST TENSE AS WELL AS PRESENT, every verb. The list was patched twice for single
+  // missing past forms ("found", then "ran") before it was written out properly. A verb
+  // list that holds only present tense cannot see a claim about who USED TO do the job,
+  // and that is the more common shape, because the trigger is usually that they left.
+  /\bwho\s+(generate[sd]?|create[sd]?|brings?\s+in|brought\s+in|wins?|won|finds?|found|lands?|landed|books?|booked|drives?|drove|driven|owns?|owned|does|did|done|handle[sd]?|runs?|ran|sources?|sourced|leads?|led|manage[sd]?|drove)\s+(the\s+|new\s+|its\s+|their\s+)*(business|pipeline|leads?|meetings?|clients?|deals?|work|revenue|outreach|outbound|prospecting|sales)\b/i,
   // THE ONLY ONE ON IT: "removes the only dedicated pipeline function". Asserting a company
   // has exactly one of something is a claim about its staffing.
   new RegExp(`\\b(the\\s+)?only\\s+(dedicated\\s+|full[- ]time\\s+)?${SELL_VERB}\\s+(function|person|resource|hire|role|capability)\\b`, 'i'),
