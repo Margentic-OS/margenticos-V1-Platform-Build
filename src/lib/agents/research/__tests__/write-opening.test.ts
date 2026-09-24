@@ -19,6 +19,7 @@ import {
   OPENING_BUDGET,
   OPENING_TARGET_WORDS,
   WRITER_MAX_SENTENCE_WORDS,
+  OBSERVATION_MAX_WORDS,
 } from '../write-opening'
 import { BatchUniquenessRegistry } from '../batch-uniqueness'
 import { MAX_SENTENCE_WORDS } from '@/lib/style/readability'
@@ -577,6 +578,48 @@ describe('the writer prompt carries the question job and the Rowan failure', () 
 })
 
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// NO RULE TELLS THE WRITER TO DO SOMETHING ANOTHER RULE REJECTS.
+//
+// This is the claim the 2026-09-24 change was made for, and it is asserted here rather than
+// argued in a comment, because the contradiction it replaces survived in this file for a day
+// while every individual rule read as sensible on its own.
+describe('the prompt and the gates agree about the observation', () => {
+  it('the target sits BELOW the hard cap, so the target is reachable', () => {
+    // The whole defect in one line. Before this, the target was 22 and the reachable maximum
+    // was WRITER_MAX_SENTENCE_WORDS (18), because the observation had to be one sentence.
+    expect(OPENING_BUDGET.observation).toBeLessThan(OBSERVATION_MAX_WORDS)
+  })
+
+  it('every sentence-level cap is reachable inside the observation cap', () => {
+    // The two limits must not overlap: one bounds the PART, the other bounds a SENTENCE in
+    // it. A per-sentence cap at or above the part cap would make the sentence rule dead, and
+    // a part cap below it would make a legal sentence illegal as a part.
+    expect(WRITER_MAX_SENTENCE_WORDS).toBeLessThan(OBSERVATION_MAX_WORDS)
+  })
+
+  it('the prompt states the observation cap the gate enforces', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain(`AT MOST ${OBSERVATION_MAX_WORDS} WORDS`)
+    expect(flat).toContain(`HARD LIMIT ${OBSERVATION_MAX_WORDS}`)
+  })
+
+  it('the prompt never asks the observation for one sentence', () => {
+    // POSITIVE CONTROL ON THE ABSENCE: the prompt must still say what the observation IS
+    // limited by, or this assertion would also pass on a prompt that says nothing at all.
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).not.toContain('ONE SENTENCE. Name what you noticed and stop')
+    expect(flat).not.toContain('The observation names ONE thing, in one sentence')
+    expect(flat).toContain('Use one sentence or two')
+  })
+
+  it('the prompt tells the bridge to shorten and the observation to split', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('IN THE OBSERVATION, two short sentences beat one long one')
+    expect(flat).toContain('IN THE BRIDGE THERE IS NO SPLIT AVAILABLE')
+  })
+})
+
 // ─── One fact per sentence, the first-read test, and the conditional second retry ───
 
 describe('the writer prompt enforces one fact per sentence', () => {
@@ -585,11 +628,12 @@ describe('the writer prompt enforces one fact per sentence', () => {
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('ONE FACT PER SENTENCE')
     expect(flat).toContain('about STRUCTURE, not length')
-    // CHANGED 2026-09-24. The rule used to permit two sentences in the observation, and the
-    // observation now has a one-sentence gate, so the prompt saying otherwise was a prompt
-    // and a validator disagreeing on the same rule. The structural claim the test is about
-    // is unchanged: one fact per sentence.
-    expect(flat).toContain('The observation names ONE thing, in one sentence')
+    // CHANGED TWICE ON 2026-09-24, and the second change reversed the first. The rule was
+    // tightened to "in one sentence" to match a one-sentence observation gate; that gate
+    // contradicted the sentence-length gate and was replaced by a total word limit, so the
+    // prompt goes back to constraining the FACT rather than the sentence count. The
+    // structural claim this test is about never moved: one fact per sentence.
+    expect(flat).toContain('The observation names ONE thing and the bridge is ONE sentence')
     // The reading-age line was removed deliberately: it measured word difficulty while the
     // real failures were figurative. What replaces it is the camera test.
     expect(flat).not.toContain('reading at eleven years old')

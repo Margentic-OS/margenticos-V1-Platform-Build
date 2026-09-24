@@ -76,9 +76,20 @@ export const OPENING_MAX_WORDS = 67
  * 15-word bridge, and the bridge is the part that carries the reason to reply. Naming a
  * budget per part removes the borrowing and gives the retry something specific to cut.
  *
- * These are TARGETS, not the gate. The hard limit stays OPENING_MAX_WORDS and nothing here
- * rejects anything. 22 + 22 + 14 = 58, which leaves nine words of slack under 67, chosen so
- * that the observed overshoot still lands inside the cap instead of outside it.
+ * These are TARGETS, not the gate. The hard limit for the whole block stays
+ * OPENING_MAX_WORDS. 22 + 15 + 14 = 51, which leaves sixteen words of slack under 67,
+ * chosen so that the observed overshoot still lands inside the cap instead of outside it.
+ *
+ * THE OBSERVATION'S TARGET AND ITS OWN GATE MUST AGREE, and until 2026-09-24 they did not.
+ * The observation had to be ONE sentence, every sentence is capped at
+ * WRITER_MAX_SENTENCE_WORDS, and those two together capped the observation at 18 while this
+ * line told the writer to aim at 22. The target was four words above the highest number the
+ * writer was allowed to reach, and measured on the 19-prospect run of 2026-09-24 the
+ * observations that shipped ran 13 to 18 words with a ceiling of exactly 18.
+ *
+ * The one-sentence rule is gone and OBSERVATION_MAX_WORDS is 24, so 22 is now a target
+ * BELOW a reachable cap, which is what a target has to be. Keep it that way: if this number
+ * ever rises to or above OBSERVATION_MAX_WORDS, the contradiction is back.
  */
 export const OPENING_BUDGET = {
   observation: 22,
@@ -124,13 +135,57 @@ export const WRITER_MAX_SENTENCE_WORDS = 18
 export const SENTENCE_CAP_MARKER = 'and the writer cap is'
 
 /**
- * The marker the observation's one-sentence gate puts in ITS failure string.
+ * THE OBSERVATION'S TOTAL WORD LIMIT. A HARD GATE, and the rule that REPLACED the
+ * one-sentence observation rule on 2026-09-24.
  *
- * Same contract as SENTENCE_CAP_MARKER above, and a second constant rather than a reworded
- * one because the two faults are different: one sentence ran long, the other is two
- * sentences where one was asked for.
+ * ─── WHY THE ONE-SENTENCE RULE HAD TO GO, MEASURED ───────────────────────────
+ *
+ * It contradicted the sentence-length gate, and the two of them together left the writer
+ * with no legal move. The length gate's own message says "split it into two shorter
+ * sentences"; the one-sentence gate then rejected the split. Captured across four attempts
+ * on one prospect, verbatim from the gates:
+ *
+ *   attempt 0  one sentence, 20 words  -> "split it into two shorter sentences"
+ *   attempt 1  split into two          -> "the observation is 2 sentences and must be ONE"
+ *   attempt 2  rejoined, 20 words      -> "split it into two shorter sentences"
+ *   attempt 3  split again             -> "must be ONE sentence"
+ *
+ * A second prospect showed the identical loop at 19 words. On the 19-prospect run of
+ * 2026-09-24, FOUR prospects shipped the approved template with the observation
+ * sentence-length gate as their final fault, at 21, 20, 20 and 20 words: two or three words
+ * over the cap, with no legal remedy. Five extra attempts were granted for sentence length
+ * across that run and none of them rescued a prospect.
+ *
+ * ─── WHY 24 ──────────────────────────────────────────────────────────────────
+ *
+ * Of the five observations rejected for holding two sentences, four were 20, 20, 23 and 20
+ * words and pass at 24. The fifth was 28 and still fails, correctly: it also quotes a
+ * currency amount and a headcount, which the firmographic gate rejects on its own.
+ *
+ * It is not a licence to sprawl. The observations that SHIPPED on the same run ran 13 to 18
+ * words, median 16. 24 is headroom for the fact that needs a clause, not a new target, and
+ * OPENING_BUDGET.observation stays at 22.
+ *
+ * ─── WHAT WAS LOST, STATED RATHER THAN GLOSSED ───────────────────────────────
+ *
+ * The one-sentence rule was doing a second job: keeping the REASON out of the observation,
+ * because the reason is the bridge's work and an observation that states it says it twice
+ * and says it before it is earned. A word limit does not enforce that, and nothing else
+ * enforces it directly. So it is MEASURED instead: the cohort report flags observations
+ * carrying a reason connective or a verdict frame, quotes every one, and quotes every
+ * multi-sentence observation for a hand read. If that count starts climbing, the answer is
+ * to gate the verdict, not to bring back a sentence count that leaves the writer stuck.
  */
-export const ONE_SENTENCE_MARKER = 'must be ONE sentence'
+export const OBSERVATION_MAX_WORDS = 24
+
+/**
+ * The exact marker the observation word-cap gate puts in ITS failure string.
+ *
+ * Same contract as SENTENCE_CAP_MARKER above: the gate builds its message from this
+ * constant and isSentenceLengthOnly matches on it, so a reworded gate cannot silently stop
+ * granting the extra attempt.
+ */
+export const OBSERVATION_CAP_MARKER = 'and the observation cap is'
 
 /**
  * True when EVERY failure on this attempt is a sentence that ran long, and there is at
@@ -155,13 +210,16 @@ export const ONE_SENTENCE_MARKER = 'must be ONE sentence'
  * THE MARKERS THAT EARN AN EXTRA ATTEMPT. An explicit set, so adding one is a deliberate
  * act and a reader can see the whole list.
  *
- * WIDENED 2026-09-24 with the one-sentence observation gate. Both faults are the same
- * shape: the model has the right FACT and the wrong SHAPE, and the fix is a mechanical
- * instruction it reliably follows. Measured before that gate shipped, 16 of 18 observations
- * ran to two sentences, so without this the gate would have sent almost every prospect
- * straight to the template on its first day.
+ * IN STEP WITH THE GATES THAT EXIST. Widened 2026-09-24 with the one-sentence observation
+ * gate, then rewritten the same day when that gate was replaced: ONE_SENTENCE_MARKER is
+ * gone from here because the gate that emitted it is gone, and a marker pointing at a gate
+ * nothing emits is a rule that can never fire and nothing that would tell you.
+ *
+ * OBSERVATION_CAP_MARKER takes its place, and belongs for the same reason the length marker
+ * does: the model has the right FACT and the wrong SHAPE, and "cut it to 24 words" is a
+ * mechanical instruction it reliably follows. Both remaining markers describe length.
  */
-export const EXTRA_ATTEMPT_MARKERS: readonly string[] = [SENTENCE_CAP_MARKER, ONE_SENTENCE_MARKER]
+export const EXTRA_ATTEMPT_MARKERS: readonly string[] = [SENTENCE_CAP_MARKER, OBSERVATION_CAP_MARKER]
 
 export function isSentenceLengthOnly(gates: readonly string[]): boolean {
   return gates.length > 0 && gates.every(g => EXTRA_ATTEMPT_MARKERS.some(m => g.includes(m)))
@@ -343,13 +401,19 @@ First, the observation: the thing you noticed about this specific person. You ca
 they posted, what they published, who they hired, where they spoke, what roles they have
 held and when. Say one of those.
 
-ONE SENTENCE. Name what you noticed and stop. The second sentence people reach for here is
-always the reason, and the reason is the bridge's job: said twice it is weaker both times,
-and said first it is said before you have earned it.
+AT MOST ${OBSERVATION_MAX_WORDS} WORDS. That is the whole observation, and it is a hard
+limit: over it the email is rejected before a human sees it. Use one sentence or two,
+whichever reads plainly. No sentence may run over ${WRITER_MAX_SENTENCE_WORDS} words, so a
+fact that will not fit in one sentence goes in two.
 
-WHERE A SUPPORTING EVENT IS GIVEN, one sentence may name both, and only if the sentence
-stays under the word cap and still reads plainly. Two events that point at the same reason
-are stronger than one. Two events stapled together are worse than either.
+NAME WHAT YOU NOTICED AND STOP. The extra sentence people reach for here is always the
+reason, and the reason is the bridge's job: said twice it is weaker both times, and said
+first it is said before you have earned it. The limit above is a budget for the FACT, never
+room for the reason.
+
+WHERE A SUPPORTING EVENT IS GIVEN, the observation may name both, inside the same word
+limit. Two events that point at the same reason are stronger than one. Two events stapled
+together are worse than either.
 
 A FINDING MARKED [SHARED, NOT THEIRS] IS SOMETHING THEY PASSED ON, NOT SOMETHING THEY
 WROTE. Say they shared it. Never write that they said it, posted it, wrote it, announced it
@@ -625,7 +689,8 @@ EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY TO YOUR PROSPECT'S, DELIBERATEL
 SHAPE IS WHAT TRANSFERS. EVERY WORD IN THEM IS UNUSABLE HERE. Read them for structure
 and then write your own sentence out of your own prospect's facts.
 
-Every shape below is ONE sentence, and so is every bridge you write.
+Every shape below is ONE sentence, and so is every bridge you write. The observation is the
+part that may run to two; the bridge never does.
 
   ONE FLAT SENTENCE. One thing that happens, stated and left there.
     A dentist: "Families new to your town book whichever dentist comes up first on a phone
@@ -670,12 +735,11 @@ ONE FACT PER SENTENCE.
 This is about STRUCTURE, not length. A short sentence carrying three facts is still a
 second read.
 
-The observation names ONE thing, in one sentence, and so does the bridge: if you have two,
-keep the one that matters and cut the other. Where a supporting event is supplied, one
-sentence may name both, and only if it stays under the word cap and still reads plainly. Do not
-join facts with appositives. Do not bury a list mid-sentence. Never separate a subject from
-its verb with clauses. Your reader is scanning between meetings, and a sentence they go back
-over has already lost.
+The observation names ONE thing and the bridge is ONE sentence: if you have two ideas in the
+bridge, keep the one that matters and cut the other. Where a supporting event is supplied,
+the observation may name both, inside its word limit. Do not join facts with appositives. Do
+not bury a list mid-sentence. Never separate a subject from its verb with clauses. Your
+reader is scanning between meetings, and a sentence they go back over has already lost.
 
 CRAMPED:
   "The latest Friday post. A fig sourdough, rye, spelt, goes up on your shop page at seven."
@@ -936,14 +1000,20 @@ Second person and still wrong. It recites his own CV back at him. He knows all o
 
 LENGTH. A BUDGET PER PART, NOT ONE TOTAL.
 
-  observation   about ${OPENING_BUDGET.observation} words, ONE sentence
+  observation   about ${OPENING_BUDGET.observation} words, HARD LIMIT ${OBSERVATION_MAX_WORDS}, one sentence or two
   bridge        ONE sentence, about ${OPENING_BUDGET.bridge} words
   closing question  about ${OPENING_BUDGET.question} words
                     ${OPENING_TARGET_WORDS} words in total
 
 EVERY SENTENCE IN THE OBSERVATION AND THE BRIDGE IS AT MOST ${WRITER_MAX_SENTENCE_WORDS} WORDS.
-A sentence over it is rejected before a human sees it. Two short sentences beat one long one,
-so when a fact will not fit, split the sentence rather than cutting the fact.
+A sentence over it is rejected before a human sees it.
+
+IN THE OBSERVATION, two short sentences beat one long one, so when a fact will not fit,
+split the sentence rather than cutting the fact. The ${OBSERVATION_MAX_WORDS}-word limit on
+the whole observation still applies to the two together.
+
+IN THE BRIDGE THERE IS NO SPLIT AVAILABLE: it is ONE sentence, so a bridge over the
+per-sentence cap has to lose words, not gain a full stop.
 
 These are TARGETS. The HARD LIMIT is ${OPENING_MAX_WORDS} words for all three together, and
 anything over it is rejected before a human sees it. Aim at ${OPENING_TARGET_WORDS} and you
@@ -1427,21 +1497,30 @@ export function checkOpeningGates(
   // Only when the parts are supplied. Production always passes them, and the bridge cannot
   // be told apart from the observation in the joined block.
   if (params) {
-    // THE OBSERVATION IS ONE SENTENCE TOO, enforced the same way the bridge is.
+    // THE OBSERVATION IS CAPPED BY TOTAL WORDS, NOT BY SENTENCE COUNT. Changed 2026-09-24.
     //
-    // MEASURED 2026-09-23: 16 of 18 shipped observations ran to two, and the second sentence
-    // was almost always the REASON, stated before the bridge got to it. That is where the
-    // borrowed core-pain assumption kept leaking in: "A new hire's first weeks run on your
-    // time", "That is a long time to carry both delivery and the next client search". One
-    // sentence removes the slot.
-    // A QUOTED TITLE THE RESEARCH FOUND IS ONE UNIT. See collapseVerbatimQuotes: a title
-    // carries its own punctuation and its own length, and the writer cannot shorten it or
-    // remove a colon from it without misquoting. Exempt only when it appears verbatim in
-    // the findings, so quoting its own prose buys the writer nothing.
-    const observationForCounting = collapseVerbatimQuotes(params.observation, findingsText)
-    const observationSentences = countSentences(observationForCounting)
-    if (observationSentences > 1) {
-      failures.push(`the observation is ${observationSentences} sentences and ${ONE_SENTENCE_MARKER} (a semicolon or a colon counts as a break): name the thing you noticed and stop, and let the bridge carry the reason`)
+    // It used to have to be ONE sentence. That rule and the per-sentence length gate below
+    // contradicted each other: over 18 words in one sentence was rejected for length, and
+    // the split the length message asks for was rejected for count. See
+    // OBSERVATION_MAX_WORDS for the four captured attempts and the four prospects it cost
+    // on the run of 2026-09-24.
+    //
+    // ANY NUMBER OF SENTENCES IS NOW LEGAL, each still bounded by WRITER_MAX_SENTENCE_WORDS
+    // below, so the ceiling on the part is this constant and the ceiling on a sentence is
+    // that one. The two no longer overlap: one bounds the part, the other bounds a sentence
+    // inside it, and every value that satisfies the first is reachable under the second.
+    //
+    // COUNTED ON THE RAW TEXT, deliberately unlike the sentence count below. A quoted title
+    // is exempt from the SENTENCE count because its internal punctuation is a counting
+    // artefact the writer cannot remove without misquoting. Its words are not an artefact:
+    // they occupy the email exactly like any others, and the 90-word ceiling counts them.
+    const observationWords = wordsIn(params.observation)
+    if (observationWords > OBSERVATION_MAX_WORDS) {
+      failures.push(
+        `the observation is ${observationWords} words, ${OBSERVATION_CAP_MARKER} ` +
+        `${OBSERVATION_MAX_WORDS}: cut a fact rather than compressing the sentence, and let ` +
+        `the bridge carry the reason`,
+      )
     }
 
     const bridgeSentences = countSentences(params.bridge)
@@ -1522,10 +1601,20 @@ export function checkOpeningGates(
       const readability = readabilityScore(collapseVerbatimQuotes(text, findingsText), WRITER_MAX_SENTENCE_WORDS)
       for (const sentence of readability.longSentences) {
         const n = sentence.trim().split(/\s+/).filter(Boolean).length
+        // THE REMEDY IS PER PART, because the two parts have different sentence rules and
+        // one message for both told the bridge to do something the bridge gate rejects.
+        //
+        // The observation may now hold any number of sentences under OBSERVATION_MAX_WORDS,
+        // so splitting is a legal move and the cheapest one. The BRIDGE is still ONE
+        // sentence, checked a few lines above, so telling it to split is telling it to fail
+        // the next gate. Measured on the run of 2026-09-24: two prospects took a bridge
+        // length hit at 19 words and were offered exactly that impossible remedy.
+        const remedy = part === 'bridge'
+          ? 'shorten it. The bridge stays ONE sentence, so cut words rather than adding a break'
+          : 'split it into two shorter sentences rather than cutting the fact out'
         failures.push(
           `the ${part} has a sentence of ${n} words, ${SENTENCE_CAP_MARKER} ` +
-          `${WRITER_MAX_SENTENCE_WORDS}: split it into two shorter sentences rather than ` +
-          `cutting the fact out`,
+          `${WRITER_MAX_SENTENCE_WORDS}: ${remedy}`,
         )
       }
       logger.info('writer-readability: sentence length gated, the rest scored only', {
