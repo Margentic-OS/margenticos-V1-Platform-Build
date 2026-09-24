@@ -77,7 +77,7 @@ export function missingEventYear(
  *
  * MEASURED on the six attempts of 2026-09-24 that this rule was written for. The candidate
  * the observation actually described scored 0.31 to 1.00; the candidate synthesis had
- * SELECTED, and which the old gate read, scored 0.00 to 0.29 on the same text. Richard's
+ * SELECTED, and which the old gate read, scored 0.00 to 0.29 on the same text. PROSPECT B's
  * selected candidate scored 0.00 on every attempt: the observation and it share no content
  * word at all.
  */
@@ -96,10 +96,12 @@ const EVENT_MATCH_RELATIVE = 0.5
  * writer describes a different one, and the writer does that routinely, because every
  * candidate is in front of it and it picks the one that writes best.
  *
- *   Erin:     selected c6, dated 2025-11-01, "running EdgeBrook Lane alongside a second
- *             venture". WRITTEN: c1, dated 2026-07-23, the HR Consultant job posting.
- *   Richard:  selected c9, dated 2025-01-01, "running Link Stone alongside a concurrent CFO
- *             role". WRITTEN: c5, dated 2026-08-25, a blog post.
+ *   PROSPECT A:  selected candidate dated in the PREVIOUS year, a standing arrangement the
+ *                copy never mentioned. WRITTEN ABOUT: a candidate dated two months before
+ *                the run, a job posting.
+ *   PROSPECT B:  selected candidate dated in the PREVIOUS year, a concurrent role the copy
+ *                never mentioned. WRITTEN ABOUT: a candidate dated one month before the
+ *                run, a blog post.
  *
  * Both writers named the year of the event they had written about, 2026, on every attempt.
  * The gate compared that text against a 2025 date from an event they had not mentioned and

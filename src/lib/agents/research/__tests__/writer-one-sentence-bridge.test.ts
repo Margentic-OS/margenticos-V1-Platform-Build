@@ -36,14 +36,14 @@ describe('countSentences', () => {
   // ─── NAMES, added 2026-09-24 after eight prospects lost their email to this counter ───
   //
   // MEASURED. Eight of nineteen were rejected by the one-sentence observation gate on EVERY
-  // attempt. The first inspected was "You shared the news that Brittney Nichols and
-  // Katherine O. Brien were promoted", counted as TWO. The copy was one sentence; the
+  // attempt. The first inspected was "You shared the news that Marisa Oakley and
+  // Priya N. Brien were promoted", counted as TWO. The copy was one sentence; the
   // counter was wrong, and the gate was reporting a fault that did not exist.
   //
   // It surfaced now because the observation is where people and companies are named, and it
   // had been latent in the BRIDGE gate, which has used this counter for longer.
   it('does not split on a personal initial', () => {
-    expect(countSentences('You shared the news that Katherine O. Brien was promoted.')).toBe(1)
+    expect(countSentences('You shared the news that Priya N. Brien was promoted.')).toBe(1)
     expect(countSentences('You spoke on a panel with J. R. Smith in August.')).toBe(1)
   })
 

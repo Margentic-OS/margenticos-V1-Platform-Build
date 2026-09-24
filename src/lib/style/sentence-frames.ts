@@ -114,7 +114,7 @@ export function stripProperNouns(text: string): string {
     // THE FIRST WORD, WHICH isMaskedWord DELIBERATELY EXEMPTS. That exemption is right for
     // shingling, where every sentence starts capitalised and the opener carries no name
     // information. It is wrong here: a reason that begins with the prospect's firm was left
-    // holding half a name ("EdgeBrook Lane" kept "EdgeBrook"), and half a name is still an
+    // holding half a name ("Everdene Lane" kept "Everdene"), and half a name is still an
     // unsimplifiable polysyllable charged against the grade.
     //
     // A capitalised first word FOLLOWED BY another capitalised word is part of a multi-word

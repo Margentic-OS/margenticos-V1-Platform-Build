@@ -19,7 +19,7 @@
 // Run:
 //   npx dotenv -e .env.test.local -- npx vitest run src/lib/agents/research/__tests__/writer-attempts-stored.live.test.ts
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { createTestServiceClient, requireTestDatabaseCredentials } from '@/test-utils/test-database'
@@ -133,15 +133,14 @@ let prospectId: string
 //
 // If the credentials are absent the helper throws by name and this file fails loudly. It
 // never falls back.
-const POISONED = {
-  url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-  key: process.env.SUPABASE_SERVICE_ROLE_KEY,
-}
-
 beforeAll(async () => {
   const creds = requireTestDatabaseCredentials('writer-attempts-stored.live.test.ts')
-  process.env.NEXT_PUBLIC_SUPABASE_URL = creds.url
-  process.env.SUPABASE_SERVICE_ROLE_KEY = creds.serviceRoleKey
+  // vi.stubEnv RATHER THAN ASSIGNING AND RESTORING BY HAND. Saving the old values means
+  // READING them, and production-isolation.test.ts flags any test file that reads a
+  // production credential by name, correctly: a read is how a test reaches production and
+  // an assignment is how it is kept away. vi.unstubAllEnvs puts back whatever was there.
+  vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', creds.url)
+  vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', creds.serviceRoleKey)
 
   supabase = createTestServiceClient('writer-attempts-stored.live.test.ts')
   const { data: org, error: orgErr } = await supabase
@@ -165,8 +164,7 @@ afterAll(async () => {
   if (orgId) await deleteTestOrganisations(supabase, [orgId], 'writer-attempts-stored.live.test.ts')
   // Restored rather than left set, so nothing that runs after this file in the same worker
   // inherits a live client the poison was there to deny it.
-  process.env.NEXT_PUBLIC_SUPABASE_URL = POISONED.url
-  process.env.SUPABASE_SERVICE_ROLE_KEY = POISONED.key
+  vi.unstubAllEnvs()
 })
 
 describe('storeResearchResult persists every writer attempt', () => {

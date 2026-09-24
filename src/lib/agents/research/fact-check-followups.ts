@@ -313,6 +313,25 @@ export async function factCheckFollowups(params: FactCheckParams): Promise<FactC
     })
     usage = addTokenUsage(usage, readTokenUsage(reply.usage))
     raw = reply.content.map(c => (c.type === 'text' ? c.text : '')).join('')
+
+    // ── A TRUNCATED REPLY IS THE CHECK FAILING, NOT THE EMAILS FAILING ────────
+    //
+    // The catch below fails open for an API fault, and the header promises that "a verifier
+    // that cannot run must not take the emails down with it". A reply cut off at max_tokens
+    // does NOT throw: the JSON has no closing brace, parseFactCheckResponse returns [], the
+    // shortfall rule fires, and both follow-ups are discarded. So the promise held for the
+    // rarer fault and broke for the likelier one, on a prompt that asks for EVERY claim.
+    //
+    // ADR-059 is the standing rule: a truncated model answer is a FAILURE WITH ITS OWN
+    // REASON and is never filed as something else. Here that means the same branch as an
+    // outage, because the copy has already passed every rule that is not this one.
+    if (reply.stop_reason === 'max_tokens') {
+      logger.warn('fact-check-followups: reply truncated at max_tokens, follow-ups not gated on it', {
+        prospect_id: params.prospectId,
+        output_tokens: reply.usage?.output_tokens,
+      })
+      return { claims: [], failures: [], usage, raw }
+    }
   } catch (err) {
     throwIfFatal(err, `fact-check for prospect ${params.prospectId}`)
     logger.warn('fact-check-followups: the check itself failed, follow-ups not gated on it', {

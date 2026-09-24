@@ -82,7 +82,7 @@ function isYearOnly(date: string): boolean {
  *
  * Two shapes, both measured on real findings of 2026-09-24:
  *   "a 19-year anniversary piece"      -> 19, stated directly
- *   "on Clutch for 2023, 2024, and 2025" -> 3, an ENUMERATION whose length is the count
+ *   "on a supplier directory for 2023, 2024, and 2025" -> 3, an ENUMERATION whose length is the count
  *
  * The enumeration needs two or more years listed together, separated only by commas and
  * "and". Counting every four-digit year anywhere in the findings would let an unrelated run

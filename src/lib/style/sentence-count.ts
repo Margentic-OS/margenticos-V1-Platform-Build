@@ -5,7 +5,7 @@
 // they are how a second sentence gets past a count that only looks for full stops.
 //
 // NOT A BREAK: a mark with no space after it ("2.5", "9:30"), the full stop inside a common
-// abbreviation ("e.g.", "Dr.", "Inc."), or a personal initial ("Katherine O. Brien"). Any of
+// abbreviation ("e.g.", "Dr.", "Inc."), or a personal initial ("Priya N. Brien"). Any of
 // them would otherwise split one sentence in two and reject good copy, which costs the
 // prospect a writer attempt and, when every attempt hits it, the whole email.
 //
@@ -26,7 +26,7 @@ const ABBREVIATIONS = [
  *
  * MEASURED 2026-09-24. Eight of nineteen prospects lost their email to the one-sentence
  * observation gate on every attempt, and the first one inspected was "You shared the news
- * that Brittney Nichols and Katherine O. Brien were promoted" counted as TWO sentences. The
+ * that Marisa Oakley and Priya N. Brien were promoted" counted as TWO sentences. The
  * copy was one sentence. The counter was wrong.
  *
  * It matters more now than it used to: the observation is where people are named, and the

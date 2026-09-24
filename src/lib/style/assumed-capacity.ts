@@ -83,7 +83,7 @@ const THEIR_TIME: RegExp[] = [
 
   // A POSSESSIVE ON ANY NAME, plus a capacity noun. The role list was the arbitrary part:
   // a possessive on a company or a person is the same claim as a possessive on a role.
-  // "Rebel's attention is fully committed" says whose attention it is.
+  // "Halden's attention is fully committed" says whose attention it is.
   /\b[A-Z][A-Za-z0-9&.\u2019'-]*(?:[\u2019']s|s[\u2019'])\s+(time|attention|focus|capacity|bandwidth|hours?|week|weeks|day|days|diary|calendar|schedule|energy)\b/,
 
   // A CAPACITY NOUN AS THE SUBJECT OF AN ALLOCATION. "The bandwidth that used to go to

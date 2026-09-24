@@ -226,7 +226,17 @@ export const QUEUE_CONFIG: Record<JobType, JobTypeConfig> = {
   // The two numbers are not the same guard and must not be reasoned about as one.
   research_collect: {
     leaseSeconds: 300,
-    worstCaseSeconds: 170,
+    // RAISED FROM 170 ON 2026-09-24, with the fact-check. The old number was justified
+    // against a call count this job no longer has: it now makes the writer's calls, the
+    // follow-up writer's, and a fact-check call per follow-up attempt. A job that outlives
+    // its lease is reclaimed and RE-RUN, and a re-run re-buys every one of those calls, so
+    // an understated worst case costs money rather than correctness.
+    //
+    // 240 IS NOT MEASURED, and saying so matters: no timing data exists for a collect job
+    // with the fact-check in it. It is the old number plus the same headroom the old number
+    // had, and it still leaves the 300s lease ~1.25x. Replace it with a measured figure
+    // from the first full batch run rather than trusting this line.
+    worstCaseSeconds: 240,
     claimBatchSize: 10,
     maxInFlight: 40,
     maxAttempts: 3,

@@ -42,11 +42,11 @@ describe('the rule fires on a prior-year event that hides its year', () => {
   })
 
   it('fires however old the event is', () => {
-    expect(missingEventYear('You have run 8 Consulting as its sole principal.', '2012-09-01', NOW)).toBe(2012)
+    expect(missingEventYear('You have run 9 Consulting as its sole principal.', '2012-09-01', NOW)).toBe(2012)
   })
 
   it('and a long-tenure observation that names its year passes, so the rule is not a recency floor', () => {
-    const observation = 'You have run 8 Consulting as its sole principal since September 2012.'
+    const observation = 'You have run 9 Consulting as its sole principal since September 2012.'
     expect(missingEventYear(observation, '2012-09-01', NOW)).toBeNull()
   })
 })

@@ -148,11 +148,11 @@ describe('the third-person gate', () => {
 
   it('rejects the reader named mid-sentence', () => {
     const f = thirdPerson(withName(
-      'You took on the second unit in March. That is the month Andrea stops doing the prospecting herself.\n\nWorth a look?',
-      'Andrea',
+      'You took on the second unit in March. That is the month Marisa stops doing the prospecting herself.\n\nWorth a look?',
+      'Marisa',
     ))
     expect(f).toHaveLength(1)
-    expect(f[0]).toContain('Andrea')
+    expect(f[0]).toContain('Marisa')
     expect(f[0]).toContain('Write to them as "you"')
   })
 
@@ -161,7 +161,7 @@ describe('the third-person gate', () => {
     // everything, and one rejection here discards BOTH follow-ups.
     expect(thirdPerson(withName(
       'You took on the second unit in March. That is the month you stop doing the prospecting yourself.\n\nWorth a look?',
-      'Andrea',
+      'Marisa',
     ))).toEqual([])
   })
 
@@ -204,7 +204,7 @@ describe('the third-person gate', () => {
   })
 
   it('does nothing when no name is supplied, and nothing for a one-letter name', () => {
-    expect(thirdPerson(withName('Andrea took the unit on in March.\n\nIt changes the month.\n\nWorth a look?', ''))).toEqual([])
+    expect(thirdPerson(withName('Marisa took the unit on in March.\n\nIt changes the month.\n\nWorth a look?', ''))).toEqual([])
     expect(thirdPerson(withName('A took the unit on in March.\n\nIt changes the month.\n\nWorth a look?', 'A'))).toEqual([])
   })
 })
@@ -496,7 +496,7 @@ describe('the acronym short form: the SECOND measured false positive', () => {
   // ═══════════════════════════════════════════════════════════════════════════
   // WHEN EVERY TOKEN IS SKIPPED, FALL BACK TO THE WHOLE NAME.
   //
-  // Measured 2026-09-24: companyNameForms('8 Consulting') returned []. The first token is
+  // Measured 2026-09-24: companyNameForms('9 Consulting') returned []. The first token is
   // one character and skipped for being under two; the second is a suffix and skipped as
   // one; the loop ends with nothing. The callback gate asks whether the copy says "you" or
   // names the company, so with NO form to match, no email that prospect could ever receive
@@ -512,7 +512,7 @@ describe('the acronym short form: the SECOND measured false positive', () => {
   // not.
   describe('the whole-name fallback', () => {
     it('gives a usable form to a name whose tokens are all skipped', () => {
-      expect(companyNameForms('8 Consulting')).toEqual(['8 Consulting'])
+      expect(companyNameForms('9 Consulting')).toEqual(['9 Consulting'])
       // A second shape of the same fault: a single-character distinguishing token.
       expect(companyNameForms('Q Advisory')).toEqual(['Q Advisory'])
     })
@@ -520,7 +520,7 @@ describe('the acronym short form: the SECOND measured false positive', () => {
     it('strips LEGAL suffixes only, so the descriptive word stays', () => {
       // 'Consulting' is in COMPANY_SUFFIXES to stop it becoming a short form on its own.
       // Stripping it HERE would leave the bare '8', which is worse than the rule it rescues.
-      expect(companyNameForms('8 Consulting Ltd')).toEqual(['8 Consulting'])
+      expect(companyNameForms('9 Consulting Ltd')).toEqual(['9 Consulting'])
     })
 
     it('does NOT fire when every token is generic, which is a different fault', () => {
@@ -549,8 +549,8 @@ describe('the acronym short form: the SECOND measured false positive', () => {
       // returning a form proves nothing about whether the callback is credited.
       const f = checkFollowupGates({
         ...base,
-        companyName: '8 Consulting',
-        prose: asParagraphs('8 Consulting has thirteen years of past performance behind it. That record is what buyers want. Worth a look?'),
+        companyName: '9 Consulting',
+        prose: asParagraphs('9 Consulting has thirteen years of past performance behind it. That record is what buyers want. Worth a look?'),
       })
       expect(f.filter(x => x.includes('opens without addressing the reader'))).toEqual([])
     })
@@ -559,7 +559,7 @@ describe('the acronym short form: the SECOND measured false positive', () => {
       // POSITIVE CONTROL THE OTHER WAY. The fallback must not turn the gate off.
       const f = checkFollowupGates({
         ...base,
-        companyName: '8 Consulting',
+        companyName: '9 Consulting',
         prose: asParagraphs('Those twelve articles represent a real point of view that cold buyers have not met. It costs more now. Worth a look?'),
       })
       expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)

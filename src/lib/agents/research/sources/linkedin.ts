@@ -146,12 +146,13 @@ export function postedDate(post: Record<string, unknown>): string | null {
  * The formatter read post.text/content/commentary and nothing else, so everything LinkedIn
  * supplies as structure was dropped on the way to the model. Measured across the 20:
  *
- *   one prospect, 13 Aug   prose "We're hiring!"   job.title named the role, and only job.title did
- *   Erin Spencer,  23 Jul   prose "...actively interviewing for cand..."
- *                                                   job.title "Human Resources Consultant"
+ *   prospect A, 13 Aug   prose "We're hiring!"   job.title named the role, and only job.title did
+ *   prospect B, 23 Jul   prose "...actively interviewing for cand..."
+ *                                                 job.title "Human Resources Consultant"
  *
  * Both are hiring posts, both went to template, and the one detail that makes a hiring post
- * usable never reached the model. The candidate synthesis wrote for Jason says it outright:
+ * usable never reached the model. The candidate synthesis wrote for prospect A says it
+ * outright:
  * "a hiring announcement on August 13 WITH NO ROLE SPECIFIED IN THE AVAILABLE EXCERPT". The
  * model was accurate about what it could see.
  *

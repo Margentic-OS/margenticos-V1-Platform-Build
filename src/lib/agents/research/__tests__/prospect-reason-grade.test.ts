@@ -37,7 +37,7 @@ describe('the ceiling is emails 2 to 4\'s, not Email 1\'s, and it is not a new n
     // Verbatim from the run of 2026-09-24, at 6.7, 6.8 and 6.8 with names removed.
     for (const r of [
       'A twelve-article content push needs a system to turn readers into buyers.',
-      'Two promotions at 1AX add capacity that needs new client work to fill.',
+      'Two promotions at 3BX add capacity that needs new client work to fill.',
       'Podcast visibility brings new brand founders who still need a next step.',
     ]) expect(findProspectReasonFaults(r)).toEqual([])
   })
@@ -45,15 +45,15 @@ describe('the ceiling is emails 2 to 4\'s, not Email 1\'s, and it is not a new n
 
 describe('a specific, plain reason passes even though it names a firm and a role', () => {
   it.each([
-    'EdgeBrook Lane needs new client work to fill the HR Generalist seat.',
-    'EdgeBrook Lane is actively hiring, a sign the firm is scaling.',
+    'Everdene Lane needs new client work to fill the HR Generalist seat.',
+    'Everdene Lane is actively hiring, a sign the firm is scaling.',
     'Northbank has a new Controller seat and needs work to fill it.',
   ])('passes: %s', (r) => expect(passes(r)).toBe(true))
 
   it('and the same sentence FAILS when graded as written, which is the whole point', () => {
     // The correction has to be doing something. Without this, every case above could be
     // passing because it was already under the ceiling.
-    const r = 'EdgeBrook Lane is actively hiring, a sign the firm is scaling.'
+    const r = 'Everdene Lane is actively hiring, a sign the firm is scaling.'
     expect(fleschKincaidGrade(r)!.grade).toBeGreaterThan(EMAIL1_MAX_READING_GRADE)
     expect(fleschKincaidGrade(stripProperNouns(r))!.grade).toBeLessThanOrEqual(EMAIL1_MAX_READING_GRADE)
   })
@@ -78,12 +78,12 @@ describe('a jargon-heavy reason with no names still fails', () => {
 
 describe('the other two checks are untouched by the correction', () => {
   it('the claims check still runs on the sentence AS WRITTEN', () => {
-    expect(findProspectReasonFaults('EdgeBrook Lane is too busy to follow it up.')
+    expect(findProspectReasonFaults('Everdene Lane is too busy to follow it up.')
       .some(f => f.includes('their_time'))).toBe(true)
   })
 
   it('the word cap still counts names, because a name makes a sentence no longer', () => {
-    const long = 'EdgeBrook Lane and Northbank and Acme and Globex all need new client work to fill seats now.'
+    const long = 'Everdene Lane and Northbank and Acme and Globex all need new client work to fill seats now.'
     expect(findProspectReasonFaults(long).some(f => f.includes('words'))).toBe(true)
   })
 })
@@ -97,8 +97,8 @@ describe('stripProperNouns keeps what is not a name', () => {
   })
 
   it('removes a multi-word name that STARTS the sentence, both halves of it', () => {
-    const out = stripProperNouns('EdgeBrook Lane needs new work.')
-    expect(out).not.toContain('EdgeBrook')
+    const out = stripProperNouns('Everdene Lane needs new work.')
+    expect(out).not.toContain('Everdene')
     expect(out).not.toContain('Lane')
     expect(out).toContain('needs new work')
   })

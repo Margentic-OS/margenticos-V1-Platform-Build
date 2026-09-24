@@ -140,7 +140,7 @@ const SECOND_PERSON = /\byou(?:'re|r|rs|rself)?\b/i
  * SEPARATE FROM COMPANY_SUFFIXES ON PURPOSE. That set also holds descriptive words like
  * 'consulting' and 'business', which are there to stop a GENERIC word becoming the one token
  * that proves a callback. Stripping those from a whole-name fallback would be the opposite
- * mistake: it would turn "8 Consulting" into "8" and the fallback would be worse than the
+ * mistake: it would turn "9 Consulting" into "8" and the fallback would be worse than the
  * rule it rescues.
  */
 const LEGAL_SUFFIXES = new Set([
@@ -235,7 +235,7 @@ export function companyNameForms(companyName: string | null | undefined): string
 
   // ── EVERY TOKEN SKIPPED MEANS NO FORM AT ALL, AND THAT IS UNSATISFIABLE ─────
   //
-  // Measured 2026-09-24: companyNameForms('8 Consulting') returned []. The first token is
+  // Measured 2026-09-24: companyNameForms('9 Consulting') returned []. The first token is
   // one character and is skipped for being under two; the second is in COMPANY_SUFFIXES and
   // is skipped as a suffix; the loop then ends with nothing. The callback gate asks whether
   // the copy says "you" or names the company, so with no form to match, NO EMAIL THIS
@@ -250,14 +250,14 @@ export function companyNameForms(companyName: string | null | undefined): string
   // certainly appears when the copy names the company in full, and is strictly safer than
   // the leading-token rule: it is longer and more distinctive, so it cannot collide with an
   // ordinary noun the way accepting "Restaurant" from "Matrix Restaurant Consulting" would.
-  // Only LEGAL suffixes come off, so "8 Consulting" keeps "Consulting" and yields the
+  // Only LEGAL suffixes come off, so "9 Consulting" keeps "Consulting" and yields the
   // name as written rather than the bare "8".
   //
   // ONLY WHEN A DISTINGUISHING TOKEN EXISTS AND WAS TOO SHORT, never when every token is a
   // generic word. The two cases look identical from here, both produce no form, and they
   // need opposite answers:
   //
-  //   "8 Consulting"        "8" is distinctive and was skipped for LENGTH.   Fall back.
+  //   "9 Consulting"        "8" is distinctive and was skipped for LENGTH.   Fall back.
   //   "Consulting Group"    every token is generic. There is nothing to see. Do not.
   //
   // Falling back on the second would credit any sentence containing "consulting group" as
@@ -470,7 +470,7 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
   //
   // WHY THE MODEL DOES IT, which is the part worth recording: the follow-up writer is handed
   // Email 1 with the merge tag ALREADY RESOLVED to the real name (produce-opening.ts), so it
-  // reads "Andrea," as a literal greeting and reuses it as an ordinary proper noun. It is
+  // reads "Marisa," as a literal greeting and reuses it as an ordinary proper noun. It is
   // imitating its input correctly. The defence is the gate, not a hope.
   //
   // NAMING THE COMPANY STAYS LEGAL. That is the callback gate's own alternative a few lines
