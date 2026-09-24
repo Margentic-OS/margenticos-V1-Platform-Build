@@ -37,6 +37,10 @@ const base = {
   // Null by default so the existing fixtures are unaffected by the third-person gate; the
   // tests that are ABOUT that gate pass a name explicitly.
   prospectFirstName: null as string | null,
+  // No dated findings by default, so existing fixtures are unaffected: a year count with
+  // nothing behind it is rejected, and the tests ABOUT that pass dates explicitly.
+  datedCandidates: [] as ReadonlyArray<{ date?: string | null }>,
+  now: new Date('2026-09-24T00:00:00Z'),
   bodyWordCount: 60,
   minWords: 30,
   maxWords: 85,

@@ -456,6 +456,12 @@ export async function produceOpening({
       ? candidates.find(c => c.id === supportingCandidateId)?.observation ?? null
       : null,
     findingsEvidence: buildFindingsEvidence(candidates),
+    // The same list the year-count gate checks Email 1 against, so a duration legal there
+    // is legal here and the two cannot demand different numbers.
+    datedCandidates: candidates,
+    // `now` omitted so writeFollowups takes the real run clock. produceOpening carries no
+    // clock of its own, and inventing one here would be a second source of "today" beside
+    // the one Email 1's gate uses, which is the shape that produced the wrong figures.
     reference,
     prospectId: ctx.id,
   })

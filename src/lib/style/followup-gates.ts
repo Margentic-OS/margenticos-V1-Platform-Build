@@ -21,6 +21,7 @@
 import { checkActivityVerdict } from './activity-verdict'
 import { findFirmographicFigures } from './firmographic'
 import { splitIntoSentences } from './sentence-count'
+import { findYearCountFaults } from './year-count'
 
 /** Lowercased, punctuation-stripped, single-spaced. For comparing prose to prose. */
 export function normaliseForEcho(text: string): string {
@@ -406,6 +407,14 @@ export interface FollowupGateInput {
    * found nothing. Every caller that genuinely has no name passes null and says so.
    */
   prospectFirstName: string | null
+  /**
+   * The dated findings, for the year-count check. REQUIRED for the same reason
+   * prospectFirstName is: an optional corpus is a gate that silently does not run, and
+   * findingsEvidence a few fields up is this file's own worked example of exactly that.
+   */
+  datedCandidates: ReadonlyArray<{ date?: string | null }>
+  /** The run clock, so the arithmetic is against the real date rather than the model's. */
+  now: Date
   /** The composed body's word count, measured the way composition measures it. */
   bodyWordCount: number
   /** The band for this position, from EMAIL_WORD_LIMITS. */
@@ -422,7 +431,7 @@ export interface FollowupGateInput {
  */
 export function checkFollowupGates(input: FollowupGateInput): string[] {
   const failures: string[] = []
-  const { prose, position, reference, companyName, prospectFirstName, bodyWordCount, minWords, maxWords } = input
+  const { prose, position, reference, companyName, prospectFirstName, datedCandidates, now, bodyWordCount, minWords, maxWords } = input
   const offerLine = input.offerLine ?? null
   const label = `email ${position}`
 
@@ -495,6 +504,14 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
         'Write to them as "you", or name their company. The email already greets them by name.',
       )
     }
+  }
+
+  // ── A COUNT OF YEARS IS ARITHMETIC ─────────────────────────────────────────
+  // Email 3 said thirteen years about a firm founded fourteen years earlier, while Email 1's
+  // subject for the same prospect said twelve. Both were model prose over a date the row
+  // already held. See year-count.ts.
+  for (const fault of findYearCountFaults(text, datedCandidates, now)) {
+    failures.push(`${label}: ${fault}`)
   }
 
   const sentences = sentencesOf(text)

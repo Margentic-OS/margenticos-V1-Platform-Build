@@ -301,6 +301,12 @@ export interface WriteFollowupsParams {
    * See FollowupGateInput.prospectFirstName for why it is not optional.
    */
   prospectFirstName: string | null
+  /**
+   * The dated findings and the run clock, for the year-count check. Both required: see
+   * FollowupGateInput for why nothing here is optional.
+   */
+  datedCandidates: ReadonlyArray<{ date?: string | null }>
+  now?: Date
 }
 
 /** Splits the two labelled blocks. Absent means empty string, never undefined. */
@@ -495,6 +501,8 @@ function gate(
     prose: prose2, position: 2, reference: params.reference.reference2, offerLine: params.offerLine,
     companyName: params.reference.companyName, findingsEvidence: params.findingsEvidence,
     prospectFirstName: params.prospectFirstName,
+    datedCandidates: params.datedCandidates,
+    now: params.now ?? new Date(),
     bodyWordCount: words2,
     minWords: EMAIL_WORD_LIMITS.email2MinWords, maxWords: EMAIL_WORD_LIMITS.email2MaxWords,
   })
@@ -502,6 +510,8 @@ function gate(
     prose: prose3, position: 3, reference: params.reference.reference3, offerLine: params.offerLine,
     companyName: params.reference.companyName, findingsEvidence: params.findingsEvidence,
     prospectFirstName: params.prospectFirstName,
+    datedCandidates: params.datedCandidates,
+    now: params.now ?? new Date(),
     bodyWordCount: words3,
     minWords: EMAIL_WORD_LIMITS.email3MinWords, maxWords: EMAIL_WORD_LIMITS.email3MaxWords,
   })

@@ -239,6 +239,8 @@ async function main() {
         ? writerInput.candidates.find(c => c.id === writerInput.supportingCandidateId)?.observation ?? null
         : null,
       findingsEvidence: buildFindingsEvidence(writerInput.candidates),
+      // Same list the year-count gate checks Email 1 against.
+      datedCandidates: writerInput.candidates,
       reference,
       prospectId: id,
     })

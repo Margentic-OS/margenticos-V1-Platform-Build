@@ -30,6 +30,7 @@ import { readabilityScore } from '@/lib/style/readability'
 import { EMAIL_SUBJECT_LIMITS } from '@/agents/messaging-generation-agent'
 import { BatchUniquenessRegistry } from './batch-uniqueness'
 import { missingEventYears, eventYearGateMessage } from './event-year'
+import { findYearCountFaults } from '@/lib/style/year-count'
 import type { ObservationCandidate, TokenUsage } from './types'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
 
@@ -2364,6 +2365,14 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     for (const owedYear of observation ? missingEventYears(observation, params.candidates, params.now) : []) {
       gates.push(eventYearGateMessage(owedYear))
     }
+
+    // A COUNT OF YEARS IS ARITHMETIC AND THE MODEL MUST NOT DO IT. One prospect's subject
+    // said twelve years and his Email 3 said thirteen, about a firm founded fourteen years
+    // earlier, with the correct figure on the same row. Checked on the WHOLE block and on
+    // the subject separately, because the two wrong numbers were in different parts.
+    gates.push(...findYearCountFaults(
+      `${opening} ${question}`, params.candidates, params.now ?? new Date(),
+    ))
 
     if (!question) gates.push('writer returned no closing question')
     // A missing half means the reply was malformed. Failing here rather than shipping is

@@ -143,7 +143,7 @@ describe('the writer is told when it is reading a borrowed reference', () => {
       findings: 'They opened a second site in March.',
       findingsEvidence: 'They opened a second site in March.',
       reference: ref, prospectId: 'borrow-test', offerLine: 'We run the outreach for you.',
-      prospectFirstName: null,
+      prospectFirstName: null, datedCandidates: [],
     })
   }
 
