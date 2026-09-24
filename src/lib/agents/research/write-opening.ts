@@ -276,9 +276,11 @@ export function buildWriterAssignment(params: {
   /** A second event that strengthens the same reason. Optional, and usually absent. */
   supportingEvent?: string | null
 }): string {
-  // THE REASON GOES FIRST, and it is now the only target in the block, because the
-  // to read it first. The order of this block and the order of the prompt have to agree or
-  // one of them is a lie about the other.
+  // THE REASON GOES FIRST, and it is now the only target in the block. The prompt's first
+  // instruction is to read it first, and the order of this block and the order of the
+  // prompt have to agree or one of them is a lie about the other. What used to sit above
+  // it, the offer line and the approved closing question, are both gone: see
+  // WriteAndJudgeParams for the measurement.
   const reason = params.prospectReason?.trim()
     ? `\nTHE REASON (this is your target. Your second line states it, and your closing question\nasks whether the consequence it names is something they are dealing with):\n\n  ${params.prospectReason.trim()}\n`
     : ''
