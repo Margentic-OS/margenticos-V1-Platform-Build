@@ -19,6 +19,7 @@ import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
 import { checkSentenceInitialNames, acronymNumberVariants } from '@/lib/style/sentence-initial-names'
 import { countSentences } from '@/lib/style/sentence-count'
+import { collapseVerbatimQuotes } from '@/lib/style/quoted-span'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
@@ -1434,7 +1435,12 @@ export function checkOpeningGates(
     // borrowed core-pain assumption kept leaking in: "A new hire's first weeks run on your
     // time", "That is a long time to carry both delivery and the next client search". One
     // sentence removes the slot.
-    const observationSentences = countSentences(params.observation)
+    // A QUOTED TITLE THE RESEARCH FOUND IS ONE UNIT. See collapseVerbatimQuotes: a title
+    // carries its own punctuation and its own length, and the writer cannot shorten it or
+    // remove a colon from it without misquoting. Exempt only when it appears verbatim in
+    // the findings, so quoting its own prose buys the writer nothing.
+    const observationForCounting = collapseVerbatimQuotes(params.observation, findingsText)
+    const observationSentences = countSentences(observationForCounting)
     if (observationSentences > 1) {
       failures.push(`the observation is ${observationSentences} sentences and ${ONE_SENTENCE_MARKER} (a semicolon or a colon counts as a break): name the thing you noticed and stop, and let the bridge carry the reason`)
     }
@@ -1514,7 +1520,7 @@ export function checkOpeningGates(
       // is also the loosest thing in readability.ts, holding "often", "usually" and
       // "typically", which are ordinary words in a sentence about what is typical of a
       // population, which is exactly what a bridge is required to be.
-      const readability = readabilityScore(text, WRITER_MAX_SENTENCE_WORDS)
+      const readability = readabilityScore(collapseVerbatimQuotes(text, findingsText), WRITER_MAX_SENTENCE_WORDS)
       for (const sentence of readability.longSentences) {
         const n = sentence.trim().split(/\s+/).filter(Boolean).length
         failures.push(

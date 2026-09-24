@@ -9,6 +9,7 @@
 // RULE ZERO. Every fixture is invented and industry-neutral.
 
 import { describe, it, expect } from 'vitest'
+import { splitIntoSentences } from '../sentence-count'
 import {
   checkFollowupGates,
   checkFollowupPairGates,
@@ -18,6 +19,7 @@ import {
   FOLLOWUP_MAX_SENTENCE_WORDS,
   companyShortForm,
   companyNameForms,
+  MAX_SENTENCES_PER_PARAGRAPH,
 } from '../followup-gates'
 
 /** A reference block, already stripped of its opening paragraph. */
@@ -36,16 +38,35 @@ const base = {
   maxWords: 85,
 }
 
+/**
+ * PARAGRAPHED BEFORE SCORING, unless the fixture already has blank lines.
+ *
+ * Every fixture in this file was written as one line of prose, because until 2026-09-24 no
+ * gate cared where the paragraphs were. MAX_SENTENCES_PER_PARAGRAPH does, and without this
+ * every existing test would fail on a rule it is not about, which is how a suite ends up
+ * asserting the wrong thing everywhere at once.
+ *
+ * A fixture that already carries blank lines is left exactly as written, so a test ABOUT
+ * paragraphs still controls its own input.
+ */
+function asParagraphs(prose: string): string {
+  if (/\n\s*\n/.test(prose)) return prose
+  const sentences = splitIntoSentences(prose)
+  const out: string[] = []
+  for (let i = 0; i < sentences.length; i += 2) out.push(sentences.slice(i, i + 2).join(' '))
+  return out.join('\n\n')
+}
+
 const pass = (prose: string, over: Partial<typeof base> = {}) =>
-  checkFollowupGates({ prose, ...base, ...over })
+  checkFollowupGates({ prose: asParagraphs(prose), ...base, ...over })
 
 describe('the callback gate: the opening sentence is about this reader', () => {
   it('accepts an opening that says "you"', () => {
-    expect(pass('You took on the second unit in March. It changes what a quiet month costs. Shall I show you the first step?')).toEqual([])
+    expect(pass('You took on the second unit in March.\n\nIt changes what a quiet month costs.\n\nShall I show you the first step?')).toEqual([])
   })
 
   it('accepts an opening that names the company instead of saying "you"', () => {
-    expect(pass("Northgate Fabrication's second unit went in during March. That changes what a quiet month costs. Worth a look?")).toEqual([])
+    expect(pass("Northgate Fabrication's second unit went in during March.\n\nThat changes what a quiet month costs.\n\nWorth a look?")).toEqual([])
   })
 
   it('rejects a population opener', () => {
@@ -223,7 +244,7 @@ describe('the company short form: the measured false positive, both directions',
     const f = checkFollowupGates({
       ...base,
       companyName: stored,
-      prose: `${written} has been running a while now. The bench is bigger. Worth a look?`,
+      prose: asParagraphs(`${written} has been running a while now. The bench is bigger. Worth a look?`),
     })
     expect(f.filter(x => x.includes('opens without addressing the reader'))).toEqual([])
   })
@@ -245,7 +266,7 @@ describe('the company short form: the measured false positive, both directions',
     const f = checkFollowupGates({
       ...base,
       companyName: 'Matrix Restaurant Consulting',
-      prose: 'The restaurant sector has been slow. Things are hard. Worth a look?',
+      prose: asParagraphs('The restaurant sector has been slow. Things are hard. Worth a look?'),
     })
     expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)
   })
@@ -258,7 +279,7 @@ describe('the offer-line echo gate', () => {
     const f = checkFollowupGates({
       ...base,
       offerLine: OFFER,
-      prose: 'You took the unit on. We find the work and book it in, so the bench stays full. Worth a look?',
+      prose: asParagraphs('You took the unit on. We find the work and book it in, so the bench stays full. Worth a look?'),
     })
     expect(f.some(x => x.includes('reproduces') && x.includes('offer line'))).toBe(true)
   })
@@ -269,13 +290,13 @@ describe('the offer-line echo gate', () => {
     const f = checkFollowupGates({
       ...base,
       offerLine: OFFER,
-      prose: 'You took the unit on. We build the list, run the sending, and hand you the replies. Worth a look?',
+      prose: asParagraphs('You took the unit on. We build the list, run the sending, and hand you the replies. Worth a look?'),
     })
     expect(f).toEqual([])
   })
 
   it('is inert when no offer line is supplied', () => {
-    expect(checkFollowupGates({ ...base, prose: 'You took the unit on. It is bigger now. Worth a look?' }))
+    expect(checkFollowupGates({ ...base, prose: asParagraphs('You took the unit on. It is bigger now. Worth a look?') }))
       .toEqual([])
   })
 })
@@ -284,7 +305,7 @@ describe('the firmographic gate applies here too', () => {
   it('rejects a figure from the prospect record', () => {
     const f = checkFollowupGates({
       ...base,
-      prose: 'You crossed £5M last year. The bench is bigger now. Worth a look?',
+      prose: asParagraphs('You crossed £5M last year. The bench is bigger now. Worth a look?'),
     })
     expect(f.some(x => x.includes("from the prospect's record"))).toBe(true)
   })
@@ -292,7 +313,7 @@ describe('the firmographic gate applies here too', () => {
   it('DOES NOT reject an ordinary number', () => {
     expect(checkFollowupGates({
       ...base,
-      prose: 'You took the second unit on 13 months ago. The bench is bigger. Worth a look?',
+      prose: asParagraphs('You took the second unit on 13 months ago. The bench is bigger. Worth a look?'),
     })).toEqual([])
   })
 })
@@ -308,7 +329,7 @@ describe('the acronym short form: the SECOND measured false positive', () => {
     const f = checkFollowupGates({
       ...base,
       companyName: stored,
-      prose: `${written} retention is strong, and that is what makes a pause expensive. It costs more now. Worth a look?`,
+      prose: asParagraphs(`${written} retention is strong, and that is what makes a pause expensive. It costs more now. Worth a look?`),
     })
     expect(f.filter(x => x.includes('opens without addressing the reader'))).toEqual([])
   })
@@ -333,8 +354,89 @@ describe('the acronym short form: the SECOND measured false positive', () => {
     const f = checkFollowupGates({
       ...base,
       companyName: 'Matrix Restaurant Consulting',
-      prose: 'The restaurant sector has been slow. Things are hard. Worth a look?',
+      prose: asParagraphs('The restaurant sector has been slow. Things are hard. Worth a look?'),
     })
     expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)
+  })
+})
+
+// ═══ THE FOUR RULES ADDED 2026-09-24, each measured before it was written ═══
+
+describe('no paragraph holds more than two sentences', () => {
+  it('rejects three sentences in one paragraph', () => {
+    const f = checkFollowupGates({ ...base, prose: 'You took the unit on. It is bigger now. Worth a look?' })
+    expect(f.some(x => x.includes('no paragraph may hold more than'))).toBe(true)
+  })
+
+  it('accepts the same three sentences split across paragraphs', () => {
+    // POSITIVE CONTROL. Without it, a rule that rejected every follow-up would pass the
+    // test above and look like a working gate.
+    const f = checkFollowupGates({ ...base, prose: 'You took the unit on.\n\nIt is bigger now. Worth a look?' })
+    expect(f.some(x => x.includes('no paragraph may hold more than'))).toBe(false)
+  })
+
+  it('names which paragraph, because a follow-up has several', () => {
+    const f = checkFollowupGates({ ...base, prose: 'You took the unit on.\n\nIt is bigger. It runs two shifts. Worth a look?' })
+    expect(f.some(x => x.includes('paragraph 2 has 3 sentences'))).toBe(true)
+  })
+
+  it('the cap is one exported constant', () => {
+    expect(MAX_SENTENCES_PER_PARAGRAPH).toBe(2)
+  })
+})
+
+describe("email 3's callback may land anywhere in the first paragraph", () => {
+  // MEASURED. Two of three prospects with a clean personalised Email 1 shipped template
+  // follow-ups, both on EMAIL 3, both because the paragraph opened on a general statement
+  // and addressed the reader in its second sentence.
+  const contextFirst = 'When a client engagement ends, the next one needs to already be moving.\nYou saw that in March.\n\nWorth a look?'
+
+  it('ACCEPTS a sentence of context before the callback, on email 3', () => {
+    const f = checkFollowupGates({ ...base, position: 3, reference: REFERENCE, prose: contextFirst })
+    expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(false)
+  })
+
+  it('REJECTS the same opening on email 2, which points straight away', () => {
+    const f = checkFollowupGates({ ...base, position: 2, prose: contextFirst })
+    expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)
+  })
+
+  it('still rejects email 3 when the whole first paragraph never addresses the reader', () => {
+    const f = checkFollowupGates({
+      ...base, position: 3, reference: REFERENCE,
+      prose: 'When an engagement ends, the next needs moving. Firms feel it a quarter later.\n\nWorth a look?',
+    })
+    expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)
+  })
+})
+
+describe("the reference's closing question is not an echo", () => {
+  // MEASURED. One prospect with a clean personalised Email 1 lost its follow-ups to "worth
+  // a quick call to see", six words of the client's own approved closing question.
+  it('ACCEPTS reuse of the reference\'s closing question', () => {
+    const ref = 'The bench is bigger than it was. Is it worth a quick call to see what that changes?'
+    const f = checkFollowupGates({
+      ...base, reference: ref,
+      prose: 'You took the unit on.\n\nIs it worth a quick call to see what that changes?',
+    })
+    expect(f.some(x => x.includes('reproduces'))).toBe(false)
+  })
+
+  it('STILL rejects a lifted sentence from the body of the reference', () => {
+    const ref = 'The bench is bigger than it was and the diary has not caught up. Worth a quick call?'
+    const f = checkFollowupGates({
+      ...base, reference: ref,
+      prose: 'You took the unit on.\n\nThe bench is bigger than it was and the diary has not caught up.',
+    })
+    expect(f.some(x => x.includes('reproduces'))).toBe(true)
+  })
+
+  it('leaves a reference that ends in no question entirely alone', () => {
+    const ref = 'The bench is bigger than it was and the diary has not caught up yet.'
+    const f = checkFollowupGates({
+      ...base, reference: ref,
+      prose: 'You took the unit on.\n\nThe bench is bigger than it was and the diary has not caught up yet.',
+    })
+    expect(f.some(x => x.includes('reproduces'))).toBe(true)
   })
 })

@@ -247,7 +247,15 @@ and the email is thrown away.
 Exactly two labelled blocks and nothing else, in this order:
 
 EMAIL2: <the middle of email 2, paragraphs separated by a blank line>
-EMAIL3: <the middle of email 3, paragraphs separated by a blank line>`
+EMAIL3: <the middle of email 3, paragraphs separated by a blank line>
+
+NO PARAGRAPH HOLDS MORE THAN TWO SENTENCES. A follow-up is read on a phone, in a thread, by
+someone who did not reply to the first one. Three sentences in one block is where a follow-up
+stops being read. Break at the blank line instead, or cut the sentence carrying least.
+
+EMAIL 3 MAY OPEN ON A SENTENCE OF CONTEXT, but it must say "you" or name their company
+somewhere in its FIRST PARAGRAPH. Email 2 arrives closest to the first message and points
+straight away: its FIRST SENTENCE says "you" or names the company.`
 }
 
 export interface WriteFollowupsParams {

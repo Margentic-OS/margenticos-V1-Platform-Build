@@ -230,6 +230,38 @@ function sentencesOf(text: string): string[] {
   return splitIntoSentences(text)
 }
 
+/**
+ * The reference with its closing question removed, for the echo check only.
+ *
+ * Returns the reference unchanged when it ends in no question, which is the conservative
+ * direction: nothing is excluded unless it is clearly the approved question.
+ */
+function referenceWithoutClosingQuestion(reference: string): string {
+  const sentences = splitIntoSentences(reference)
+  if (sentences.length === 0) return reference
+  const last = sentences[sentences.length - 1]
+  if (!last.trim().endsWith('?')) return reference
+  return sentences.slice(0, -1).join(' ')
+}
+
+/** Paragraphs, split on a blank line. A follow-up with no blank line is one paragraph. */
+function paragraphsOf(text: string): string[] {
+  return text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
+}
+
+/** The first paragraph, for email 3's callback scope. */
+function firstParagraphOf(text: string): string {
+  return paragraphsOf(text)[0] ?? ''
+}
+
+/**
+ * The most sentences one paragraph of a generated follow-up may hold.
+ *
+ * TWO, because a follow-up is read in a thread by someone who did not reply to the first
+ * one. One constant, so disagreeing with it is a one-line change.
+ */
+export const MAX_SENTENCES_PER_PARAGRAPH = 2
+
 function wordsIn(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length
 }
@@ -310,6 +342,21 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
 
   const sentences = sentencesOf(text)
 
+  // ── NO PARAGRAPH HOLDS MORE THAN TWO SENTENCES ────────────────────────────
+  //
+  // A follow-up is read on a phone, in a thread, by someone who did not reply to the first
+  // one. Three sentences in one block is where a follow-up stops being read. Fails soft
+  // like every other gate here: the approved template follow-ups ship instead.
+  for (const [i, para] of paragraphsOf(text).entries()) {
+    const n = splitIntoSentences(para).length
+    if (n > MAX_SENTENCES_PER_PARAGRAPH) {
+      failures.push(
+        `${label} paragraph ${i + 1} has ${n} sentences and no paragraph may hold more than ` +
+        `${MAX_SENTENCES_PER_PARAGRAPH}: ${quote(para)}. Split it, or cut the sentence that carries least.`,
+      )
+    }
+  }
+
   // ── The opening sentence is about THIS READER ──────────────────────────────
   const first = sentences[0] ?? text
   const population = POPULATION_OPENERS.find(re => re.test(first))
@@ -320,12 +367,24 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
     )
   }
 
+  // ── WHERE THE CALLBACK HAS TO LAND ────────────────────────────────────────
+  //
+  // EMAIL 2: the first SENTENCE. EMAIL 3: anywhere in the first PARAGRAPH.
+  //
+  // MEASURED 2026-09-24. Three prospects with a clean personalised Email 1 shipped template
+  // follow-ups, and two of the three died on this gate, both on EMAIL 3, both because the
+  // paragraph opened on a general statement and addressed the reader in its second
+  // sentence. Email 3 is the last message in the sequence and it earns a sentence of
+  // context before it points; email 2 does not, because it arrives closest to the first.
+  //
+  // The scope is the only thing that differs. What counts as a callback is identical.
+  const callbackScope = position === 3 ? (firstParagraphOf(text) || first) : first
   // The SHORT form, not the registered name. See companyShortForm: matching the full name
   // rejected six correct emails on the 2026-09-21 run.
   // ANY acceptable short form, not just the leading token. See companyNameForms.
   const namesCompany = companyNameForms(companyName).some(form =>
-    new RegExp(`\\b${form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(first))
-  if (!SECOND_PERSON.test(first) && !namesCompany) {
+    new RegExp(`\\b${form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(callbackScope))
+  if (!SECOND_PERSON.test(callbackScope) && !namesCompany) {
     failures.push(
       `${label} opens without addressing the reader: ${quote(first)}. ` +
       'The callback must say "you" or name their company, or it is not a callback.',
@@ -349,7 +408,16 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
   }
 
   // ── Lifted from the reference it was shown ─────────────────────────────────
-  const echo = findEcho(text, reference)
+  //
+  // THE REFERENCE'S CLOSING QUESTION IS EXCLUDED. It is the client's own approved copy and
+  // reusing it is permitted, so matching against it rejects a follow-up for doing something
+  // allowed. Measured 2026-09-24: one prospect with a clean personalised Email 1 lost its
+  // follow-ups to "worth a quick call to see", six words of the approved question.
+  //
+  // THE LAST QUESTION IN THE REFERENCE, not any question: an approved follow-up asks one,
+  // and it is the last sentence. Dropping every interrogative would blind the check to a
+  // lifted mid-paragraph question, which is not approved copy.
+  const echo = findEcho(text, referenceWithoutClosingQuestion(reference))
   if (echo) {
     failures.push(
       `${label} reproduces ${ECHO_NEEDLE_WORDS} consecutive words from the client's ` +
