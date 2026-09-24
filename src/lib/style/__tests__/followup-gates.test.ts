@@ -342,10 +342,80 @@ describe('the acronym short form: the SECOND measured false positive', () => {
     // count as naming the company.
     expect(companyNameForms('Global Business Consulting Services (GBCS)')).toEqual(['GBCS'])
     expect(companyNameForms('Abacus Business Consulting, Inc.')).toEqual(['Abacus'])
-    // A name made entirely of generic words offers nothing, and the gate then requires
-    // second person, which is the stricter branch and the safe direction to fail in.
-    expect(companyNameForms('Business Management Services Ltd')).toEqual([])
     expect(companyNameForms(null)).toEqual([])
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WHEN EVERY TOKEN IS SKIPPED, FALL BACK TO THE WHOLE NAME.
+  //
+  // Measured 2026-09-24: companyNameForms('8 Consulting') returned []. The first token is
+  // one character and skipped for being under two; the second is a suffix and skipped as
+  // one; the loop ends with nothing. The callback gate asks whether the copy says "you" or
+  // names the company, so with NO form to match, no email that prospect could ever receive
+  // can satisfy it. Their Email 3 opened by naming the company in full and was rejected
+  // anyway, and both follow-ups were lost.
+  //
+  // THIS REVERSED A PREVIOUS ASSERTION, deliberately. The line removed above said a name
+  // made entirely of generic words "offers nothing, and the gate then requires second
+  // person, which is the stricter branch and the safe direction to fail in". Stricter is
+  // not safe when it is unsatisfiable: the copy was correct and the gate could not see it.
+  // The collision risk the old reasoning guarded against is a SINGLE generic word standing
+  // in for the company, not the full phrase, which is distinctive even when its words are
+  // not.
+  describe('the whole-name fallback', () => {
+    it('gives a usable form to a name whose tokens are all skipped', () => {
+      expect(companyNameForms('8 Consulting')).toEqual(['8 Consulting'])
+      // A second shape of the same fault: a single-character distinguishing token.
+      expect(companyNameForms('Q Advisory')).toEqual(['Q Advisory'])
+    })
+
+    it('strips LEGAL suffixes only, so the descriptive word stays', () => {
+      // 'Consulting' is in COMPANY_SUFFIXES to stop it becoming a short form on its own.
+      // Stripping it HERE would leave the bare '8', which is worse than the rule it rescues.
+      expect(companyNameForms('8 Consulting Ltd')).toEqual(['8 Consulting'])
+    })
+
+    it('does NOT fire when every token is generic, which is a different fault', () => {
+      // Both cases produce no form from the rules above and they need opposite answers.
+      // "8" is distinctive and was skipped for LENGTH; "Consulting Group" has nothing
+      // distinctive at all, and crediting it would let any sentence containing the phrase
+      // "consulting group" count as naming the company. Such a prospect is still reachable
+      // through the second-person branch, which is ordinary rather than impossible.
+      expect(companyNameForms('Business Management Services Ltd')).toEqual([])
+      expect(companyNameForms('Consulting Group Ltd')).toEqual([])
+    })
+
+    it('ORDINARY NAMES ARE UNCHANGED, which is what makes this a fallback', () => {
+      // The control that matters: the fallback must fire only when the rules above found
+      // nothing, or it would start offering whole names everywhere and widen the gate.
+      expect(companyNameForms('Matrix Restaurant Consulting')).toEqual(['Matrix'])
+      expect(companyNameForms('Abacus Business Consulting, Inc.')).toEqual(['Abacus'])
+      expect(companyNameForms('Virtual Miss Friday (VMF Ltd)')).toEqual(['VMF', 'Virtual'])
+      expect(companyNameForms('Cavalry Consulting LLC')).toEqual(['Cavalry'])
+      expect(companyNameForms(null)).toEqual([])
+      expect(companyNameForms('')).toEqual([])
+    })
+
+    it('the gate now accepts copy that names such a company, which it could not before', () => {
+      // END TO END, through the real gate rather than the helper, because the helper
+      // returning a form proves nothing about whether the callback is credited.
+      const f = checkFollowupGates({
+        ...base,
+        companyName: '8 Consulting',
+        prose: asParagraphs('8 Consulting has thirteen years of past performance behind it. That record is what buyers want. Worth a look?'),
+      })
+      expect(f.filter(x => x.includes('opens without addressing the reader'))).toEqual([])
+    })
+
+    it('and still rejects copy that names neither the reader nor the company', () => {
+      // POSITIVE CONTROL THE OTHER WAY. The fallback must not turn the gate off.
+      const f = checkFollowupGates({
+        ...base,
+        companyName: '8 Consulting',
+        prose: asParagraphs('Those twelve articles represent a real point of view that cold buyers have not met. It costs more now. Worth a look?'),
+      })
+      expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)
+    })
   })
 
   it('THE OTHER DIRECTION HOLDS: an ordinary non-leading word still does not count', () => {

@@ -126,6 +126,20 @@ const SECOND_PERSON = /\byou(?:'re|r|rs|rself)?\b/i
  * Legal and descriptive suffixes that are part of a registered name and never part of how
  * anybody refers to a company in a sentence.
  */
+/**
+ * The LEGAL suffixes only, for the whole-name fallback below.
+ *
+ * SEPARATE FROM COMPANY_SUFFIXES ON PURPOSE. That set also holds descriptive words like
+ * 'consulting' and 'business', which are there to stop a GENERIC word becoming the one token
+ * that proves a callback. Stripping those from a whole-name fallback would be the opposite
+ * mistake: it would turn "8 Consulting" into "8" and the fallback would be worse than the
+ * rule it rescues.
+ */
+const LEGAL_SUFFIXES = new Set([
+  'inc', 'llc', 'ltd', 'limited', 'plc', 'llp', 'lp', 'corp', 'corporation',
+  'gmbh', 'bv', 'sa', 'srl', 'pty', 'pte', 'ag', 'nv', 'oy', 'ab',
+])
+
 const COMPANY_SUFFIXES = new Set([
   'inc', 'llc', 'ltd', 'limited', 'plc', 'llp', 'lp', 'corp', 'corporation', 'co',
   'company', 'group', 'holdings', 'partners', 'partnership', 'associates', 'consulting',
@@ -209,6 +223,54 @@ export function companyNameForms(companyName: string | null | undefined): string
     if (COMPANY_SUFFIXES.has(token.toLowerCase())) continue
     forms.push(token)
     break
+  }
+
+  // ── EVERY TOKEN SKIPPED MEANS NO FORM AT ALL, AND THAT IS UNSATISFIABLE ─────
+  //
+  // Measured 2026-09-24: companyNameForms('8 Consulting') returned []. The first token is
+  // one character and is skipped for being under two; the second is in COMPANY_SUFFIXES and
+  // is skipped as a suffix; the loop then ends with nothing. The callback gate asks whether
+  // the copy says "you" or names the company, so with no form to match, NO EMAIL THIS
+  // PROSPECT COULD EVER RECEIVE can satisfy it. One prospect's Email 3 opened by naming the
+  // company in full and was rejected anyway, and both follow-ups were lost.
+  //
+  // Any name whose only non-suffix token is a single character hits this, and so does one
+  // made entirely of suffix words. The rules above are about choosing the BEST short form;
+  // when they choose none, the answer is not "this company has no name".
+  //
+  // THE FALLBACK IS THE WHOLE NAME WITH LEGAL SUFFIXES REMOVED, which is a form that
+  // certainly appears when the copy names the company in full, and is strictly safer than
+  // the leading-token rule: it is longer and more distinctive, so it cannot collide with an
+  // ordinary noun the way accepting "Restaurant" from "Matrix Restaurant Consulting" would.
+  // Only LEGAL suffixes come off, so "8 Consulting" keeps "Consulting" and yields the
+  // name as written rather than the bare "8".
+  //
+  // ONLY WHEN A DISTINGUISHING TOKEN EXISTS AND WAS TOO SHORT, never when every token is a
+  // generic word. The two cases look identical from here, both produce no form, and they
+  // need opposite answers:
+  //
+  //   "8 Consulting"        "8" is distinctive and was skipped for LENGTH.   Fall back.
+  //   "Consulting Group"    every token is generic. There is nothing to see. Do not.
+  //
+  // Falling back on the second would credit any sentence containing "consulting group" as
+  // naming the company, which is the exact collision COMPANY_SUFFIXES exists to prevent,
+  // one phrase up. Such a company is still reachable through the second-person branch,
+  // which is an ordinary requirement rather than an impossible one.
+  const hasShortDistinguishingToken = companyName
+    .split(/[\s,./&-]+/)
+    .map(raw => raw.replace(/[^\p{L}\p{N}]/gu, ''))
+    .some(token => token.length > 0 && token.length < 2 && !COMPANY_SUFFIXES.has(token.toLowerCase()))
+
+  if (forms.length === 0 && hasShortDistinguishingToken) {
+    const whole = companyName
+      .split(/[\s,]+/)
+      .filter(word => {
+        const bare = word.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()
+        return bare.length > 0 && !LEGAL_SUFFIXES.has(bare)
+      })
+      .join(' ')
+      .trim()
+    if (whole) forms.push(whole)
   }
 
   return [...new Set(forms)]
