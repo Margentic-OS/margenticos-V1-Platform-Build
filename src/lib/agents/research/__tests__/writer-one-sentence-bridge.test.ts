@@ -30,6 +30,33 @@ describe('countSentences', () => {
     expect(countSentences('Owners, e.g. those with one site, wait.')).toBe(1)
   })
 
+  // ─── NAMES, added 2026-09-24 after eight prospects lost their email to this counter ───
+  //
+  // MEASURED. Eight of nineteen were rejected by the one-sentence observation gate on EVERY
+  // attempt. The first inspected was "You shared the news that Brittney Nichols and
+  // Katherine O. Brien were promoted", counted as TWO. The copy was one sentence; the
+  // counter was wrong, and the gate was reporting a fault that did not exist.
+  //
+  // It surfaced now because the observation is where people and companies are named, and it
+  // had been latent in the BRIDGE gate, which has used this counter for longer.
+  it('does not split on a personal initial', () => {
+    expect(countSentences('You shared the news that Katherine O. Brien was promoted.')).toBe(1)
+    expect(countSentences('You spoke on a panel with J. R. Smith in August.')).toBe(1)
+  })
+
+  it('does not split on a company suffix', () => {
+    expect(countSentences('Acme Inc. announced a new office in Leeds.')).toBe(1)
+    expect(countSentences('They joined the Puzzle Co. partner network in July.')).toBe(1)
+  })
+
+  it('STILL counts a real second sentence that begins with a capital', () => {
+    // POSITIVE CONTROL. The initial rule protects a capital before a full stop; it must not
+    // protect the capital AFTER one, or every two-sentence observation would read as one and
+    // the gate would stop rejecting anything.
+    expect(countSentences('You added a press in March. It runs two shifts.')).toBe(2)
+    expect(countSentences('Acme Inc. opened in Leeds. The second site follows.')).toBe(2)
+  })
+
   it('counts a break after a closing quote, and ignores empty input', () => {
     expect(countSentences('They said "not yet." Then the week filled.')).toBe(2)
     expect(countSentences('')).toBe(0)
