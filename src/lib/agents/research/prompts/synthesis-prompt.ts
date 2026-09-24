@@ -31,15 +31,23 @@ function renderTriggers(triggers?: ReadonlyArray<{ trigger: string; reason?: str
     const why = t.reason && t.reason.trim() ? '\n       WHY IT MATTERS: ' + t.reason.trim() : ''
     return head + why
   }).join('\n')
+  // THE INSTRUCTION ONLY APPEARS WHEN THERE IS SOMETHING TO INSTRUCT ABOUT. A document
+  // written before the reason field existed carries none, and telling the model that each
+  // trigger carries a principle it cannot see is a prompt asserting something untrue about
+  // its own contents. Every client is in that state until their ICP is regenerated.
+  const anyReason = list.some(t => t.reason && t.reason.trim().length > 0)
+  const preamble = anyReason ? [
+    'Each carries WHY IT MATTERS: one principle saying why that event creates a need for',
+    'what this client sells. It is a principle about the EVENT, not about this prospect.',
+    'Your job when one matches is to APPLY it to what you actually found, not to repeat it.',
+    '',
+  ] : []
   return [
     '',
     'TRIGGERS. ' + String(list.length) + ' events this client has written down as making a',
     "call worth asking for now. They are in the client's own order, strongest first.",
     '',
-    'Each carries WHY IT MATTERS: one principle saying why that event creates a need for',
-    'what this client sells. It is a principle about the EVENT, not about this prospect.',
-    'Your job when one matches is to APPLY it to what you actually found, not to repeat it.',
-    '',
+    ...preamble,
     numbered,
     '',
   ].join('\n')

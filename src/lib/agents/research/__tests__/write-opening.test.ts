@@ -565,7 +565,11 @@ describe('the writer prompt enforces one fact per sentence', () => {
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('ONE FACT PER SENTENCE')
     expect(flat).toContain('about STRUCTURE, not length')
-    expect(flat).toContain('If you are naming two things, use two sentences')
+    // CHANGED 2026-09-24. The rule used to permit two sentences in the observation, and the
+    // observation now has a one-sentence gate, so the prompt saying otherwise was a prompt
+    // and a validator disagreeing on the same rule. The structural claim the test is about
+    // is unchanged: one fact per sentence.
+    expect(flat).toContain('The observation names ONE thing, in one sentence')
     // The reading-age line was removed deliberately: it measured word difficulty while the
     // real failures were figurative. What replaces it is the camera test.
     expect(flat).not.toContain('reading at eleven years old')

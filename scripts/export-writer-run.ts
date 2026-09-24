@@ -357,7 +357,7 @@ export interface WriterHandover {
 }
 
 export function describeHandover(
-  input: Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason' | 'selectionReason'>,
+  input: Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason' | 'selectionReason' | 'prospectReason' | 'supportingCandidateId'>,
 ): WriterHandover {
   const selectedCandidateId = input.selectedCandidateId ?? null
   const relevanceReason = input.relevanceReason ?? null
@@ -385,7 +385,7 @@ export async function writerInputForStored(
   stored: NonNullable<Awaited<ReturnType<typeof loadStoredFindings>>>,
   ctx: ProspectContext,
   clientId: string,
-): Promise<Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason' | 'selectionReason'>> {
+): Promise<Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason' | 'selectionReason' | 'prospectReason' | 'supportingCandidateId'>> {
   return writerInputFromSynthesis(await synthesisFromStored(stored, ctx, clientId))
 }
 

@@ -21,6 +21,7 @@ import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
 import { rankCandidates, byTriggerPositionOnly, type RankedCandidate } from './rank-candidates'
 import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
 import { fleschKincaidGrade } from '@/lib/style/reading-grade'
+import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { TRIGGER_REASON_MAX_WORDS, TRIGGER_REASON_MAX_GRADE } from '@/agents/trigger-evidence-gate'
 import {
   readStoredFitDimensions, readDimensionAnswers, gradeFromDimensions, type FitDimension,
@@ -733,7 +734,25 @@ export function findProspectReasonFaults(reason: string): string[] {
     faults.push(`reading grade ${grade.grade.toFixed(1)}, over ${TRIGGER_REASON_MAX_GRADE}`)
   }
   for (const h of findAssumedCapacityClaims(reason)) faults.push(`${h.kind}: "${h.matched}"`)
+  // THE VERDICT CHECK, which this function CLAIMED parity on and did not run. A reason
+  // rejected at the trigger for passing judgement on the prospect's activity was accepted
+  // here, and this is the sentence that reaches the email either way.
+  for (const v of checkActivityVerdict(reason, '', { prospectId: 'prospect-reason' }, 'block')) {
+    faults.push(`verdict: ${v}`)
+  }
   return faults
+}
+
+/**
+ * EVERY EXCLUSION, IN ONE PLACE. Code decides what is OUT, and that decision is made here so
+ * the main event and the supporting event cannot drift apart: a second hand-written copy of
+ * this list is how a candidate too weak to be chosen gets stapled to one that was.
+ */
+export function isHookEligible(c: ObservationCandidate): boolean {
+  return c.passes_all
+    && !c.readability?.hard_fail
+    && c.inference_direction !== 'ambiguous_unhandled'
+    && !isReshareWrittenAsTheirOwn(c)
 }
 
 export function isReshareWrittenAsTheirOwn(c: ObservationCandidate): boolean {
@@ -806,9 +825,8 @@ function selectCandidate(
     // were in the 30-day reuse window on 2026-09-11. Missing reads as "not measured", which is
     // how those candidates were selected when they were written. Complete candidates, which is
     // every freshly parsed one, are unaffected.
-    .filter(c => !c.readability?.hard_fail && c.inference_direction !== 'ambiguous_unhandled')
-    // OUT, not demoted. See isReshareWrittenAsTheirOwn.
-    .filter(c => !isReshareWrittenAsTheirOwn(c))
+    // ONE PREDICATE, shared with the supporting-event filter. See isHookEligible.
+    .filter(isHookEligible)
 
   if (hookEligible.length > 0) {
     // ═══ CODE DECIDES WHAT IS OUT. THE MODEL CHOOSES AMONG WHAT IS LEFT. ═══
@@ -1141,7 +1159,16 @@ export function parseSynthesisResponse(
   const rawSupporting = typeof parsed.supporting_candidate_id === 'string'
     ? parsed.supporting_candidate_id.trim() : ''
   const supportingCandidate = rawSupporting && rawSupporting !== winner?.id
-    ? candidates.find(c => c.id === rawSupporting && c.passes_all && c.date && !c.readability?.hard_fail) ?? null
+    ? candidates.find(c =>
+        c.id === rawSupporting
+        // THE SAME ELIGIBILITY THE WINNER FACES, through one predicate rather than a second
+        // hand-written copy of it. The first version listed three of the rules and omitted
+        // the inference-direction check and the reshare-attribution exclusion, so a
+        // candidate too weak to be the main event could still be stapled to it.
+        && isHookEligible(c)
+        // AND DATED, which the winner does not have to be. A supporting event exists to say
+        // "and this too, at about the same time"; undated it cannot do that job.
+        && !!c.date) ?? null
     : null
   const supporting_candidate_id = winner ? supportingCandidate?.id ?? null : null
 

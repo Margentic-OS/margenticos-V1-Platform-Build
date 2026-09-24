@@ -685,8 +685,9 @@ ONE FACT PER SENTENCE.
 This is about STRUCTURE, not length. A short sentence carrying three facts is still a
 second read.
 
-If you are naming two things, use two sentences, in the observation. The bridge names one
-thing, in one sentence: if you have two, keep the one that matters and cut the other. Do not
+The observation names ONE thing, in one sentence, and so does the bridge: if you have two,
+keep the one that matters and cut the other. Where a supporting event is supplied, one
+sentence may name both, and only if it stays under the word cap and still reads plainly. Do not
 join facts with appositives. Do not bury a list mid-sentence. Never separate a subject from
 its verb with clauses. Your reader is scanning between meetings, and a sentence they go back
 over has already lost.
@@ -950,7 +951,7 @@ Second person and still wrong. It recites his own CV back at him. He knows all o
 
 LENGTH. A BUDGET PER PART, NOT ONE TOTAL.
 
-  observation   about ${OPENING_BUDGET.observation} words, usually two sentences
+  observation   about ${OPENING_BUDGET.observation} words, ONE sentence
   bridge        ONE sentence, about ${OPENING_BUDGET.bridge} words
   closing question  about ${OPENING_BUDGET.question} words
                     ${OPENING_TARGET_WORDS} words in total

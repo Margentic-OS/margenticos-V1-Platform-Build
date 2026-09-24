@@ -226,6 +226,15 @@ async function main() {
         relevanceReason: writerInput.relevanceReason ?? null,
         selectionReason: writerInput.selectionReason ?? null,
       }),
+      // THE SAME REASON EMAIL 1 WAS WRITTEN FROM. Without these the backfilled emails 2 and
+      // 3 argue whatever they like while the production path argues the prospect's reason,
+      // so a backfilled sequence and a freshly written one would not match. Same defect
+      // class as the Email 1 writer hop fixed on 2026-09-24, in the script this project
+      // actually runs to fill follow-ups.
+      prospectReason: writerInput.prospectReason ?? null,
+      supportingEvent: writerInput.supportingCandidateId
+        ? writerInput.candidates.find(c => c.id === writerInput.supportingCandidateId)?.observation ?? null
+        : null,
       findingsEvidence: buildFindingsEvidence(writerInput.candidates),
       reference,
       prospectId: id,
