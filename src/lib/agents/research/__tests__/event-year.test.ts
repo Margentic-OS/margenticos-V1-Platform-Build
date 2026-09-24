@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { eventYear, missingEventYear, missingEventYears, eventYearGateMessage } from '../event-year'
+import { contentOverlap } from '../synthesize'
 
 const NOW = new Date('2026-09-23T12:00:00Z')
 
@@ -145,6 +146,44 @@ describe('missingEventYears reads the event the observation actually names', () 
     ]
     const observation = 'You opened a second workshop in March on the north side, and took on your first apprentice intake in June across two trades.'
     expect(missingEventYears(observation, twoOld, NOW)).toEqual([2023, 2024])
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // THE DISCRIMINATION THE FIX IS ACTUALLY FOR, and this test exists because its
+  // absence was caught by mutation rather than by reading.
+  //
+  // Removing the relative threshold, so that EVERY candidate above the floor counted as
+  // described, broke nothing in the first version of this file: the previous-year candidate
+  // in those fixtures scored 0.00, below the floor, so the relative rule never decided
+  // anything. The test passed in both worlds, which is the shape this project calls a
+  // guard that is never reached.
+  //
+  // The fixture below reproduces the REAL shape instead: a previous-year candidate that
+  // shares enough vocabulary to clear the floor and is still plainly a different event.
+  // Measured 0.250 against a best of 1.000; the live failure was 0.29 against 1.00.
+  describe('a previous-year candidate that clears the floor but is not what was written', () => {
+    const OBSERVATION = 'In July 2026 the firm posted that it is interviewing for a consultant to work with its clients.'
+    const DESCRIBED = { date: '2026-07-23', observation: 'On 23 July 2026 the founder posted that the firm is actively interviewing for a consultant with five to seven years of experience to work with its clients.' }
+    const NOT_DESCRIBED = { date: '2025-11-01', observation: 'Since November 2025 the founder has been running the firm alongside a second venture serving its own clients.' }
+
+    it('the fixture really is in the band this rule decides', () => {
+      // THE PREMISE, ASSERTED. Without this the test below could pass because the second
+      // candidate fell under the floor, which is the way the first version of this file was
+      // vacuous. If contentOverlap changes, this fails first and says so.
+      const best = contentOverlap(OBSERVATION, DESCRIBED.observation)
+      const other = contentOverlap(OBSERVATION, NOT_DESCRIBED.observation)
+      expect(other).toBeGreaterThan(0.2)        // clears the absolute floor
+      expect(other).toBeLessThan(best * 0.5)    // and is excluded only by the relative rule
+    })
+
+    it('owes nothing, because the event written about is from the current year', () => {
+      expect(missingEventYears(OBSERVATION, [DESCRIBED, NOT_DESCRIBED], NOW)).toEqual([])
+    })
+
+    it('and still owes 2025 when the observation describes THAT candidate instead', () => {
+      const other = 'You have been running the firm alongside a second venture serving its own clients.'
+      expect(missingEventYears(other, [DESCRIBED, NOT_DESCRIBED], NOW)).toEqual([2025])
+    })
   })
 
   it('owes nothing when no candidate resembles the observation', () => {
