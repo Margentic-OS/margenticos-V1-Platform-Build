@@ -171,6 +171,23 @@ export interface MessagingAgentInput {
    * that costs money, an agent rewriting a line nothing then scored.
    */
   held_paragraphs?: readonly HeldParagraph[]
+  /**
+   * Generate as a client with no messaging document at all would be generated: the active
+   * document is neither fetched nor shown to the model.
+   *
+   * NOT THE FLAG THE 2026-09-08 NOTE WARNS ABOUT, and the difference is the whole point.
+   * That one was `is_refresh`, which meant "a pending suggestion is being replaced" and was
+   * read as a proxy for "a prior document exists". The two came apart at exactly the case
+   * that mattered and the run silently rebuilt from intake while claiming no prior document
+   * existed. This flag is not a proxy for anything: it means what it says, it defaults to
+   * false, and the fetch still happens on document existence for every caller that does not
+   * deliberately ask for a cold generation.
+   *
+   * It exists because "what would a new client get?" is a question about THIS client's
+   * documents, and it cannot be answered by a run that has been shown the answer. Showing
+   * the model the live playbook is what the refresh path is for.
+   */
+  ignore_existing_document?: boolean
 }
 
 /** A paragraph supplied to the agent rather than written by it. See held_paragraphs. */
@@ -366,6 +383,7 @@ export async function runMessagingGenerationAgent(
   const { organisation_id, supabase, segment_id = null } = input
   const regeneration_notes = input.regeneration_notes
   const heldParagraphs = input.held_paragraphs ?? []
+  const ignoreExistingDocument = input.ignore_existing_document ?? false
 
   logger.info('Messaging agent: starting', { organisation_id, segment_id })
 
@@ -426,7 +444,7 @@ export async function runMessagingGenerationAgent(
     // two lists that must agree by hand: the day one of them learns to read a new document
     // and the other does not, the repair writes copy from context the full run would have
     // rejected, and nothing says so.
-    const context = await buildVariantGenerationContext(supabase, organisation_id, regeneration_notes, heldParagraphs)
+    const context = await buildVariantGenerationContext(supabase, organisation_id, regeneration_notes, heldParagraphs, ignoreExistingDocument)
     const { intake, preflight, requiredDocs, completeness, existingDocument, patterns, upstreamAssumptions } = context
 
     // Step 8: Build the user message requesting four variants.
@@ -867,6 +885,8 @@ export async function buildVariantGenerationContext(
   organisation_id: string,
   regeneration_notes: RegenerationNotes | undefined,
   heldParagraphs: readonly HeldParagraph[] = [],
+  /** See MessagingAgentInput.ignore_existing_document. Defaults to the normal behaviour. */
+  ignoreExistingDocument = false,
 ): Promise<VariantGenerationContext> {
   // Step 1: Fetch intake responses for this client only.
   const intake = await fetchIntakeResponses(supabase, organisation_id)
@@ -909,7 +929,12 @@ export async function buildVariantGenerationContext(
   // So the one path where the current version matters most was the one that never read
   // it: the run rebuilt from intake while its own reasoning header said no prior
   // document existed. Measured against a live v2 on 2026-09-08.
-  const existingDocument: ExistingMessagingDocument | null = await fetchExistingMessagingDocument(supabase, organisation_id)
+  const existingDocument: ExistingMessagingDocument | null = ignoreExistingDocument
+    ? null
+    : await fetchExistingMessagingDocument(supabase, organisation_id)
+  if (ignoreExistingDocument) {
+    logger.info('Messaging agent: cold generation, the active document was not read', { organisation_id })
+  }
 
   // Step 6: Read patterns table (cross-client, read-only, may be empty in phase one).
   const patterns = await fetchPatterns(supabase)
@@ -1604,6 +1629,17 @@ async function callClaude(userMessage: string, signal: AbortSignal): Promise<str
   // The signal is REQUIRED, not optional. It is what makes the 240s guard a control
   // rather than an announcement: without it an aborted run keeps streaming tokens until
   // the platform kills the function.
+  // WHAT WAS ACTUALLY SENT, when MESSAGING_PROMPT_DUMP_DIR is set, and nothing otherwise.
+  //
+  // dumpAttempt records what came BACK. Nothing recorded what went out, so "the model was
+  // not shown X" could only ever be argued from reading the assembly code. That is an
+  // argument, not a measurement, and the one existing dry-run script re-implements the
+  // assembly rather than calling it, so agreeing with it proves nothing about this path.
+  //
+  // Every model call in this agent goes through this function, so one capture here covers
+  // the full-sequence call and every single-variant repair call alike.
+  dumpPrompt(systemPrompt, userMessage)
+
   const stream = client.messages.stream(
     {
       model: MESSAGING_MODEL,
@@ -1785,6 +1821,28 @@ function dumpAttempt(
     fs.writeFileSync(
       `${dir}/${name}`,
       JSON.stringify({ variant: variantKey, attempt: attemptLabel ?? 'first', emails, violations }, null, 2),
+    )
+  } catch {
+    // Deliberately silent. See the note above.
+  }
+}
+
+/**
+ * Writes one outgoing prompt to MESSAGING_PROMPT_DUMP_DIR when that variable is set.
+ * Synchronous and swallowing, for the same reason dumpAttempt is: a diagnostic that can
+ * fail a generation run is worse than no diagnostic.
+ */
+let promptDumpSeq = 0
+function dumpPrompt(systemPrompt: string, userMessage: string): void {
+  const dir = process.env.MESSAGING_PROMPT_DUMP_DIR
+  if (!dir) return
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    fs.mkdirSync(dir, { recursive: true })
+    promptDumpSeq += 1
+    fs.writeFileSync(
+      `${dir}/prompt-${String(promptDumpSeq).padStart(3, '0')}.txt`,
+      `===== SYSTEM =====\n${systemPrompt}\n\n===== USER =====\n${userMessage}\n`,
     )
   } catch {
     // Deliberately silent. See the note above.
