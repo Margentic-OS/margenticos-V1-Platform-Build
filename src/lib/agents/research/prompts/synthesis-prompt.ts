@@ -326,27 +326,40 @@ USEFUL: tells the prospect something, or frames something they had not
 articulated.
 
 ─────────────────────────────────────────────────────────────────────
-CHOOSING BETWEEN CANDIDATES THAT ALL MATCHED A TRIGGER
+CHOOSING WHICH CANDIDATE TO USE. THIS IS YOURS TO DECIDE.
 ─────────────────────────────────────────────────────────────────────
 
-The trigger list decides WHAT COUNTS. It does not decide which instance to use.
-A nine-month-old instance of the first trigger is worse copy than last week's
-instance of the sixth, so do not simply take the earliest-listed one.
+Code has already removed everything that is not usable: anything failing the six
+tests, anything nobody could check, and any reshare written as though they wrote
+it. What is left is all legitimately usable.
 
-Among candidates that matched a trigger, prefer in this order:
+YOUR JOB IS TO PICK THE ONE THAT GIVES THIS PROSPECT THE STRONGEST, MOST
+SPECIFIC REASON to want what this client sells. Not the most recent. Not the
+most impressive. The one where the connection between what happened to them and
+what the client offers is tightest and least arguable.
 
-  1. THE MORE RECENT EVENT. An undated candidate ranks below every dated one:
-     "we could not tell when" is not the same as "it was recent".
-  2. THE MORE SPECIFIC ONE — named, dated, checkable in the source.
-  3. THE ONE THAT MORE DIRECTLY GIVES THIS PERSON A REASON to want what the
-     sender offers.
-  4. Trigger list position, and only to break a tie the three above left.
+Ask of each: if this person read one line about this, would the next line about
+the client's offer feel like it followed? Choose the one where it does.
 
-A RESHARE RANKS BELOW THE PROSPECT'S OWN POST. A post marked RESHARE in the
-research is something they amplified, not something they wrote, and the two are
-not the same evidence. It can still be chosen when nothing of their own
-qualifies, and when it is, the observation must say they SHARED it. Never write
-that they said, posted, wrote or announced something they reshared.
+CONSIDER WHETHER A SECOND EVENT STRENGTHENS IT. Two events pointing at the same
+reason are stronger than one. They must BOTH be specific and dated, and they
+must point at the SAME reason, not two different ones stacked up. If a second
+event does not strengthen the first, use one. Never summarise a feed or several
+posts as a pattern.
+
+YOU WILL BE SHOWN AN ORDERING. It sorts by recency, then how specific the
+candidate is, then how directly it gives a reason. IT IS INFORMATION, NOT THE
+ANSWER. It cannot tell that a three-month-old hire matters more to this reader
+than a nine-day-old award. Where you agree with it, say so. Where you do not,
+choose differently and say why.
+
+A RESHARE IS SOMETHING THEY AMPLIFIED, NOT SOMETHING THEY WROTE, and the
+observation must say they SHARED it. Never write that they said, posted, wrote
+or announced something they reshared.
+
+A RESHARE OF THEIR OWN FIRM'S ANNOUNCEMENT IS THEIR NEWS. It is as usable as
+anything they wrote themselves, and it is not weaker evidence for being a
+reshare. It must still say they shared it. Mark it with "reshare_of_own_firm".
 
 NON-JUDGEMENTAL: reads as noticing, not as scoring their performance. This
 matters most for absence-based candidates: "you stopped posting pass rates"
@@ -777,10 +790,12 @@ ${ctx.fitDimensions?.length ? `  "fit_dimensions": {
       "inference_direction": "only_reading" or "compatible_with_both" or "ambiguous_unhandled",
       "matched_trigger": null or the NUMBER of the trigger in the TRIGGERS block this is an instance of,
       "is_reshare": true if the source post was marked RESHARE, false otherwise,
+      "reshare_of_own_firm": true when what they reshared was their own company's announcement rather than an unrelated third party's,
       "rejection_reason": null or "one sentence: which test it failed and why"
     }
   ],
   "selected_candidate_id": "c1" or null,
+  "supporting_candidate_id": null or the id of a SECOND event that strengthens the same reason,
   "qualification_status": "qualified" or "flagged_for_review" or "disqualified",
   "qualification_reason": null or "one sentence: what specific evidence was found",
   "confidence": "high" or "medium" or "low",

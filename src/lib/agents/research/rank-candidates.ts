@@ -25,6 +25,8 @@ export interface RankableCandidate {
   matched_trigger?: number | null
   /** True when the underlying post was a reshare of somebody else's. */
   is_reshare?: boolean | null
+  /** True when what they reshared was their own firm's announcement, which is their news. */
+  reshare_of_own_firm?: boolean | null
   source?: string | null
 }
 
@@ -128,7 +130,10 @@ export function rankBasis(c: RankableCandidate, now: Date): RankedCandidate['ran
   const days = ageInDays(c.date, now)
   return {
     matched: c.matched_trigger != null,
-    own_post: !c.is_reshare,
+    // THEIR OWN FIRM'S ANNOUNCEMENT COUNTS AS THEIRS. It is still a reshare for the purpose
+    // of how it must be WRITTEN, which the writer handles, but it is not somebody else's
+    // news and ranking it below their own posts treated it as though it were.
+    own_post: !c.is_reshare || c.reshare_of_own_firm === true,
     days_old: days,
     recency_band: recencyBand(days),
     specificity: specificity(c),

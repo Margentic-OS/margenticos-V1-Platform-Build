@@ -126,6 +126,12 @@ export interface CandidateReadability {
 /** What the deterministic ordering actually did, recorded beside what the model said about it. */
 export interface SelectionBasis {
   chosen_id: string
+  /** What the model chose, before anything downstream. Null when it named nothing usable. */
+  model_chosen_id: string | null
+  /** What the arithmetic ordering would have chosen. Kept so the two can be compared. */
+  arithmetic_chosen_id: string | null
+  /** True when the model chose something the ordering would not have put first. */
+  model_differs_from_arithmetic: boolean
   runner_up_id: string | null
   /** The ranked order of every hook-eligible candidate, best first. */
   ranked_ids: string[]
@@ -182,6 +188,13 @@ export interface ObservationCandidate {
    * their event, so it ranks below their own, and the observation has to say they SHARED it.
    */
   is_reshare?: boolean
+  /**
+   * True when the reshared post was the prospect's OWN FIRM'S announcement rather than an
+   * unrelated third party's. Their firm's news is their news: it stays eligible and is not
+   * ranked below their own posts. It must still be described as SHARED, because they
+   * amplified it rather than wrote it.
+   */
+  reshare_of_own_firm?: boolean
   scores: CandidateScores
   /** Derived in code from scores, never trusted from the model. */
   passes_all: boolean

@@ -681,33 +681,43 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
 }
 
 /**
- * Whether two candidates are indistinguishable to the ordering. Used so the model's own
- * preference can only break a tie the arithmetic left, never overturn it.
+ * A RESHARE DESCRIBED AS SOMETHING THEY WROTE. Code's business, not the model's, and it is
+ * an exclusion rather than a demotion: the observation is factually wrong about the reader's
+ * own life in its first line, and no ranking can make that usable.
+ *
+ * A reshare of their OWN FIRM'S announcement is still their news and is NOT excluded here.
+ * It has to say they shared it, which is the writer's rule, but what it reports is theirs.
  */
-function sameRankBasis(a: RankedCandidate['rank_basis'], b: RankedCandidate['rank_basis']): boolean {
-  return a.matched === b.matched
-    && a.own_post === b.own_post
-    && a.days_old === b.days_old
-    && a.specificity === b.specificity
-    && a.reason_strength === b.reason_strength
-    && a.trigger_position === b.trigger_position
+const AUTHORSHIP_VERBS = /\b(posted|wrote|said|announced|argued|published|made the case)\b/i
+const SHARING_VERBS = /\b(shared|reshared|re-shared|amplified|passed on|reposted|boosted)\b/i
+
+export function isReshareWrittenAsTheirOwn(c: ObservationCandidate): boolean {
+  if (!c.is_reshare) return false
+  return AUTHORSHIP_VERBS.test(c.observation) && !SHARING_VERBS.test(c.observation)
 }
 
 /**
- * RECORDS WHAT THE ORDERING DID, so the model's sentence about it can be checked rather
- * than believed. position_only_id is what the client's list order alone would have picked,
- * computed over the SAME eligible set, which is the only fair comparison: the point is what
- * the new criteria changed, not what a different eligibility rule would have admitted.
+ * RECORDS WHAT EACH SIDE CHOSE, so a model choice can be reviewed against the ordering it
+ * overrode. position_only_id is what the client's list order alone would have picked, over
+ * the SAME eligible set, which is the only fair comparison.
  */
 function buildSelectionBasis(
   winner: RankedCandidate,
   ranked: RankedCandidate[],
   eligible: ObservationCandidate[],
+  modelChosenId: string | null,
 ): SelectionBasis {
+  // THE RUNNER-UP IS THE BEST OF THE REST, not simply the second in the ordering. When the
+  // model chooses something the ordering ranked third, the thing it beat is whatever the
+  // ordering put first, and naming the ordering's second would describe a contest that did
+  // not happen.
   const runnerUp = ranked.find(c => c.id !== winner.id) ?? null
   const positionOnly = byTriggerPositionOnly(eligible)[0] ?? null
   return {
     chosen_id: winner.id,
+    model_chosen_id: modelChosenId,
+    arithmetic_chosen_id: ranked[0]?.id ?? null,
+    model_differs_from_arithmetic: modelChosenId != null && ranked[0] != null && modelChosenId !== ranked[0].id,
     runner_up_id: runnerUp?.id ?? null,
     ranked_ids: ranked.map(c => c.id),
     position_only_id: positionOnly?.id ?? null,
@@ -752,26 +762,37 @@ function selectCandidate(
     // how those candidates were selected when they were written. Complete candidates, which is
     // every freshly parsed one, are unaffected.
     .filter(c => !c.readability?.hard_fail && c.inference_direction !== 'ambiguous_unhandled')
+    // OUT, not demoted. See isReshareWrittenAsTheirOwn.
+    .filter(c => !isReshareWrittenAsTheirOwn(c))
 
   if (hookEligible.length > 0) {
-    // THE TRIGGERS DECIDED WHAT COUNTS; THIS DECIDES WHICH ONE. rankCandidates orders by
-    // recency, then specificity, then how directly the event gives this person a reason,
-    // with the client's list position as a tie-break only. Readability penalty is the last
-    // tie-break below all of that: "of two legal sentences the plainer one wins" is still
-    // true, it is just no longer allowed to outrank a fresher event.
+    // ═══ CODE DECIDES WHAT IS OUT. THE MODEL CHOOSES AMONG WHAT IS LEFT. ═══
+    //
+    // Changed 2026-09-24, and it reverses the arrangement above it. Everything that filtered
+    // hookEligible is a question code can answer: did it pass the six tests, is the sentence
+    // readable, was the inference handled, is it traceable, is it a reshare written as
+    // something they wrote. Those are checks, and they are absolute.
+    //
+    // WHICH OF THE SURVIVORS MAKES THE STRONGEST CASE IS NOT A CHECK. It is a judgement
+    // about this prospect, and the arithmetic was standing in for one: recency and
+    // specificity are real signals but they cannot see that a nine-day-old award matters
+    // less to this reader than a three-month-old hire. The ordering is now passed to the
+    // model as INFORMATION and the model chooses, which is what ADR-018 asks for where
+    // judgement is genuinely required rather than arithmetic dressed as it.
+    //
+    // THE ORDERING IS STILL COMPUTED, on every run, and both picks are recorded. A model
+    // choice that nobody can compare against anything is a choice nobody can review.
     const ranked = rankCandidates(hookEligible, now, c => c.readability?.penalty ?? 0)
-    const preferred = ranked.find(c => c.id === modelPreferredId)
-    // Honour the model's pick only when the arithmetic cannot separate it from the winner.
-    // Anything looser lets the model overturn the ordering, which is the defect this
-    // replaces rather than a preference to respect (ADR-018).
-    const winner = preferred && sameRankBasis(preferred.rank_basis, ranked[0].rank_basis)
-      ? preferred
-      : ranked[0]
+    const modelPick = ranked.find(c => c.id === modelPreferredId) ?? null
+    // The model's pick is honoured whenever it named an ELIGIBLE candidate. Naming an
+    // ineligible one, or naming nothing, falls back to the ordering rather than failing:
+    // the eligible set is never empty here, so there is always a defensible answer.
+    const winner = modelPick ?? ranked[0]
     return {
       winner: hookEligible.find(c => c.id === winner.id) ?? null,
       relevance: 'use_as_hook',
       demotionReason: null,
-      basis: buildSelectionBasis(winner, ranked, hookEligible),
+      basis: buildSelectionBasis(winner, ranked, hookEligible, modelPick?.id ?? null),
     }
   }
 
@@ -791,15 +812,13 @@ function selectCandidate(
     // the ranking then separates equals the way it does at tier 1.
     const top = partial.filter(c => c.score_total === partial[0].score_total)
     const rankedPartial = rankCandidates(top, now, c => c.readability?.penalty ?? 0)
-    const preferred = rankedPartial.find(c => c.id === modelPreferredId)
-    const best = preferred && sameRankBasis(preferred.rank_basis, rankedPartial[0].rank_basis)
-      ? preferred
-      : rankedPartial[0]
+    const modelPick = rankedPartial.find(c => c.id === modelPreferredId) ?? null
+    const best = modelPick ?? rankedPartial[0]
     return {
       winner: partial.find(c => c.id === best.id) ?? null,
       relevance: 'mention_only',
       demotionReason,
-      basis: buildSelectionBasis(best, rankedPartial, partial),
+      basis: buildSelectionBasis(best, rankedPartial, partial, modelPick?.id ?? null),
     }
   }
 

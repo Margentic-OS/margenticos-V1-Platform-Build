@@ -116,21 +116,41 @@ describe('selection ordering, through synthesis', () => {
     expect(out.selection_basis?.differs_from_position_only).toBe(false)
   })
 
-  it('the model cannot overturn the ordering with selected_candidate_id', () => {
+  // INVERTED 2026-09-24. This used to assert that the model could NOT overturn the ordering,
+  // which was the arrangement at the time: the arithmetic decided and the model's pick only
+  // broke ties. Code now decides only what is OUT, and among what is left the model chooses,
+  // because which candidate makes the strongest case for THIS prospect is a judgement and
+  // recency-then-specificity was arithmetic standing in for one.
+  it('THE MODEL CHOOSES among eligible candidates, even against the ordering', () => {
     const out = run(respond([
       candidate({ id: 'c1', matched_trigger: 1, date: daysAgo(270) }),
       candidate({ id: 'c2', matched_trigger: 6, date: daysAgo(9) }),
     ], { selected_candidate_id: 'c1' }))
-    expect(out.selected_candidate_id).toBe('c2')
+    expect(out.selected_candidate_id).toBe('c1')
+    // AND THE OVERRIDE IS ON THE RECORD. A model choice nobody can compare against anything
+    // is a choice nobody can review.
+    expect(out.selection_basis?.arithmetic_chosen_id).toBe('c2')
+    expect(out.selection_basis?.model_chosen_id).toBe('c1')
+    expect(out.selection_basis?.model_differs_from_arithmetic).toBe(true)
   })
 
-  it('the model CAN break a tie the arithmetic left, which is the control for the line above', () => {
-    const d = daysAgo(20)
+  it('falls back to the ordering when the model names nothing', () => {
     const out = run(respond([
-      candidate({ id: 'c1', matched_trigger: 3, date: d }),
-      candidate({ id: 'c2', matched_trigger: 3, date: d }),
-    ], { selected_candidate_id: 'c2' }))
+      candidate({ id: 'c1', matched_trigger: 1, date: daysAgo(270) }),
+      candidate({ id: 'c2', matched_trigger: 6, date: daysAgo(9) }),
+    ]))
     expect(out.selected_candidate_id).toBe('c2')
+    expect(out.selection_basis?.model_differs_from_arithmetic).toBe(false)
+  })
+
+  it('falls back to the ordering when the model names an INELIGIBLE candidate', () => {
+    // c3 fails the six tests, so it is out however firmly the model asks for it. The
+    // eligible set is never empty on this path, so there is always a defensible answer.
+    const out = run(respond([
+      candidate({ id: 'c1', matched_trigger: 6, date: daysAgo(9) }),
+      candidate({ id: 'c3', matched_trigger: 1, date: daysAgo(2), scores: { specific: false } }),
+    ], { selected_candidate_id: 'c3' }))
+    expect(out.selected_candidate_id).toBe('c1')
   })
 })
 

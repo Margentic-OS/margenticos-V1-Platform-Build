@@ -31,33 +31,40 @@ for (const withDimensions of [true, false]) {
   describe(`choosing instructions, ${label}`, () => {
     const prompt = buildSynthesisPrompt(ctx(withDimensions))
 
-    it('says list position is not the thing to choose on', () => {
-      expect(prompt).toMatch(/do not simply take the earliest-listed one/i)
+    // REWRITTEN 2026-09-24 with the decision itself. These four used to assert that the
+    // prompt named a fixed order of criteria and told the model to apply it. Code now
+    // decides only what is OUT, and the model chooses among what is left, so a prompt
+    // stating a ranking as the answer would contradict the code. The claims below are the
+    // new contract, at the same level and in the same file.
+    it('tells the model the choice is ITS decision, not the ordering\'s', () => {
+      expect(prompt).toMatch(/THIS IS YOURS TO DECIDE/)
+      expect(prompt).toMatch(/IT IS INFORMATION, NOT THE\s+ANSWER/)
     })
 
-    it('names all four criteria, in order', () => {
-      const recency  = prompt.indexOf('THE MORE RECENT EVENT')
-      const specific = prompt.indexOf('THE MORE SPECIFIC ONE')
-      const reason   = prompt.indexOf('MORE DIRECTLY GIVES THIS PERSON A REASON')
-      const position = prompt.indexOf('Trigger list position, and only to break a tie')
-      expect(recency).toBeGreaterThan(-1)
-      expect(specific).toBeGreaterThan(recency)
-      expect(reason).toBeGreaterThan(specific)
-      expect(position).toBeGreaterThan(reason)
+    it('says what to choose ON: the strongest, most specific reason for this prospect', () => {
+      expect(prompt).toMatch(/STRONGEST, MOST\s+SPECIFIC REASON/)
+      expect(prompt).toMatch(/Not the most recent/)
     })
 
-    it('says an undated candidate ranks below every dated one', () => {
-      expect(prompt).toMatch(/undated candidate ranks below every dated one/i)
+    it('says code has already removed what is unusable, so the model is not re-filtering', () => {
+      expect(prompt).toMatch(/Code has already removed everything that is not usable/)
     })
 
-    it('says a reshare ranks below their own post and must be described as shared', () => {
-      // \s+ ACROSS EVERY GAP. The prompt is a hard-wrapped template literal, so any of
-      // these phrases can straddle a newline: the first draft of this test failed on
-      // "Never write\nthat they said", which is the prompt being correct and the regex
-      // being wrong about whitespace.
-      expect(prompt).toMatch(/RESHARE\s+RANKS\s+BELOW\s+THE\s+PROSPECT'S\s+OWN\s+POST/)
-      expect(prompt).toMatch(/the\s+observation\s+must\s+say\s+they\s+SHARED\s+it/)
-      expect(prompt).toMatch(/Never\s+write\s+that\s+they\s+said,\s+posted,\s+wrote\s+or\s+announced/)
+    it('allows at most one supporting event, and bans summarising a feed', () => {
+      expect(prompt).toMatch(/CONSIDER WHETHER A SECOND EVENT STRENGTHENS IT/)
+      expect(prompt).toMatch(/point at the SAME reason/)
+      expect(prompt).toMatch(/Never summarise a feed or several\s+posts as a pattern/)
+      expect(prompt).toMatch(/"supporting_candidate_id"/)
+    })
+
+    it('says a reshare must be described as shared', () => {
+      expect(prompt).toMatch(/RESHARE IS SOMETHING THEY AMPLIFIED, NOT SOMETHING THEY WROTE/)
+      expect(prompt).toMatch(/Never write that they said, posted, wrote\s+or announced/)
+    })
+
+    it('says their OWN FIRM\'S reshare is their news and stays usable', () => {
+      expect(prompt).toMatch(/RESHARE OF THEIR OWN FIRM'S ANNOUNCEMENT IS THEIR NEWS/)
+      expect(prompt).toMatch(/"reshare_of_own_firm"/)
     })
 
     it('asks for matched_trigger as a NUMBER, which is what the code ranks on', () => {
