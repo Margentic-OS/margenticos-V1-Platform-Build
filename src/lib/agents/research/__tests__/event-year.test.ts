@@ -5,7 +5,7 @@
 // from a gate that rejects everything, which is an outage rather than a control.
 
 import { describe, it, expect } from 'vitest'
-import { eventYear, missingEventYear, eventYearGateMessage } from '../event-year'
+import { eventYear, missingEventYear, missingEventYears, eventYearGateMessage } from '../event-year'
 
 const NOW = new Date('2026-09-23T12:00:00Z')
 
@@ -89,5 +89,84 @@ describe('the gate message is also the retry instruction', () => {
     // It must say what to do, not only what is wrong. A gate that reports a failure and
     // leaves the writer to guess burns attempts, which is how Kit lost three of them.
     expect(m).toMatch(/cutting something else/)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE GATE READS THE EVENT THE OBSERVATION NAMES, NOT THE ONE SYNTHESIS SELECTED.
+//
+// Measured 2026-09-24. The gate read the SELECTED candidate's date. The writer sees every
+// candidate and routinely describes a different one, so the gate compared a 2025 date from
+// an event the writer never mentioned against text about a 2026 event and demanded "2025".
+// There was no legal move: naming 2025 would have been false. Two prospects, six attempts,
+// both emails lost.
+//
+// Fixtures are industry-neutral. The real observations carry prospect and company names and
+// are not reproduced here; what transfers is the SHAPE, which is a candidate list holding a
+// current-year event the writer described and a previous-year event it did not.
+describe('missingEventYears reads the event the observation actually names', () => {
+  const NOW = new Date('2026-09-24T00:00:00Z')
+
+  // The shape that lost two prospects: a dated current-year event the observation describes,
+  // and a previous-year standing-arrangement candidate it does not mention.
+  const CANDIDATES = [
+    { date: '2026-08-25', observation: 'On 25 August 2026 the founder published a blog post about the sales bottleneck that stops a business scaling.' },
+    { date: '2025-01-01', observation: 'The founder has been running the advisory alongside a concurrent finance role at another company since January 2025.' },
+  ]
+
+  it('owes nothing when the observation describes the CURRENT-year event', () => {
+    // THE BUG, AS A TEST. The old gate read the second candidate and demanded 2025 here.
+    const observation = 'You published a piece in August 2026 naming the sales bottleneck as the day a business stops scaling.'
+    expect(missingEventYears(observation, CANDIDATES, NOW)).toEqual([])
+  })
+
+  it('owes nothing even when the current-year event is named without its year', () => {
+    // A current-year event needs no year at all, which is the whole point of rule 2.
+    const observation = 'You published a piece in August naming the sales bottleneck as the day a business stops scaling.'
+    expect(missingEventYears(observation, CANDIDATES, NOW)).toEqual([])
+  })
+
+  it('STILL owes the year when the observation describes the PREVIOUS-year event', () => {
+    // POSITIVE CONTROL THE OTHER WAY. Without this the fix would be indistinguishable from
+    // deleting the gate, and the original incident it was built for would come back.
+    const observation = 'You have been running the advisory alongside a concurrent finance role at another company.'
+    expect(missingEventYears(observation, CANDIDATES, NOW)).toEqual([2025])
+  })
+
+  it('is satisfied once that year is named', () => {
+    const observation = 'Since January 2025 you have been running the advisory alongside a concurrent finance role at another company.'
+    expect(missingEventYears(observation, CANDIDATES, NOW)).toEqual([])
+  })
+
+  it('owes BOTH years when the observation names two previous-year events', () => {
+    const twoOld = [
+      { date: '2024-03-01', observation: 'The firm opened a second workshop in March 2024 on the north side of the city.' },
+      { date: '2023-06-01', observation: 'The firm took on its first apprentice intake in June 2023 across two trades.' },
+    ]
+    const observation = 'You opened a second workshop in March on the north side, and took on your first apprentice intake in June across two trades.'
+    expect(missingEventYears(observation, twoOld, NOW)).toEqual([2023, 2024])
+  })
+
+  it('owes nothing when no candidate resembles the observation', () => {
+    // FAILS OPEN, deliberately. An observation about something outside the candidate list is
+    // the traceability gates' problem; demanding a year off an unrelated row is what produced
+    // the incident, because no rewrite can satisfy it.
+    const observation = 'You sponsored a youth football team for the third season running.'
+    expect(missingEventYears(observation, CANDIDATES, NOW)).toEqual([])
+  })
+
+  it('owes nothing for an undated candidate, however well it matches', () => {
+    const undated = [{ date: null, observation: 'The website lists a named senior client-facing role on the team page.' }]
+    const observation = 'Your website lists a named senior client-facing role on the team page.'
+    expect(missingEventYears(observation, undated, NOW)).toEqual([])
+  })
+
+  it('owes nothing for an empty observation, and does not throw on an empty list', () => {
+    expect(missingEventYears('', CANDIDATES, NOW)).toEqual([])
+    expect(missingEventYears('You published a piece in August.', [], NOW)).toEqual([])
+  })
+
+  it('the single-event helper still behaves, since the new one is built on it', () => {
+    expect(missingEventYear('You published a piece in August.', '2025-08-25', NOW)).toBe(2025)
   })
 })

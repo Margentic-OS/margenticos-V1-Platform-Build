@@ -1,3 +1,5 @@
+import { contentOverlap } from './synthesize'
+
 // AN EVENT FROM ANOTHER YEAR MUST SAY WHICH YEAR.
 //
 // ═════════════════════════════════════════════════════════════════════════════
@@ -38,15 +40,16 @@ export function eventYear(date: string | null | undefined): number | null {
 }
 
 /**
- * The year the observation is REQUIRED to name, or null when the rule does not apply.
+ * The year the observation is REQUIRED to name for ONE event, or null when the rule does
+ * not apply.
  *
  * Applies only when all three hold:
- *   1. the selected candidate carries a usable year,
+ *   1. the event carries a usable year,
  *   2. that year is not the year the email is being written in, and
  *   3. the observation does not already contain it.
  *
- * An undated candidate is out of scope. It has its own problem, which is that nobody can
- * tell when it happened, and inventing a year for it would be worse than saying nothing.
+ * An undated event is out of scope. It has its own problem, which is that nobody can tell
+ * when it happened, and inventing a year for it would be worse than saying nothing.
  */
 export function missingEventYear(
   observation: string,
@@ -61,6 +64,88 @@ export function missingEventYear(
   // revenue figures, and a relative phrase goes stale the moment the copy is stored and sent
   // weeks later, which is the whole failure this gate exists to stop.
   return observation.includes(String(year)) ? null : year
+}
+
+/**
+ * How much of the observation's content has to be shared with a candidate before that
+ * candidate counts as an event the observation NAMES.
+ *
+ * TWO RULES, AND THE RELATIVE ONE IS THE DECISION. A candidate is described when it scores
+ * at least HALF the best score, which is a statement about shape rather than a magnitude
+ * tuned to one cohort, and separately clears a small absolute floor so that a set of
+ * uniformly weak scores does not elect a winner by default.
+ *
+ * MEASURED on the six attempts of 2026-09-24 that this rule was written for. The candidate
+ * the observation actually described scored 0.31 to 1.00; the candidate synthesis had
+ * SELECTED, and which the old gate read, scored 0.00 to 0.29 on the same text. Richard's
+ * selected candidate scored 0.00 on every attempt: the observation and it share no content
+ * word at all.
+ */
+const EVENT_MATCH_FLOOR = 0.20
+const EVENT_MATCH_RELATIVE = 0.5
+
+/**
+ * EVERY YEAR THE OBSERVATION OWES, for each event it actually names.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * WHY THIS REPLACED "THE SELECTED CANDIDATE'S DATE". Measured 2026-09-24.
+ *
+ * The gate used to read the date of the candidate SYNTHESIS SELECTED, on the reasoning that
+ * the observation is the thing under test so it should not be asked what year it means. That
+ * is sound when the writer describes the selected candidate. It is unsatisfiable when the
+ * writer describes a different one, and the writer does that routinely, because every
+ * candidate is in front of it and it picks the one that writes best.
+ *
+ *   Erin:     selected c6, dated 2025-11-01, "running EdgeBrook Lane alongside a second
+ *             venture". WRITTEN: c1, dated 2026-07-23, the HR Consultant job posting.
+ *   Richard:  selected c9, dated 2025-01-01, "running Link Stone alongside a concurrent CFO
+ *             role". WRITTEN: c5, dated 2026-08-25, a blog post.
+ *
+ * Both writers named the year of the event they had written about, 2026, on every attempt.
+ * The gate compared that text against a 2025 date from an event they had not mentioned and
+ * demanded "2025". THERE WAS NO LEGAL MOVE: naming 2025 would have been false, and the only
+ * way to satisfy the gate was to write about a different event entirely. Six attempts, two
+ * prospects, both emails lost, and the same gate message every time.
+ *
+ * It is the validate-one-thing-return-another shape: the check ran on the year of event A
+ * against the text describing event B, and the failure it reported was real about nothing.
+ *
+ * THE FIX IS TO ASK WHICH EVENT THE TEXT IS ABOUT, which is a content comparison, not a
+ * judgement, so it stays deterministic per ADR-018. The observation is still never asked
+ * what year it means: it is asked which candidate it resembles, and the YEAR comes from that
+ * candidate's stored date exactly as before.
+ *
+ * MORE THAN ONE EVENT, because an observation may name a main event and a supporting one,
+ * and both owe their years. That is what the relative threshold is for.
+ *
+ * FALLS OPEN WHEN NOTHING MATCHES. If no candidate clears the floor the observation is about
+ * something outside the candidate list, and the gate returns nothing rather than demanding a
+ * year from an unrelated row. Failing closed here is exactly what produced the incident
+ * above: a demand no rewrite could satisfy costs the prospect every remaining attempt, and
+ * the traceability gates already own an observation that is not in the findings.
+ * ═════════════════════════════════════════════════════════════════════════════
+ */
+export function missingEventYears(
+  observation: string,
+  candidates: ReadonlyArray<{ date?: string | null; observation?: string | null }>,
+  now: Date = new Date(),
+): number[] {
+  if (!observation.trim()) return []
+
+  const scored = candidates
+    .map(c => ({ candidate: c, score: contentOverlap(observation, c.observation ?? '') }))
+    .filter(s => s.score >= EVENT_MATCH_FLOOR)
+  if (scored.length === 0) return []
+
+  const best = Math.max(...scored.map(s => s.score))
+  const described = scored.filter(s => s.score >= best * EVENT_MATCH_RELATIVE)
+
+  const owed = new Set<number>()
+  for (const { candidate } of described) {
+    const year = missingEventYear(observation, candidate.date, now)
+    if (year !== null) owed.add(year)
+  }
+  return [...owed].sort((a, b) => a - b)
 }
 
 /**

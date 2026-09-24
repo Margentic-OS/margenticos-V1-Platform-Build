@@ -29,7 +29,7 @@ import { readabilityScore } from '@/lib/style/readability'
 // in step by hand, and CLAUDE.md names that constant as the source of truth.
 import { EMAIL_SUBJECT_LIMITS } from '@/agents/messaging-generation-agent'
 import { BatchUniquenessRegistry } from './batch-uniqueness'
-import { missingEventYear, eventYearGateMessage } from './event-year'
+import { missingEventYears, eventYearGateMessage } from './event-year'
 import type { ObservationCandidate, TokenUsage } from './types'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
 
@@ -2349,13 +2349,21 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
       `${opening} ${question}`.trim(), params.prospectFirstName, findingsEvidence, params.p3,
       { observation, bridge, question }, { prospectId: params.prospectId }, findings,
     )
-    // THE EVENT YEAR. Read from the SELECTED candidate, not from the observation, because
-    // the observation is the thing under test: asking it what year it means would be asking
-    // the suspect. A writer that chose to describe a different candidate than the one
-    // synthesis selected is a separate fault and the traceability gates own it.
-    const selected = params.candidates.find(c => c.id === params.selectedCandidateId)
-    const owedYear = observation ? missingEventYear(observation, selected?.date, params.now) : null
-    if (owedYear !== null) gates.push(eventYearGateMessage(owedYear))
+    // THE EVENT YEAR, for each event the observation actually names.
+    //
+    // CHANGED 2026-09-24. This read the date of the candidate synthesis SELECTED, on the
+    // reasoning that the observation is the thing under test so it should not be asked what
+    // year it means. The reasoning holds; the input did not. The writer sees every candidate
+    // and routinely describes one synthesis did not select, and the gate then compared a
+    // 2025 date from an event the writer never mentioned against text about a 2026 event and
+    // demanded "2025". Two prospects lost six attempts and both their emails to a demand no
+    // rewrite could satisfy. See missingEventYears for the measurement.
+    //
+    // The observation is STILL not asked what year it means. It is asked which candidate it
+    // resembles, and the year comes from that candidate's stored date exactly as before.
+    for (const owedYear of observation ? missingEventYears(observation, params.candidates, params.now) : []) {
+      gates.push(eventYearGateMessage(owedYear))
+    }
 
     if (!question) gates.push('writer returned no closing question')
     // A missing half means the reply was malformed. Failing here rather than shipping is
