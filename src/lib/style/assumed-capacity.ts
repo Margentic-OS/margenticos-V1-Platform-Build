@@ -122,7 +122,7 @@ const WHO_SELLS: RegExp[] = [
   new RegExp(`\\b${SELL_VERB}\\s+(generation\\s+)?has\\s+no\\s+(operator|owner|one)\\b`, 'i'),
   // ── SECOND MEASURED WIDENING, same day, same method ───────────────────────
   // WHO BRINGS THE WORK IN: "changing who generates new business".
-  /\bwho\s+(generates?|creates?|brings?\s+in|wins?|finds?|found|lands?|books?|drives?|owns?|does|handles?|runs?|sources?)\s+(the\s+|new\s+|its\s+|their\s+)*(business|pipeline|leads?|meetings?|clients?|work|revenue|outreach|outbound|prospecting|sales)\b/i,
+  /\bwho\s+(generates?|creates?|brings?\s+in|wins?|finds?|found|lands?|books?|drives?|owns?|does|handles?|runs?|sources?)\s+(the\s+|new\s+|its\s+|their\s+)*(business|pipeline|leads?|meetings?|clients?|deals?|work|revenue|outreach|outbound|prospecting|sales)\b/i,
   // THE ONLY ONE ON IT: "removes the only dedicated pipeline function". Asserting a company
   // has exactly one of something is a claim about its staffing.
   new RegExp(`\\b(the\\s+)?only\\s+(dedicated\\s+|full[- ]time\\s+)?${SELL_VERB}\\s+(function|person|resource|hire|role|capability)\\b`, 'i'),
@@ -135,6 +135,10 @@ const WHO_SELLS: RegExp[] = [
   // same claim: that this named person is the one who ends up doing it.
   /\b(pulls?|drags?|draws?|puts?|takes?|forces?)\s+(the\s+)?(founder|owner|principal|partner|director)\s+(in|into|back|out)\b/i,
   /\b(falls?|lands?|rests?|sits?|defaults?)\s+(back\s+)?(to|on|with)\s+(the\s+)?(founder|owner|principal|partner|director)\b/i,
+  // NOBODY ON IT, said of the WORK rather than of a named function: "that work now has no
+  // owner". The pattern above requires a selling noun before "has no owner"; this one takes
+  // the generic nouns a reason reaches for when it is avoiding the selling ones.
+  /\b(work|job|task|role|it)\s+(now\s+)?has\s+no\s+(owner|operator|one|lead)\b/i,
 ]
 
 /** Split on sentence ends, keeping it simple: this reports, it does not parse. */
