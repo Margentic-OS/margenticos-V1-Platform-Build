@@ -35,6 +35,23 @@ describe('promising to reach an audience they already have', () => {
     expect(findAudienceContactClaims('The buyers who never heard of the firm are the ones worth reaching.')).toEqual([])
   })
 
+  it('rejects a claim about who IS or IS NOT in their audience', () => {
+    // Measured: an Email 1 shipped "People who would switch ... are not in your LinkedIn
+    // feed yet." Only the reader can check it and nobody outside can know it.
+    expect(findAudienceContactClaims('The people who would switch are not in your LinkedIn feed yet.')).toHaveLength(1)
+    // POLARITY DOES NOT MATTER: the same unknowable claim, stated positively.
+    expect(findAudienceContactClaims('The buyers you want are already in your network.')).toHaveLength(1)
+    expect(findAudienceContactClaims('Those decision makers sit outside your following.')).toHaveLength(1)
+  })
+
+  it('STILL allows the sender reaching people the reader has not met', () => {
+    // THE LINE IS EXACTLY HERE. A rule that could not tell these apart would ban the offer,
+    // which is the whole thing being sold.
+    expect(findAudienceContactClaims('We reach buyers who have never heard of you.')).toEqual([])
+    expect(findAudienceContactClaims('The people worth reaching have not met the firm yet.')).toEqual([])
+    expect(findAudienceContactClaims('We put that argument in front of buyers who will never scroll past it.')).toEqual([])
+  })
+
   it('the feedback names the offending text rather than the rule', () => {
     const hits = findAudienceContactClaims('We can reach your subscribers with the same message.')
     const msg = audienceContactFeedback(hits)

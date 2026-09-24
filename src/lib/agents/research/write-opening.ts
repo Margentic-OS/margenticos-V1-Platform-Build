@@ -31,6 +31,7 @@ import { EMAIL_SUBJECT_LIMITS } from '@/agents/messaging-generation-agent'
 import { BatchUniquenessRegistry } from './batch-uniqueness'
 import { missingEventYears, eventYearGateMessage } from './event-year'
 import { findYearCountFaults } from '@/lib/style/year-count'
+import { findAudienceContactClaims, audienceContactFeedback } from '@/lib/style/audience-contact'
 import type { ObservationCandidate, TokenUsage } from './types'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
 
@@ -2370,6 +2371,15 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     // said twelve years and his Email 3 said thirteen, about a firm founded fourteen years
     // earlier, with the correct figure on the same row. Checked on the WHOLE block and on
     // the subject separately, because the two wrong numbers were in different parts.
+    // WHO IS IN THEIR AUDIENCE IS NOT KNOWABLE FROM OUTSIDE IT. An Email 1 shipped "People
+    // who would switch ... are not in your LinkedIn feed yet", which only the reader can
+    // check and which nobody else can know. Gated on Email 1 and on both follow-ups, since
+    // the fault is the claim rather than the position it appears in. Saying the SENDER
+    // reaches people the reader has not met stays allowed: that names no audience of theirs.
+    for (const hit of findAudienceContactClaims(`${opening} ${question}`)) {
+      gates.push(audienceContactFeedback([hit]))
+    }
+
     gates.push(...findYearCountFaults(
       `${opening} ${question}`, params.candidates, params.now ?? new Date(),
     ))

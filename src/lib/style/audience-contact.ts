@@ -46,6 +46,26 @@ const UNREACHED_AUDIENCE =
 const THEIR_CONTENT =
   /\b(that|this|your|the)\s+(post|article|piece|episode|webinar|talk|newsletter|video|content|page|site|feed)\b/i
 
+/**
+ * ASSERTING WHO IS, OR IS NOT, IN THE READER'S OWN AUDIENCE. Added 2026-09-24.
+ *
+ * Measured: an Email 1 shipped "People who would switch to AGI based on that argument are
+ * not in your LinkedIn feed yet." Nobody outside their account can see who is in their feed,
+ * and the claim is checkable by the one person who can. It is the third face of the same
+ * fault: the first promises to contact the audience they have, the second asserts who has
+ * not consumed their content, and this one asserts the composition of the audience itself.
+ *
+ * POLARITY DOES NOT MATTER. "are not in your feed" and "are already in your network" are the
+ * same unknowable claim, which is why this matches the construction rather than a negation.
+ *
+ * WHAT STAYS ALLOWED, and the line is exactly here: the SENDER reaching people the reader
+ * has not met. "We reach buyers who have never heard of you" makes no claim about their
+ * audience at all; it describes who the sender contacts. The difference is whether the
+ * sentence names one of THEIR audience surfaces.
+ */
+const THEIR_AUDIENCE_MEMBERSHIP =
+  /\b(in|on|among|inside|part of|outside)\s+(your|their)\s+([a-z][\w-]*\s+){0,2}(feed|network|followers?|following|audience|subscribers?|readers?|list|circle|orbit|contacts)\b/i
+
 export interface AudienceContactHit {
   /** The matched audience phrase, for the log line and the report. */
   matched: string
@@ -71,6 +91,11 @@ export function findAudienceContactClaims(text: string): AudienceContactHit[] {
     const unreached = sentence.match(UNREACHED_AUDIENCE)
     if (unreached && THEIR_CONTENT.test(sentence)) {
       hits.push({ matched: unreached[0], sentence: sentence.trim() })
+      continue
+    }
+    const membership = sentence.match(THEIR_AUDIENCE_MEMBERSHIP)
+    if (membership) {
+      hits.push({ matched: membership[0], sentence: sentence.trim() })
     }
   }
   return hits
