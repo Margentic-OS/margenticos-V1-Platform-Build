@@ -267,6 +267,15 @@ export interface WriteFollowupsParams {
   offerLine: string
   /** The findings block, so email 3 can reach a second fact where one exists. */
   findings: string
+  /**
+   * WHY THIS PROSPECT HAS A REASON, the same sentence Email 1's second line states. Emails
+   * 2 and 3 argue from it rather than choosing an angle of their own, so the sequence makes
+   * one case four times instead of four cases once. Optional: a run that reached no winner
+   * has none, and the prompt then reads as it did before this existed.
+   */
+  prospectReason?: string | null
+  /** The second event supporting that reason, where there is one. */
+  supportingEvent?: string | null
   /** The gates' evidence corpus, which is narrower than the prompt block. */
   findingsEvidence: string
   reference: FollowupReference
@@ -303,6 +312,25 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
     ``,
     params.findings,
     ``,
+    // THE REASON, ABOVE THE REFERENCE COPY. Emails 2 and 3 argue the same thing Email 1 did
+    // rather than choosing a fresh angle each, which is how one reader ends up receiving
+    // four separate cases. Absent on a run that reached no winner, and the block then reads
+    // exactly as it did before this existed.
+    ...(params.prospectReason?.trim() ? [
+      `## The one thing all four emails argue`,
+      ``,
+      params.prospectReason.trim(),
+      ``,
+      `Emails 2 and 3 come back to this. They may approach it from a different side, but they`,
+      `do not introduce a different reason, and they do not restate it word for word.`,
+      ``,
+    ] : []),
+    ...(params.supportingEvent?.trim() ? [
+      `## A second event pointing at the same reason`,
+      ``,
+      params.supportingEvent.trim(),
+      ``,
+    ] : []),
     `## The client's approved follow-ups, for tone and length only`,
     ``,
     `Their email 2, opening paragraph removed:`,

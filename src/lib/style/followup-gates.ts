@@ -18,6 +18,7 @@
 // runtime, and it is only ever used as a HAYSTACK to reject against, never as a source of
 // anything.
 
+import { checkActivityVerdict } from './activity-verdict'
 import { findFirmographicFigures } from './firmographic'
 
 /** Lowercased, punctuation-stripped, single-spaced. For comparing prose to prose. */
@@ -294,6 +295,19 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
   if (!text) {
     failures.push(`${label}: the writer returned nothing`)
     return failures
+  }
+
+  // THE ABSENCE AND ACTIVITY-VERDICT GATE, the same one Email 1's observation and bridge
+  // are held to. A follow-up telling the reader their own visible activity is failing, or
+  // naming what they lack, is the same fault in email 2 as in email 1, and until now
+  // nothing checked emails 2 and 3 for it at all.
+  //
+  // THE WHOLE EMAIL IS PASSED AS THE OBSERVATION HALF. The detector takes two parts because
+  // Email 1 has two; a follow-up is prose with no equivalent split, and passing it as one
+  // part keeps every hit attributable to this email rather than to a half that does not
+  // exist here.
+  for (const v of checkActivityVerdict(text, '', { prospectId: `followup-${position}` }, 'block')) {
+    failures.push(`${label}: ${v}`)
   }
 
   const sentences = sentencesOf(text)

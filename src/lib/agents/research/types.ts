@@ -328,6 +328,16 @@ export interface SynthesisOutput {
    */
   selection_reason: string
   /**
+   * WHY WHAT WE FOUND GIVES THIS PROSPECT A REASON, in one sentence. The matched trigger's
+   * principle APPLIED to this prospect's fact, not repeated.
+   *
+   * This is the sentence the writer's second line states and the follow-up writer argues
+   * from, so all four emails argue one thing. Empty when synthesis reached no winner.
+   */
+  prospect_reason: string
+  /** A second event that strengthens the SAME reason. Null when one event is enough. */
+  supporting_candidate_id: string | null
+  /**
    * What the ORDER was, measured here rather than claimed. Says which candidate won, which
    * came second, and the rank basis of each, so a selection_reason that does not match the
    * arithmetic is visible instead of believed.
@@ -570,6 +580,10 @@ export interface ResearchResult {
   selected_candidate_id: string | null
   /** The sentence about the choice, and the ordering behind it. Null when there was no choice. */
   selection_reason: string | null
+  /** Why what we found gives THIS prospect a reason. Null when synthesis reached no winner. */
+  prospect_reason: string | null
+  /** A second event strengthening the same reason. Null when one was enough. */
+  supporting_candidate_id: string | null
   selection_basis: SelectionBasis | null
   trigger_readability: CandidateReadability
   demotion_reason: string | null

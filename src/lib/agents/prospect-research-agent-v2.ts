@@ -197,6 +197,8 @@ export async function storeResearchResult(
       selected_candidate_id: synthesis.selected_candidate_id,
       selection_reason:      synthesis.selection_reason || null,
       selection_basis:       synthesis.selection_basis,
+      prospect_reason:       synthesis.prospect_reason || null,
+      supporting_candidate_id: synthesis.supporting_candidate_id,
       // Omitted entirely when null so the column's own DEFAULT now() applies. Passing
       // null explicitly would violate NOT NULL.
       ...(synthesizedAt ? { synthesized_at: synthesizedAt } : {}),
@@ -401,6 +403,8 @@ interface StoredFindings {
    * a reused prospect look like one where nothing was weighed.
    */
   selection_reason: string | null
+  prospect_reason: string | null
+  supporting_candidate_id: string | null
   selection_basis: SelectionBasis | null
 }
 
@@ -426,7 +430,7 @@ export async function loadStoredFindings(
     // One string literal, deliberately. Supabase infers the row type from the select as a
     // literal type, and splitting this across concatenated strings collapses every column
     // to GenericStringError.
-    .select('id, candidates, sources_successful, created_at, synthesized_at, icp_fit, qualification_status, qualification_reason, synthesis_confidence, has_dateable_signal, signal_observation, relevance_reason, selected_candidate_id, selection_reason, selection_basis')
+    .select('id, candidates, sources_successful, created_at, synthesized_at, icp_fit, qualification_status, qualification_reason, synthesis_confidence, has_dateable_signal, signal_observation, relevance_reason, selected_candidate_id, selection_reason, selection_basis, prospect_reason, supporting_candidate_id')
     .eq('prospect_id', prospect_id)
     .eq('organisation_id', client_id)
     .gte('created_at', cutoff)
@@ -466,6 +470,8 @@ export async function loadStoredFindings(
       relevance_reason: (row.relevance_reason ?? null) as string | null,
       selected_candidate_id: (row.selected_candidate_id ?? null) as string | null,
       selection_reason: (row.selection_reason ?? null) as string | null,
+      prospect_reason: (row.prospect_reason ?? null) as string | null,
+      supporting_candidate_id: (row.supporting_candidate_id ?? null) as string | null,
       selection_basis: (row.selection_basis ?? null) as SelectionBasis | null,
     }))
     .filter(r => r.candidates.length > 0)
@@ -564,6 +570,11 @@ export async function synthesisFromStored(
     // exactly what every reuse run did before this change.
     selected_candidate_id: stored.selected_candidate_id,
     selection_reason: stored.selection_reason ?? '',
+    // CARRIED, like the selection itself. A reuse run reaches no reason of its own, and
+    // blanking it would send the writer back to the core-pain fallback for a prospect whose
+    // source row has a perfectly good one.
+    prospect_reason: stored.prospect_reason ?? '',
+    supporting_candidate_id: stored.supporting_candidate_id ?? null,
     selection_basis: stored.selection_basis,
     trigger_readability: {
       hard_fail: false, penalty: 0, max_sentence_words: 0, hedges: [],
@@ -824,6 +835,8 @@ export async function runProspectResearchAgentV2({
       selected_candidate_id: synthesis.selected_candidate_id,
       selection_reason:      synthesis.selection_reason || null,
       selection_basis:       synthesis.selection_basis,
+      prospect_reason:       synthesis.prospect_reason || null,
+      supporting_candidate_id: synthesis.supporting_candidate_id,
       trigger_readability:   synthesis.trigger_readability,
       demotion_reason:       synthesis.demotion_reason,
       // Synthesis plus every writer, floor and judge call, including discarded attempts.

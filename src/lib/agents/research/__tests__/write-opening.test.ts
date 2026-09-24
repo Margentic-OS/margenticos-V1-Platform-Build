@@ -383,7 +383,14 @@ describe('prompt shape', () => {
   it('the writer prompt aims the bridge at the offer, with the Rowan failure verbatim', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
-    expect(p).toContain('START BY READING THE OFFER LINE')
+    // CHANGED 2026-09-24. The instruction used to be START BY READING THE OFFER LINE, and
+    // the writer was told to work out which problem it answers and aim at that. Two offer
+    // lines say the sender does the prospecting, so the target the writer derived was "this
+    // reader does their own prospecting", which is an assumption about a stranger's
+    // staffing that then appeared in the copy run after run. The target is now the reason
+    // synthesis supplies, and the offer line is what the email leads into.
+    expect(p).toContain('START BY READING THE REASON')
+    expect(p).toContain('THE OFFER LINE IS WHAT THE EMAIL LEADS INTO, NOT WHAT YOU AIM AT')
     expect(p).toContain('AIMED WRONG:')
     expect(p).toContain('AIMED RIGHT')
     // The real failure, verbatim.

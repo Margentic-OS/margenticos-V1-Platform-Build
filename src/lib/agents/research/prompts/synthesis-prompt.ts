@@ -19,14 +19,26 @@ import { formatFitDimensions, type FitDimension } from '../fit-dimensions'
  * client with a broken prompt: relevance falls back to the problems the client solves,
  * exactly as before.
  */
-function renderTriggers(triggers?: string[]): string {
-  const list = (triggers ?? []).filter(t => typeof t === 'string' && t.trim().length > 0)
+function renderTriggers(triggers?: ReadonlyArray<{ trigger: string; reason?: string }>): string {
+  const list = (triggers ?? []).filter(t => typeof t?.trigger === 'string' && t.trigger.trim().length > 0)
   if (list.length === 0) return ''
-  const numbered = list.map((t, i) => '  ' + String(i + 1) + '. ' + t).join('\n')
+  // THE REASON IS PRINTED UNDER ITS TRIGGER, on its own line, because it is the thing the
+  // model has to APPLY rather than merely match. A reason rendered inline with the event
+  // reads as part of the event and gets matched against the prospect as though it were
+  // observable, which is the fault the trigger sentence itself was cleaned of.
+  const numbered = list.map((t, i) => {
+    const head = '  ' + String(i + 1) + '. ' + t.trigger.trim()
+    const why = t.reason && t.reason.trim() ? '\n       WHY IT MATTERS: ' + t.reason.trim() : ''
+    return head + why
+  }).join('\n')
   return [
     '',
     'TRIGGERS. ' + String(list.length) + ' events this client has written down as making a',
     "call worth asking for now. They are in the client's own order, strongest first.",
+    '',
+    'Each carries WHY IT MATTERS: one principle saying why that event creates a need for',
+    'what this client sells. It is a principle about the EVENT, not about this prospect.',
+    'Your job when one matches is to APPLY it to what you actually found, not to repeat it.',
     '',
     numbered,
     '',
@@ -39,7 +51,7 @@ export interface PromptContext {
    * The client's own trigger list, in the order their document states it. Empty when the
    * client has none, and the prompt then reads exactly as it did before this existed.
    */
-  triggers?:          string[]
+  triggers?:          ReadonlyArray<{ trigger: string; reason?: string }>
   icpSummary:         string  // tier 1 buyer title + company type + top 3 push forces + the client's own disqualifiers
   positioningSummary: string  // positioning_summary plain text
   valuePropContext:   string  // cold outreach hook + top 2 value themes — alignment filter
@@ -356,6 +368,28 @@ choose differently and say why.
 A RESHARE IS SOMETHING THEY AMPLIFIED, NOT SOMETHING THEY WROTE, and the
 observation must say they SHARED it. Never write that they said, posted, wrote
 or announced something they reshared.
+
+WRITE THE REASON FOR THIS PROSPECT.
+
+Once you have chosen, write one sentence saying why what YOU FOUND gives THIS
+person a reason to want what the client sells. Not the trigger's principle
+repeated. The principle applied to the thing that actually happened, naming it.
+
+It follows the same rules the principle does:
+
+  UNDER 15 WORDS, in plain words. It must read at a reading grade of 6 or
+  below, so prefer short everyday words over strategy vocabulary.
+  GROUNDED IN THE FACT you chose. If the fact were different the sentence
+  would be different.
+  NO CLAIM ABOUT WHO DOES THEIR SELLING. Not who owns pipeline, not who
+  handles outreach, not whether anyone was hired to.
+  NO CLAIM ABOUT ANYONE'S TIME. Not busy, not stretched, not short of hours.
+  NO JUDGEMENT ON WHAT THEY HAVE DONE. Not wasted, not missed, not neglected.
+  NOTHING THE EVENT DOES NOT ESTABLISH. The event is all you know.
+
+WHEN NOTHING MATCHED A TRIGGER, write the reason from the fact alone, under
+exactly the same rules. A prospect with no trigger match is not a prospect with
+no reason; it is one whose reason you have to derive rather than apply.
 
 A RESHARE OF THEIR OWN FIRM'S ANNOUNCEMENT IS THEIR NEWS. It is as usable as
 anything they wrote themselves, and it is not weaker evidence for being a
@@ -796,6 +830,7 @@ ${ctx.fitDimensions?.length ? `  "fit_dimensions": {
   ],
   "selected_candidate_id": "c1" or null,
   "supporting_candidate_id": null or the id of a SECOND event that strengthens the same reason,
+  "prospect_reason": "ONE SENTENCE, under 15 words, reading grade 6 or below: why what you found gives THIS person a reason to want what the client sells",
   "qualification_status": "qualified" or "flagged_for_review" or "disqualified",
   "qualification_reason": null or "one sentence: what specific evidence was found",
   "confidence": "high" or "medium" or "low",

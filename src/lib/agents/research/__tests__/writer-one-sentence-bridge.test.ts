@@ -61,9 +61,20 @@ describe('the bridge gate', () => {
     expect(bridgeFailures('Your second press needs one thing: new work.')).toHaveLength(1)
   })
 
-  it('reads the bridge part alone, so a three-sentence observation does not trip it', () => {
+  // NARROWED 2026-09-24. The claim is still that the BRIDGE gate reads the bridge alone, and
+  // that is what it now asserts. It used to assert no failures AT ALL from a long
+  // observation, which stopped being true when the observation got a one-sentence gate of
+  // its own: the failure it now sees belongs to the observation, not to the bridge.
+  it('reads the bridge part alone, so a three-sentence observation does not trip the BRIDGE gate', () => {
     const longObservation = 'You added a press in March. It is large-format. It runs two shifts.'
-    expect(bridgeFailures('Your second press needs work from customers you have not quoted yet.', longObservation)).toEqual([])
+    const failures = bridgeFailures('Your second press needs work from customers you have not quoted yet.', longObservation)
+    expect(failures.filter(f => f.includes('the bridge is'))).toEqual([])
+  })
+
+  it('and the OBSERVATION gate does see it, which is the other half of the same claim', () => {
+    const longObservation = 'You added a press in March. It is large-format. It runs two shifts.'
+    const failures = bridgeFailures('Your second press needs work from customers you have not quoted yet.', longObservation)
+    expect(failures.some(f => f.includes('the observation is 3 sentences'))).toBe(true)
   })
 })
 

@@ -64,6 +64,10 @@ export interface ProduceOpeningInput {
   relevanceReason?: string | null
   /** Why the selected finding beat the runner-up, from synthesis. One sentence. */
   selectionReason?: string | null
+  /** Why what was found gives THIS prospect a reason. The writer's second line states it. */
+  prospectReason?: string | null
+  /** A second candidate that strengthens the same reason. */
+  supportingCandidateId?: string | null
   messagingContent: MessagingContent
   variantId: string
   /**
@@ -234,6 +238,8 @@ export async function produceOpening({
   selectedCandidateId,
   relevanceReason,
   selectionReason,
+  prospectReason,
+  supportingCandidateId,
   messagingContent,
   variantId,
   icpBuyerTitle,
@@ -395,6 +401,14 @@ export async function produceOpening({
       relevanceReason: relevanceReason ?? null,
       selectionReason: selectionReason ?? null,
     }),
+    // THE SAME FACT, THE SAME SUPPORTING EVENT AND THE SAME REASON THE WRITER HAD. All four
+    // emails then argue one thing. Before this, emails 2 and 3 were written from the
+    // findings block alone and were free to pick a different angle from Email 1, which is
+    // how a sequence ends up making four separate cases to one reader.
+    prospectReason: prospectReason ?? null,
+    supportingEvent: supportingCandidateId
+      ? candidates.find(c => c.id === supportingCandidateId)?.observation ?? null
+      : null,
     findingsEvidence: buildFindingsEvidence(candidates),
     reference,
     prospectId: ctx.id,

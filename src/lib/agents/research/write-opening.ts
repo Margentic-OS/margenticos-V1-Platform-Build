@@ -123,6 +123,15 @@ export const WRITER_MAX_SENTENCE_WORDS = 18
 export const SENTENCE_CAP_MARKER = 'and the writer cap is'
 
 /**
+ * The marker the observation's one-sentence gate puts in ITS failure string.
+ *
+ * Same contract as SENTENCE_CAP_MARKER above, and a second constant rather than a reworded
+ * one because the two faults are different: one sentence ran long, the other is two
+ * sentences where one was asked for.
+ */
+export const ONE_SENTENCE_MARKER = 'must be ONE sentence'
+
+/**
  * True when EVERY failure on this attempt is a sentence that ran long, and there is at
  * least one.
  *
@@ -141,8 +150,20 @@ export const SENTENCE_CAP_MARKER = 'and the writer cap is'
  * shape problem wearing a length label, and must not buy a retry on the strength of the
  * half that is cheap to fix.
  */
+/**
+ * THE MARKERS THAT EARN AN EXTRA ATTEMPT. An explicit set, so adding one is a deliberate
+ * act and a reader can see the whole list.
+ *
+ * WIDENED 2026-09-24 with the one-sentence observation gate. Both faults are the same
+ * shape: the model has the right FACT and the wrong SHAPE, and the fix is a mechanical
+ * instruction it reliably follows. Measured before that gate shipped, 16 of 18 observations
+ * ran to two sentences, so without this the gate would have sent almost every prospect
+ * straight to the template on its first day.
+ */
+export const EXTRA_ATTEMPT_MARKERS: readonly string[] = [SENTENCE_CAP_MARKER, ONE_SENTENCE_MARKER]
+
 export function isSentenceLengthOnly(gates: readonly string[]): boolean {
-  return gates.length > 0 && gates.every(g => g.includes(SENTENCE_CAP_MARKER))
+  return gates.length > 0 && gates.every(g => EXTRA_ATTEMPT_MARKERS.some(m => g.includes(m)))
 }
 
 /** The sum of the per-part targets. What the prompt aims at, not what the gate enforces. */
@@ -247,13 +268,30 @@ export function buildWriterAssignment(params: {
   buyer: string
   p3: string
   cta: string
+  /**
+   * Why what was found gives THIS prospect a reason to want what the sender offers, from
+   * synthesis. Optional: a run that reached no winner has none, and the block then reads
+   * exactly as it did before this existed rather than carrying an empty heading.
+   */
+  prospectReason?: string | null
+  /** A second event that strengthens the same reason. Optional, and usually absent. */
+  supportingEvent?: string | null
 }): string {
+  // THE REASON GOES FIRST, above the offer line, because the instructions tell the writer
+  // to read it first. The order of this block and the order of the prompt have to agree or
+  // one of them is a lie about the other.
+  const reason = params.prospectReason?.trim()
+    ? `\nTHE REASON (this is your target. Your second line states it, and your closing question\nasks whether the consequence it names is something they are dealing with):\n\n  ${params.prospectReason.trim()}\n`
+    : ''
+  const supporting = params.supportingEvent?.trim()
+    ? `\nA SECOND EVENT that points at the same reason. One sentence may name both, and only if\nit stays under the word cap and still reads plainly:\n\n  ${params.supportingEvent.trim()}\n`
+    : ''
   return `## Assignment
 
 You are writing for: ${params.clientName}
 
 Who you are writing to: ${params.buyer}
-
+${reason}${supporting}
 THE OFFER LINE (this is the fixed middle paragraph referred to in your instructions. It is
 the client's approved positioning. Reproduce it exactly, do not alter or paraphrase it):
 
@@ -295,18 +333,32 @@ white space, which is what stops you cramming two jobs into one sentence.
 The offer line in the middle is FIXED. It is the client's positioning and what they
 approved. Do not alter it, do not paraphrase it, do not work around it.
 
-START BY READING THE OFFER LINE, BEFORE YOU LOOK AT THE FINDINGS.
+START BY READING THE REASON, BEFORE YOU LOOK AT ANYTHING ELSE.
 
-Work out precisely which problem it answers. Not the general area it sits in. The specific
-problem, the one a person would have to be feeling for that offer to be worth reading.
+The ASSIGNMENT block names why what was found gives this person a reason to want what the
+sender offers. THAT REASON IS YOUR TARGET. Everything you write aims at it.
 
-That problem is your target. Everything you write aims at it.
+It holds for anyone the observation describes. It is not a claim about how this reader runs
+their business, who does their selling, or how busy they are. You do not know any of that,
+and a stranger told how their week goes stops reading.
+
+THE OFFER LINE IS WHAT THE EMAIL LEADS INTO, NOT WHAT YOU AIM AT. Do not read it and work
+backwards to a problem this reader must be having. It is fixed, it ships as written, and
+your job is to make the two lines above it earn it.
 
 YOUR JOB IS THREE THINGS.
 
 First, the observation: the thing you noticed about this specific person. You can see what
 they posted, what they published, who they hired, where they spoke, what roles they have
 held and when. Say one of those.
+
+ONE SENTENCE. Name what you noticed and stop. The second sentence people reach for here is
+always the reason, and the reason is the bridge's job: said twice it is weaker both times,
+and said first it is said before you have earned it.
+
+WHERE A SUPPORTING EVENT IS GIVEN, one sentence may name both, and only if the sentence
+stays under the word cap and still reads plainly. Two events that point at the same reason
+are stronger than one. Two events stapled together are worse than either.
 
 A FINDING MARKED [SHARED, NOT THEIRS] IS SOMETHING THEY PASSED ON, NOT SOMETHING THEY
 WROTE. Say they shared it. Never write that they said it, posted it, wrote it, announced it
@@ -316,11 +368,9 @@ this email they are certain to notice, and they will be right.
 Second, the bridge: its own paragraph and ONE sentence, stating THE REASON the observation
 gives this person to want what the sender offers.
 
-THE REASON IS SUPPLIED TO YOU. Synthesis names it in the ASSIGNMENT block, derived from the
-client's own documents. Where a WHY THIS ONE line appears under the findings, it says what
-made the selected finding the one worth writing about, and that is the reason your bridge
-states. Your job is to put it in a sentence this reader would accept, not to work out for
-yourself what the fact implies.
+THE REASON IS SUPPLIED TO YOU. The ASSIGNMENT block names it, derived from the client's own
+documents and applied to what was found here. Your job is to put it in a sentence this
+reader would accept, not to work out for yourself what the fact implies.
 
 IT MUST BE TRUE WHATEVER THEIR SITUATION. This is the whole test for the sentence. Write it
 as something that follows from the observation for anyone it describes, and never as a claim
@@ -359,7 +409,13 @@ verbatim is permitted only when it genuinely is the right question for this pers
 which will be rare.
 And no two prospects in this batch may get the same closing question. If you are told
 yours is already taken, ask about a different aspect of the problem.
-THE QUESTION MUST ASK ABOUT THE PROBLEM YOU JUST NAMED.
+THE QUESTION MUST ASK ABOUT THE CONSEQUENCE THE REASON NAMES.
+
+The reason in the ASSIGNMENT block says what the event leaves this company needing. Your
+question asks whether that is something they are dealing with. Not whether they liked the
+event, not whether the observation is accurate, and not a general question about their
+market. The observation, the bridge and the question are three views of one thing, and the
+question is where the reader is invited to answer about it.
 FAILING, three rewrites running:
   bridge: "The product side builds an audience of browsers before it builds a pipeline of
    buyers."
@@ -1385,6 +1441,18 @@ export function checkOpeningGates(
   // Only when the parts are supplied. Production always passes them, and the bridge cannot
   // be told apart from the observation in the joined block.
   if (params) {
+    // THE OBSERVATION IS ONE SENTENCE TOO, enforced the same way the bridge is.
+    //
+    // MEASURED 2026-09-23: 16 of 18 shipped observations ran to two, and the second sentence
+    // was almost always the REASON, stated before the bridge got to it. That is where the
+    // borrowed core-pain assumption kept leaking in: "A new hire's first weeks run on your
+    // time", "That is a long time to carry both delivery and the next client search". One
+    // sentence removes the slot.
+    const observationSentences = countSentences(params.observation)
+    if (observationSentences > 1) {
+      failures.push(`the observation is ${observationSentences} sentences and ${ONE_SENTENCE_MARKER} (a semicolon or a colon counts as a break): name the thing you noticed and stop, and let the bridge carry the reason`)
+    }
+
     const bridgeSentences = countSentences(params.bridge)
     if (bridgeSentences > 1) {
       failures.push(`the bridge is ${bridgeSentences} sentences and must be ONE (a semicolon or a colon counts as a break): keep the one consequence that matters and cut the rest, and do not join two ideas with a comma, "and", "so", "because", "until" or "while"`)
@@ -1873,6 +1941,15 @@ export interface WriteAndJudgeParams {
   /** Why the selected finding beat the runner-up. One sentence. Optional; see buildFindingsBlock. */
   selectionReason?: string | null
   /**
+   * WHY WHAT WAS FOUND GIVES THIS PROSPECT A REASON, from synthesis. The writer's second
+   * line states it and its closing question asks about the consequence it names. Optional:
+   * absent on a run that reached no winner, and the assignment block then reads as it did
+   * before this existed.
+   */
+  prospectReason?: string | null
+  /** The id of a second candidate that strengthens the same reason. Optional. */
+  supportingCandidateId?: string | null
+  /**
    * The clock the event-year gate compares against. Defaults to now. A parameter rather
    * than a direct `new Date()` inside the gate so a test can pin the year without freezing
    * the clock for everything else in the run.
@@ -2037,7 +2114,14 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // Constant across every prospect, variant and client, which is what makes it cacheable.
   // The parts that used to vary are in the assignment block, prepended to the user message.
   const writerSystem = buildWriterPrompt()
-  const assignment = buildWriterAssignment({ clientName: params.clientName, buyer: params.buyer, p3: params.p3, cta: params.cta })
+  const supportingEvent = params.supportingCandidateId
+    ? params.candidates.find(c => c.id === params.supportingCandidateId)?.observation ?? null
+    : null
+  const assignment = buildWriterAssignment({
+    clientName: params.clientName, buyer: params.buyer, p3: params.p3, cta: params.cta,
+    prospectReason: params.prospectReason ?? null,
+    supportingEvent,
+  })
 
   // Accumulated across EVERY call this prospect makes, including the ones on attempts that
   // were thrown away. A retried prospect's real cost is the point of measuring at all, so

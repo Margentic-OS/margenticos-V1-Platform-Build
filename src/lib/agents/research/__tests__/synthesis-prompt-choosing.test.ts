@@ -90,16 +90,18 @@ for (const withDimensions of [true, false]) {
       // text. What Rule Zero forbids is a trigger this file supplies on every client's
       // behalf, so the check is a comparison: the same prompt built for two different
       // clients differs by exactly their own trigger lists and by nothing else.
-      const a = buildSynthesisPrompt({ ...ctx(withDimensions), triggers: ['ALPHA_TRIGGER_TEXT'] } as Parameters<typeof buildSynthesisPrompt>[0])
-      const b = buildSynthesisPrompt({ ...ctx(withDimensions), triggers: ['BETA_TRIGGER_TEXT'] } as Parameters<typeof buildSynthesisPrompt>[0])
+      const a = buildSynthesisPrompt({ ...ctx(withDimensions), triggers: [{ trigger: 'ALPHA_TRIGGER_TEXT', reason: 'ALPHA_REASON_TEXT' }] } as Parameters<typeof buildSynthesisPrompt>[0])
+      const b = buildSynthesisPrompt({ ...ctx(withDimensions), triggers: [{ trigger: 'BETA_TRIGGER_TEXT', reason: 'BETA_REASON_TEXT' }] } as Parameters<typeof buildSynthesisPrompt>[0])
 
       expect(a).toContain('ALPHA_TRIGGER_TEXT')
+      expect(a).toContain('ALPHA_REASON_TEXT')
       expect(b).toContain('BETA_TRIGGER_TEXT')
       expect(a).not.toContain('BETA_TRIGGER_TEXT')
       // And the ONLY difference between them is that text. Replacing one client's trigger
       // with the other's makes the two prompts identical, which is what "nothing
       // client-specific lives in the shared prompt" actually means.
-      expect(a.replace(/ALPHA_TRIGGER_TEXT/g, 'X')).toBe(b.replace(/BETA_TRIGGER_TEXT/g, 'X'))
+      expect(a.replace(/ALPHA_TRIGGER_TEXT/g, 'X').replace(/ALPHA_REASON_TEXT/g, 'Y'))
+        .toBe(b.replace(/BETA_TRIGGER_TEXT/g, 'X').replace(/BETA_REASON_TEXT/g, 'Y'))
     })
   })
 }

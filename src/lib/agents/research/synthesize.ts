@@ -19,6 +19,9 @@ import {
 } from './types'
 import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
 import { rankCandidates, byTriggerPositionOnly, type RankedCandidate } from './rank-candidates'
+import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
+import { fleschKincaidGrade } from '@/lib/style/reading-grade'
+import { TRIGGER_REASON_MAX_WORDS, TRIGGER_REASON_MAX_GRADE } from '@/agents/trigger-evidence-gate'
 import {
   readStoredFitDimensions, readDimensionAnswers, gradeFromDimensions, type FitDimension,
 } from './fit-dimensions'
@@ -142,6 +145,13 @@ export interface DetectedSignal {
   signal_observation:  string | null
 }
 
+/** One of the client's own triggers: the event, and why that event creates a need. */
+export interface ClientTrigger {
+  trigger: string
+  /** Empty for a document written before the reason field existed. */
+  reason: string
+}
+
 export interface ClientDocContext {
   clientName:         string
   /**
@@ -180,7 +190,7 @@ export interface ClientDocContext {
    * selection uses it directly. An empty array means the client has no triggers, and
    * relevance falls back to push forces exactly as before.
    */
-  triggers:           string[]
+  triggers:           ClientTrigger[]
   icpSummary:         string
   positioningSummary: string
   valuePropContext:   string
@@ -275,7 +285,7 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
   let buyerTitle: string | null = null
   // Hoisted for the same reason buyerTitle is: assigned from one read, inside the icpDoc
   // block, and returned below. A second read would be a second source to drift.
-  let triggerList: string[] = []
+  let triggerList: ClientTrigger[] = []
   if (icpDoc) {
     const t1 = icpDoc.tier_1 as Record<string, unknown> | undefined
     const buyer  = (t1?.buyer_profile as Record<string, unknown> | undefined)?.title as string | undefined
@@ -296,11 +306,20 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     //
     // Each entry may be a bare string or { trigger, evidence_to_find }. Both shapes are
     // read, because documents written before the schema settled carry the first.
+    //
+    // THE REASON TRAVELS WITH THE TRIGGER from 2026-09-24. A trigger with no reason of its
+    // own left the copy falling back on the client's core pain, so every email argued the
+    // same thing whatever happened to the prospect. A document written before the reason
+    // existed carries none, and that reads back as an empty string: the prompt then says
+    // what the event is and nothing about why it matters, which is exactly where it was.
     triggerList = ((t1?.triggers as unknown[] | undefined) ?? [])
       .map(t => typeof t === 'string'
-        ? t
-        : ((t as Record<string, unknown> | null)?.trigger as string | undefined))
-      .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+        ? { trigger: t, reason: '' }
+        : {
+            trigger: ((t as Record<string, unknown> | null)?.trigger as string | undefined) ?? '',
+            reason: ((t as Record<string, unknown> | null)?.reason as string | undefined) ?? '',
+          })
+      .filter(t => t.trigger.trim().length > 0)
     // NO DEFAULT VALUES FOR A MISSING BUYER OR STAGE. This line used to read
     // `${buyer ?? 'a hardcoded archetype'} at ${stage ?? 'a hardcoded stage'}`, so a thin
     // ICP did not produce a thin summary. It produced a CONFIDENT one describing a client
@@ -691,6 +710,26 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
 const AUTHORSHIP_VERBS = /\b(posted|wrote|said|announced|argued|published|made the case)\b/i
 const SHARING_VERBS = /\b(shared|reshared|re-shared|amplified|passed on|reposted|boosted)\b/i
 
+/**
+ * THE PROSPECT'S REASON IS HELD TO THE TRIGGER REASON'S RULES, using the same modules.
+ *
+ * Both end up in the same place, the email's second line, so a reason that would be
+ * rejected at the trigger must not be accepted at the prospect. The only difference is
+ * what happens next: a trigger reason is regenerated, and this one is dropped, because
+ * there is a working fallback here and none there.
+ */
+export function findProspectReasonFaults(reason: string): string[] {
+  const faults: string[] = []
+  const words = reason.trim().split(/\s+/).filter(Boolean).length
+  if (words > TRIGGER_REASON_MAX_WORDS) faults.push(`${words} words, over ${TRIGGER_REASON_MAX_WORDS}`)
+  const grade = fleschKincaidGrade(reason)
+  if (grade && grade.grade > TRIGGER_REASON_MAX_GRADE) {
+    faults.push(`reading grade ${grade.grade.toFixed(1)}, over ${TRIGGER_REASON_MAX_GRADE}`)
+  }
+  for (const h of findAssumedCapacityClaims(reason)) faults.push(`${h.kind}: "${h.matched}"`)
+  return faults
+}
+
 export function isReshareWrittenAsTheirOwn(c: ObservationCandidate): boolean {
   if (!c.is_reshare) return false
   return AUTHORSHIP_VERBS.test(c.observation) && !SHARING_VERBS.test(c.observation)
@@ -1027,6 +1066,29 @@ export function parseSynthesisResponse(
   // The model's sentence about the choice, kept only when there WAS a choice and only when
   // the ordering actually reached a winner. A sentence explaining a selection that did not
   // happen would read as a decision on the reading file where there was none.
+  // THE PROSPECT'S REASON, checked here rather than trusted. It travels into the email's
+  // second line, so the shape rules that apply to a trigger's reason apply to it: the same
+  // word cap, the same grade ceiling, and the same ban on claims about the reader's time or
+  // staffing. A reason failing any of them is DROPPED rather than corrected, and dropping it
+  // falls back to relevance_reason, which is what the writer read before this existed.
+  const rawProspectReason = typeof parsed.prospect_reason === 'string' ? parsed.prospect_reason.trim() : ''
+  const prospectReasonFaults = rawProspectReason ? findProspectReasonFaults(rawProspectReason) : ['empty']
+  if (rawProspectReason && prospectReasonFaults.length > 0) {
+    logger.warn('synthesis: the prospect reason failed its own shape rules and was dropped', {
+      prospect_id: prospect.id, reason: rawProspectReason, faults: prospectReasonFaults,
+    })
+  }
+  const prospect_reason = prospectReasonFaults.length === 0 ? rawProspectReason : ''
+
+  // A SUPPORTING EVENT IS KEPT ONLY IF IT IS A REAL, DIFFERENT, ELIGIBLE CANDIDATE. The
+  // model naming the winner twice, or naming something the code excluded, is not a cluster.
+  const rawSupporting = typeof parsed.supporting_candidate_id === 'string'
+    ? parsed.supporting_candidate_id.trim() : ''
+  const supportingCandidate = rawSupporting && rawSupporting !== winner?.id
+    ? candidates.find(c => c.id === rawSupporting && c.passes_all && c.date && !c.readability?.hard_fail) ?? null
+    : null
+  const supporting_candidate_id = winner ? supportingCandidate?.id ?? null : null
+
   const selection_reason = basis && basis.runner_up_id
     && typeof parsed.selection_reason === 'string' && parsed.selection_reason.trim()
     ? parsed.selection_reason.trim()
@@ -1103,6 +1165,8 @@ export function parseSynthesisResponse(
     candidates,
     selected_candidate_id: winner?.id ?? null,
     selection_reason,
+    prospect_reason,
+    supporting_candidate_id,
     selection_basis: basis ?? null,
     trigger_readability,
     demotion_reason,
@@ -1170,6 +1234,8 @@ function buildFallbackSynthesis(
     candidates: [],
     selected_candidate_id: null,
     selection_reason: '',
+    prospect_reason: '',
+    supporting_candidate_id: null,
     selection_basis: null,
     // Measured on the proxy so the audit row still records its readability.
     trigger_readability: toCandidateReadability(readabilityScore(icp_pain_proxy)),

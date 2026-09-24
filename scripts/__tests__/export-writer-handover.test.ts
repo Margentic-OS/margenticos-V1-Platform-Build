@@ -61,6 +61,8 @@ const stored = (relevance_reason: string | null, selectedCandidateId: string | n
   relevance_reason,
   selected_candidate_id: selectedCandidateId,
   selection_reason: null,
+  prospect_reason: null,
+  supporting_candidate_id: null,
   selection_basis: null,
 })
 
@@ -115,6 +117,9 @@ describe('writerInputFromSynthesis, the one mapping every caller uses', () => {
     // what a run that recorded no choice looks like.
     expect(input).toEqual({
       candidates: [candidate], selectedCandidateId: 'c1', relevanceReason: 'R', selectionReason: null,
+      // Added 2026-09-24 with the prospect-level reason. Null here because this caller
+      // passed none, which is what a run that reached no winner looks like.
+      prospectReason: null, supportingCandidateId: null,
     })
     expect(describeHandover(input).findings_block).toContain('[SELECTED BY SYNTHESIS]')
   })
