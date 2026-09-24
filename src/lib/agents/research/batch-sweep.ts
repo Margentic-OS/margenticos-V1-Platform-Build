@@ -52,13 +52,40 @@ const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
 /**
  * How many entries go into one batch.
  *
- * NOT a provider limit. Anthropic allows 100,000 requests or 256 MB, and our prompt
- * material is 4,109 bytes mean and 10,298 max per prospect plus a ~27 KB system prompt,
- * so a thousand-prospect batch is about 31 MB. This is a blast-radius limit: one batch is
- * one unit of ageing out and one unit of re-submission, and a smaller unit means a stuck
- * batch strands fewer prospects.
+ * NOT a provider limit. Anthropic allows 100,000 requests or 256 MB per batch, a batch
+ * expires after 24 hours, and results stay available for 29 days. Checked against the
+ * Batches API reference on 2026-09-23, not inferred from the previous figure here.
+ *
+ * ── THE BYTE FIGURES THIS COMMENT USED TO CARRY WERE WRONG BY 11x ──────────────
+ *
+ * It said "4,109 bytes mean and 10,298 max per prospect plus a ~27 KB system prompt, so a
+ * thousand-prospect batch is about 31 MB". Re-measured 2026-09-23 by building the request
+ * through the real buildSynthesisParams for all 176 synthesis_batch_entries in production
+ * and serialising `{custom_id, params}` exactly as the Batch API receives it:
+ *
+ *     mean 47,110 bytes   median 45,837   p95 52,464   max 53,067
+ *
+ * So one request is about 46 KB, not 4 KB, and 500 of them are 22.5 MB at the mean and
+ * 25.3 MB at the worst entry measured. The byte ceiling is therefore about 5,060 requests
+ * (256 MB / 53,067), and 500 sits roughly 10x under it and 200x under the request count
+ * limit. Neither provider limit is anywhere near binding at this size.
+ *
+ * ── WHY 500 AND NOT 100 ───────────────────────────────────────────────────────
+ *
+ * 100 meant a 500-prospect sourcing run waited for a SECOND batch, and the sweep fires
+ * every five minutes, so the overflow sat idle for an extra five minutes for no price
+ * benefit: the 50% batch discount and the shared cached prefix are per batch, and a second
+ * batch gets its own cache write rather than reading the first one's. Measured on
+ * production 2026-09-21: 107 prospects finished phase 1, 100 went in a batch created at
+ * 18:08:01 and the remaining 7 waited for a second at 18:13:01.
+ *
+ * It remains a blast-radius limit, only a larger one: one batch is one unit of ageing out
+ * and one unit of re-submission, so 500 means a stuck batch strands 500 prospects rather
+ * than 100. That is the cost being accepted, and it is bounded by BATCH_SLA_HOURS below
+ * plus the re-queue path, not by this number. It is the deliberate trade for letting one
+ * 500-prospect run reach the model in one batch.
  */
-export const MAX_ENTRIES_PER_BATCH = 100
+export const MAX_ENTRIES_PER_BATCH = 500
 
 /**
  * How long a batch may sit before the sweep gives up on it.

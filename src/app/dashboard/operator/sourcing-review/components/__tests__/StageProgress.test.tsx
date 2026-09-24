@@ -449,55 +449,69 @@ describe('verification says when the next run is and when it will finish', () =>
   })
 })
 
-describe('enrichment says another press is needed', () => {
-  it('names what this press does and what it leaves', () => {
+describe('enrichment says what one press will do', () => {
+  // ── THIS BLOCK USED TO ASSERT THE OPPOSITE, AND THAT IS THE POINT ──────────
+  //
+  // It pinned "Enriching runs 100 at a time ... you will need to press it again, 3 presses in
+  // total" for a 240 backlog. A press now continues by itself up to the per-press ceiling, so
+  // 240 is ONE press, and the old copy would have been the screen promising something the
+  // button had stopped doing.
+  it('says one press clears the whole backlog, and warns it will take a few passes', () => {
     renderProgress({
       enrichment: {
         done: 60,
         waiting: 240,
         inFlight: 0,
-        pressPlan: { thisPress: 100, remainingAfter: 140, pressesNeeded: 3 },
+        pressPlan: { thisPress: 240, remainingAfter: 0, pressesNeeded: 1, passesThisPress: 3 },
         queueNextRunAt: null,
       },
     })
 
-    expect(screen.getByText('Presses needed')).toBeInTheDocument()
-    expect(screen.getByText(/Enriching runs 100 at a time/)).toBeInTheDocument()
-    expect(screen.getByText(/leave 140 waiting/)).toBeInTheDocument()
-    expect(screen.getByText(/press it again/)).toBeInTheDocument()
-    expect(screen.getByText(/3 presses in total/)).toBeInTheDocument()
+    expect(screen.getByText(/One press enriches all 240/)).toBeInTheDocument()
+    // THE PART THAT STOPS THE RE-PRESS. A press working through 240 takes a while, and an
+    // operator who is not told that reaches for the button again.
+    expect(screen.getByText(/in 3 passes of up to 100/)).toBeInTheDocument()
+    expect(screen.getByText(/do not need to press it again/)).toBeInTheDocument()
+
+    // And the row is gone, because one press is not a number worth a row.
+    expect(screen.queryByText('Presses needed')).not.toBeInTheDocument()
   })
 
-  // A client whose whole backlog fits in one press gains no warning, because for them there
-  // is nothing to warn about.
-  it('gives no warning when one press clears the backlog', () => {
+  it('does not mention passes when the backlog fits in one', () => {
     renderProgress({
       enrichment: {
         done: 10,
         waiting: 40,
         inFlight: 0,
-        pressPlan: { thisPress: 40, remainingAfter: 0, pressesNeeded: 1 },
+        pressPlan: { thisPress: 40, remainingAfter: 0, pressesNeeded: 1, passesThisPress: 1 },
+        queueNextRunAt: null,
+      },
+    })
+
+    expect(screen.getByText(/One press enriches all 40/)).toBeInTheDocument()
+    expect(screen.queryByText(/passes of up to/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Presses needed')).not.toBeInTheDocument()
+  })
+
+  // THE CASE AUTO-CONTINUE DOES NOT REMOVE. A backlog above the per-press ceiling still needs
+  // more than one press, and the screen must still say so rather than implying one will do.
+  it('still names the remainder and the press count above the per-press ceiling', () => {
+    renderProgress({
+      enrichment: {
+        done: 0,
+        waiting: 620,
+        inFlight: 0,
+        pressPlan: { thisPress: 500, remainingAfter: 120, pressesNeeded: 2, passesThisPress: 5 },
         queueNextRunAt: null,
       },
     })
 
     expect(screen.getByText('Presses needed')).toBeInTheDocument()
-    expect(screen.queryByText(/press it again/)).not.toBeInTheDocument()
-  })
-
-  it('drops the total when exactly two presses are needed, because "again" already says it', () => {
-    renderProgress({
-      enrichment: {
-        done: 0,
-        waiting: 150,
-        inFlight: 0,
-        pressPlan: { thisPress: 100, remainingAfter: 50, pressesNeeded: 2 },
-        queueNextRunAt: null,
-      },
-    })
-
-    expect(screen.getByText(/press it again/)).toBeInTheDocument()
-    expect(screen.queryByText(/presses in total/)).not.toBeInTheDocument()
+    expect(screen.getByText(/One press enriches up to 500/)).toBeInTheDocument()
+    expect(screen.getByText(/leaves 120 waiting/)).toBeInTheDocument()
+    expect(screen.getByText(/2 presses in total/)).toBeInTheDocument()
+    // And it says the thing an operator worries about when told to press again.
+    expect(screen.getByText(/no prospect is charged twice/)).toBeInTheDocument()
   })
 
   // ON THE INLINE PATH THERE IS NO SCHEDULED RUN TO NAME. The answer to "when does it next
@@ -508,7 +522,7 @@ describe('enrichment says another press is needed', () => {
     renderProgress({
       enrichment: {
         done: 0, waiting: 120, inFlight: 0,
-        pressPlan: { thisPress: 100, remainingAfter: 20, pressesNeeded: 2 },
+        pressPlan: { thisPress: 100, remainingAfter: 20, pressesNeeded: 2, passesThisPress: 1 },
         queueNextRunAt: null,
       },
     })
@@ -519,7 +533,7 @@ describe('enrichment says another press is needed', () => {
     renderProgress({
       enrichment: {
         done: 0, waiting: 120, inFlight: 12,
-        pressPlan: { thisPress: 100, remainingAfter: 20, pressesNeeded: 2 },
+        pressPlan: { thisPress: 100, remainingAfter: 20, pressesNeeded: 2, passesThisPress: 1 },
         queueNextRunAt: soon,
       },
     })

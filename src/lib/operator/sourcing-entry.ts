@@ -12,6 +12,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import { runSourcing } from '@/lib/sourcing/orchestrator'
+import {
+  SOURCING_RUNTIME_BUDGET_MS,
+  describeStop,
+  type SourcingStopReason,
+} from '@/lib/sourcing/window-budget'
 import type { SourcingTriggerType } from '@/lib/sourcing/types'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { logger } from '@/lib/logger'
@@ -33,7 +38,10 @@ import { logger } from '@/lib/logger'
 export const SOURCING_FIXED_SECONDS = 12
 export const SOURCING_SECONDS_PER_PROSPECT = 0.22
 export const SOURCING_SECONDS_PER_EXTRA_PAGE = 2.5
-export const SOURCING_RUNTIME_BUDGET_SECONDS = 240
+// DERIVED, not a second copy of 240. The orchestrator's window loop reads
+// SOURCING_RUNTIME_BUDGET_MS directly, and two independent literals would let the estimate
+// shown to the operator and the budget the run actually enforces drift apart silently.
+export const SOURCING_RUNTIME_BUDGET_SECONDS = SOURCING_RUNTIME_BUDGET_MS / 1000
 export const SOURCING_MAX_BATCH_SIZE = 500
 
 export interface SourcingEntryInput {
@@ -62,6 +70,24 @@ export type SourcingEntryResult =
       estimated_seconds: number
       /** The batch this run created. NULL if the run record could not be written. */
       sourcing_run_id: string | null
+
+      // ── WHAT THE OPERATOR HAS TO BE TOLD WHEN A RUN STOPS SHORT ─────────────
+      //
+      // A run reads the provider in windows and stops at the requested batch, at its runtime
+      // budget, at the end of the provider's result set, or at the provider's reachable-record
+      // ceiling. All four are a SUCCESS with a count, so these are what tell them apart. See
+      // window-budget.ts.
+
+      /** Provider windows this run completed. */
+      windows_processed: number
+      /** Provider records consumed. The per-client cursor advanced by exactly this. */
+      records_consumed: number
+      /** Requested records never reached. Press Source again to pick these up. */
+      records_remaining: number
+      /** Which ending this was. */
+      stop_reason: SourcingStopReason
+      /** The one sentence the operator reads. Built in one place, by describeStop. */
+      stop_message: string
     }
   | { ok: false; error: string }
 
@@ -170,7 +196,8 @@ export async function runSourcingForOrg({
 
     await run.complete(
       `sourced ${result.candidates_sourced}, written ${result.candidates_qualified}, ` +
-      `target ${target_batch_size}`
+      `target ${target_batch_size}, read ${result.records_consumed ?? '?'} records ` +
+      `over ${result.windows_processed ?? '?'} window(s), stopped: ${result.stop_reason ?? 'unknown'}`
     )
 
     logger.info('sourcing-entry: finished', {
@@ -180,6 +207,10 @@ export async function runSourcingForOrg({
       candidates_qualified: result.candidates_qualified,
     })
 
+    // DEFAULTED HERE AND NOWHERE ELSE. The orchestrator leaves these unset only on a path
+    // that returns an error, which is handled above, so in practice they are always present.
+    // The fallbacks exist so a caller reading records_remaining never gets `undefined` and
+    // renders "undefined remain" on an operator screen.
     return {
       ok: true,
       candidates_sourced: result.candidates_sourced,
@@ -187,6 +218,12 @@ export async function runSourcingForOrg({
       run_timestamp: result.run_timestamp,
       estimated_seconds: Math.round(estimatedSeconds),
       sourcing_run_id: result.sourcing_run_id,
+      windows_processed: result.windows_processed ?? 1,
+      records_consumed: result.records_consumed ?? result.candidates_sourced,
+      records_remaining: result.records_remaining ?? 0,
+      stop_reason: result.stop_reason ?? 'target_met',
+      stop_message:
+        result.stop_message ?? describeStop('target_met', result.candidates_sourced, target_batch_size),
     }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)

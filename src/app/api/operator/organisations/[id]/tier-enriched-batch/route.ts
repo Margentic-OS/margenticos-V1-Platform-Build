@@ -11,10 +11,16 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
 import { tierEnrichedBatch } from '@/lib/sourcing/tiering-trigger'
+import { ENRICHMENT_MAX_PER_REQUEST } from '@/lib/sourcing/enrichment-continuation'
 import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
 
 export const dynamic = 'force-dynamic'
+// DECLARED, like every other long-running route here. This route had no declaration at all and
+// ran under the platform default, which was survivable while it tiered at most 100 rows. It now
+// tiers up to ENRICHMENT_MAX_PER_REQUEST with one update per prospect, so the declaration stops
+// being decorative. Same reasoning the enrich route records for itself.
+export const maxDuration = 300
 
 async function buildSessionClient() {
   const cookieStore = await cookies()
@@ -67,8 +73,19 @@ export async function POST(
       organisation_id: organisationId,
     })
 
-    // Trigger tiering
-    const result = await tierEnrichedBatch(supabase, organisationId, 100)
+    // ── THE SAME CEILING AS ENRICHMENT, DERIVED RATHER THAN REPEATED ────────
+    //
+    // This was the literal 100, and it matched enrichment's per-press limit by coincidence
+    // rather than by construction. That coincidence ENDED when one press of Enrich and tier
+    // started enriching up to ENRICHMENT_MAX_PER_REQUEST: the button enriches, then calls this
+    // route, so a press would have enriched 500 and tiered 100, leaving 400 enriched-but-untiered
+    // prospects and a screen showing tiers for a fifth of the batch.
+    //
+    // Reading the same constant means the pair cannot drift again. Tiering is safe to raise
+    // because it is DETERMINISTIC AND FREE: classifyTier reads stored firmographics and writes a
+    // tier, with no provider call, no model call and no credit. The only cost of a larger batch
+    // is database time.
+    const result = await tierEnrichedBatch(supabase, organisationId, ENRICHMENT_MAX_PER_REQUEST)
 
     if (result.error) {
       logger.error('tier-enriched-batch: triggered with error', {

@@ -1,8 +1,15 @@
--- Status: NOT YET APPLIED
---   Deliberately. This file needs the real CRON_SECRET in the job command, which must never
---   be written into a migration, and the route it calls does not exist on production until
---   this branch merges. Apply it AFTER the merge, substituting the secret at apply time, then
---   read back cron.job and mon_010 and mark this APPLIED.
+-- Status: APPLIED (verified live 2026-09-24)
+--   PRODUCTION ONLY, and the secret was never written into this file. It was read from an
+--   existing cron.job command server-side at apply time and interpolated there; the apply
+--   refuses unless cron.job holds exactly one 64-character bearer secret.
+--   Read back live: cron.job holds 'meeting-outcomes', '34 9 * * *', active = true, with a
+--   64-char bearer, the placeholder gone and the route right. cron_schedule_registry holds
+--   the matching row. mon_025 OK across 13 jobs. mon_010 moved UNKNOWN -> OK on a first run
+--   that examined 3 of 3 live organisations and billed nothing; meetings held 0 rows
+--   throughout, before and after.
+--   NOT applied to the baseline-restore-test project: it holds zero cron jobs by design, so
+--   there is no secret there to read, and this command targets the PRODUCTION route, so
+--   scheduling it there would run the sweep against production twice daily. See the Backlog.
 --
 -- The daily meeting-outcome job, and mon_010 repointed at it. See ADR-057.
 --

@@ -464,6 +464,21 @@ RANGE, not only the citation.
 **A plain paragraph on the first ninety days** sits above the cards, with no numbers in
 it. A target in prose is the same promise the cards no longer make.
 
+### "Your answers" — the permanent way back into intake
+
+A sidebar entry under Overview, on every client route, in every dashboard state. It opens
+`/intake`, which stays editable.
+
+It exists because the only link to `/intake` used to live in the incomplete-state overview
+card and vanished once the client crossed the completeness threshold, leaving a client who
+had finished intake with no way to reach their own answers. It is placed in the sidebar
+rather than on the overview cards precisely so it cannot be state-dependent: a link per state
+card would leave the next `DashboardState` with none.
+
+It does NOT carry `?client=`. `/intake` resolves the caller's own organisation and ignores
+the query string, so an operator using "View as client" is sent to
+`/dashboard/operator/clients/<id>/intake` instead. See docs/intake.md for the full reasoning.
+
 ### Strategy nav — collapsed only when there is nothing to do
 
 `src/lib/dashboard/strategy-nav-state.ts`, deterministic. Three states:

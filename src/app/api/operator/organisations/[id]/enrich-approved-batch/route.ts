@@ -7,8 +7,12 @@
 // ═════════════════════════════════════════════════════════════════════════════
 // TWO PATHS, CHOSEN BY AN EXPLICIT DATABASE FLAG
 //
-//   system_flags.queue_enrich = false  INLINE. enrichApprovedBatch runs the whole batch
-//                                      inside this request. What has always happened.
+//   system_flags.queue_enrich = false  INLINE. Runs inside this request, making as many
+//                                      100-prospect passes as the time budget allows, up to
+//                                      ENRICHMENT_MAX_PER_REQUEST. What has always happened,
+//                                      except that it used to stop after ONE pass and leave the
+//                                      rest with nothing queued. Measured live 2026-09-23:
+//                                      queue_enrich is false, so this is the live path.
 //   system_flags.queue_enrich = true   QUEUED. This request only ENQUEUES and returns
 //                                      immediately; the pg_cron worker does the work.
 //
@@ -27,7 +31,11 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
-import { enrichApprovedBatch, ENRICHMENT_PER_PRESS_LIMIT } from '@/lib/sourcing/enrichment-trigger'
+import { ENRICHMENT_PER_PRESS_LIMIT } from '@/lib/sourcing/enrichment-trigger'
+import {
+  enrichApprovedUntilDoneOrOutOfTime,
+  ENRICHMENT_MAX_PER_REQUEST,
+} from '@/lib/sourcing/enrichment-continuation'
 import { isQueueEnabled } from '@/lib/queue/flags'
 import { enqueueEnrichForOrganisation } from '@/lib/queue/enqueue/enrich'
 import { logger } from '@/lib/logger'
@@ -139,31 +147,60 @@ export async function POST(
       })
     }
 
-    // ── INLINE PATH ─────────────────────────────────────────────────────────
-    // The ceiling comes from the trigger that owns it, not from a literal here. The pipeline
-    // screen renders the same constant, so what it tells the operator one press will do and
-    // what this call actually does cannot drift apart.
-    const result = await enrichApprovedBatch(supabase, organisationId, ENRICHMENT_PER_PRESS_LIMIT)
+    // ── INLINE PATH: KEEPS GOING UNTIL THE BACKLOG IS CLEAR ─────────────────
+    //
+    // This used to run enrichApprovedBatch ONCE, for at most ENRICHMENT_PER_PRESS_LIMIT (100),
+    // and leave the rest untouched with nothing queued. An operator with 500 approved prospects
+    // pressed five times.
+    //
+    // It now makes as many passes as fit the request's time budget, up to
+    // ENRICHMENT_MAX_PER_REQUEST. The PER-PASS limit is unchanged, so each call to the trigger
+    // does exactly what it always did; what changed is how many of them one press makes.
+    //
+    // THE SPEND. Enrichment costs one Apollo credit per prospect, so one press can now spend up
+    // to ENRICHMENT_MAX_PER_REQUEST credits rather than 100. It is the same money the operator
+    // was going to spend across five presses, on a backlog the screen already names, and no
+    // prospect is enriched that pressing again would not have enriched. See
+    // enrichment-continuation.ts for the full reasoning and the measured timings.
+    const result = await enrichApprovedUntilDoneOrOutOfTime(supabase, organisationId)
 
     logger.info('enrich-approved-batch: triggered successfully', {
       operator_id: user.id,
       organisation_id: organisationId,
-      status: result.status,
+      presses: result.presses,
       credits_consumed: result.credits_consumed,
-      enriched: result.unique_enriched_records,
+      enriched: result.enriched,
+      remaining: result.remaining,
+      stop_reason: result.stop_reason,
     })
 
     return NextResponse.json({
       ok: true,
       queued: false,
       result: {
-        status: result.status,
+        // 'failed' or 'success', which are EnrichmentRun's own words. Not a new 'error' value:
+        // the single-pass response returned result.status from that union, so inventing a third
+        // string here would change the contract any caller reading it already has.
+        status: result.error ? 'failed' : 'success',
         batch_size: result.batch_size,
-        total_requested: result.total_requested_enrichments,
-        enriched: result.unique_enriched_records,
-        missing: result.missing_records,
+        total_requested: result.total_requested,
+        enriched: result.enriched,
+        missing: result.missing,
         credits_consumed: result.credits_consumed,
-        error: result.error_message || null,
+        error: result.error,
+        // ── SAID PLAINLY, EVEN THOUGH IT USUALLY FINISHES ────────────────────
+        //
+        // Auto-continuing removes most presses, not all of them: a slow provider day or a
+        // backlog above the ceiling still leaves work. `remaining` is read back with the
+        // selection's own predicate rather than subtracted from a count, and is -1 when that
+        // read failed, so a screen never renders "0 waiting" off an error.
+        presses: result.presses,
+        remaining: result.remaining,
+        stop_reason: result.stop_reason,
+        stop_message: result.stop_message,
+        more_remain: result.remaining > 0,
+        per_pass_limit: ENRICHMENT_PER_PRESS_LIMIT,
+        max_per_request: ENRICHMENT_MAX_PER_REQUEST,
       },
     })
   } catch (err) {
