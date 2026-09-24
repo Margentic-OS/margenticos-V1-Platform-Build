@@ -132,11 +132,27 @@ export interface OpeningWithFollowups extends OpeningResult {
  * Build the tone-and-length reference for emails 2 and 3 from the client's own approved
  * messaging document.
  *
- * RETURNS NULL RATHER THAN A PARTIAL REFERENCE. If either follow-up is missing from the
- * variant, or either has no recognisable frame, or either strips down to nothing, the
- * feature declines for this prospect and the template follow-ups ship. A half-reference
- * would leave the writer inferring one email's register from the other's, which is a
- * quieter failure than not running at all.
+ * ONE EMPTY REFERENCE BORROWS THE OTHER. It does not decline. Changed 2026-09-24.
+ *
+ * It used to return null whenever either position stripped to nothing, and that turned out
+ * to be a live case rather than a theoretical one. Measured on the only active messaging
+ * document: variant D's Email 3 has just TWO middle paragraphs, an opener and the closing
+ * question. Both are stripped, nothing is left, and every variant-D prospect lost BOTH
+ * follow-ups. Two of nine in the backfill of 2026-09-24.
+ *
+ * Worth knowing what the old value was, because it explains why the strip is right and the
+ * decline was wrong: before the closing question was stripped, that variant's entire Email 3
+ * reference WAS the approved closing question, nine words and nothing else. So the choice
+ * was never between a good reference and no reference. It was between showing the writer
+ * only the question, showing it nothing, or showing it the register of the sibling email.
+ *
+ * The sibling is the best of the three. Emails 2 and 3 are the same client, the same voice
+ * and the same buyer, written in the same document; what differs is their JOB, and the job
+ * is stated in the prompt rather than inferred from the sample. The substitution is NAMED to
+ * the writer through borrowedPosition, so it is not reading a mislabelled block.
+ *
+ * STILL RETURNS NULL when BOTH strip to nothing, because then there is no sibling to borrow
+ * and nothing to substitute. That is a different case from the one this fixes.
  */
 export function buildFollowupsFor(
   messagingContent: MessagingContent,
@@ -154,11 +170,15 @@ export function buildFollowupsFor(
   const templateBody3 = body(3)
   if (!templateBody2 || !templateBody3) return null
 
-  const reference2 = buildFollowupReference(templateBody2)
-  const reference3 = buildFollowupReference(templateBody3)
-  if (!reference2 || !reference3) return null
+  const own2 = buildFollowupReference(templateBody2)
+  const own3 = buildFollowupReference(templateBody3)
+  if (!own2 && !own3) return null
 
-  return { reference2, reference3, templateBody2, templateBody3, companyName }
+  const borrowedPosition = !own2 ? 2 : !own3 ? 3 : null
+  const reference2 = own2 || own3
+  const reference3 = own3 || own2
+
+  return { reference2, reference3, templateBody2, templateBody3, companyName, borrowedPosition }
 }
 
 /**

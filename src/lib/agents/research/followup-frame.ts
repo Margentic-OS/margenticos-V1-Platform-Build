@@ -47,10 +47,21 @@
  * complete email rather than of a fragment. They are never shown to the writer.
  */
 export interface FollowupReference {
-  /** Template Email 2 with its opening paragraph removed. Shown to the writer. */
+  /** Template Email 2 with its opener and closing question removed. Shown to the writer. */
   reference2: string
-  /** Template Email 3 with its opening paragraph removed. Shown to the writer. */
+  /** Template Email 3 with its opener and closing question removed. Shown to the writer. */
   reference3: string
+  /**
+   * The position whose own reference stripped to nothing and is borrowing the other's, or
+   * null when both have their own.
+   *
+   * CARRIED RATHER THAN HIDDEN, because the writer is shown the reference under a heading
+   * that names a position. Substituting one for the other without saying so would put a
+   * label on the block that is not true, and this writer reads its headings: the whole
+   * reason the opener is stripped is that it copies what it is shown. The prompt states the
+   * substitution, so the writer knows it is reading the register of a DIFFERENT email.
+   */
+  borrowedPosition: 2 | 3 | null
   /** Template Email 2's full body. The frame for word counting. Never shown. */
   templateBody2: string
   /** Template Email 3's full body. The frame for word counting. Never shown. */

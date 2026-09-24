@@ -344,10 +344,20 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
     ] : []),
     `## The client's approved follow-ups, for tone and length only`,
     ``,
-    `Their email 2, opening paragraph removed:`,
+    // THE HEADING TELLS THE TRUTH ABOUT WHAT IS UNDER IT. When one position's reference
+    // strips to nothing, the sibling's stands in, and saying so costs one line. A writer
+    // that copies what it is shown must at least know what it is looking at: the register
+    // transfers, the JOB does not, and the job is stated above in ## THE JOB.
+    ...(params.reference.borrowedPosition !== null ? [
+      `Their email ${params.reference.borrowedPosition} has no usable reference of its own, so`,
+      `the other one stands in for it below. Read it for register and length only. The two`,
+      `emails do DIFFERENT jobs, and the job of each is stated above, not in this sample.`,
+      ``,
+    ] : []),
+    `Their email 2, opening paragraph and closing question removed:`,
     params.reference.reference2,
     ``,
-    `Their email 3, opening paragraph removed:`,
+    `Their email 3, opening paragraph and closing question removed:`,
     params.reference.reference3,
   ].join('\n')
 
