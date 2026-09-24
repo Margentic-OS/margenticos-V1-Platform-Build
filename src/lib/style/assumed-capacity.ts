@@ -299,8 +299,14 @@ export function findAssumedCapacityClaims(text: string): AssumedCapacityHit[] {
 
 /** The rewrite instruction, used where this blocks. Names the offending text, not the rule. */
 export function assumedCapacityFeedback(hits: readonly AssumedCapacityHit[]): string {
+  // THE SENTENCE, NOT ONLY THE MATCH. A two-word match tells the rewrite which words tripped
+  // the rule and not which sentence to change, and it left a live rejection unreadable after
+  // the fact: the discarded prose is not persisted, so "your calendar" was the whole record
+  // of what had been written. Measured 2026-09-24.
   const quoted = [...new Set(hits.map(h => `"${h.matched}"`))].slice(0, 4).join(', ')
-  return `This assumes something about the reader that nobody has established: ${quoted}. ` +
+  const sentence = hits[0]?.sentence?.trim()
+  return `This assumes something about the reader that nobody has established: ${quoted}` +
+    (sentence ? `, in ${JSON.stringify(sentence)}` : '') + '. ' +
     `You do not know how their week goes, how busy they are, or who in their company does ` +
     `the selling. State what the event itself means for any company it describes, and say ` +
     `nothing about the reader's time or their staffing.`
