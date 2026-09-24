@@ -45,6 +45,7 @@ import { logger } from '@/lib/logger'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { EMAIL_WORD_LIMITS } from '@/agents/messaging-generation-agent'
+import { factCheckFollowups, type FactCheckResult, type CheckedClaim } from './fact-check-followups'
 import { countWords } from '@/lib/composition/personalization'
 import { checkFollowupGates, checkFollowupPairGates, reformatParagraphs } from '@/lib/style/followup-gates'
 import {
@@ -121,6 +122,16 @@ export interface FollowupResult {
     email3: string
     failures2: string[]
     failures3: string[]
+    /**
+     * The fact-check's verdict for THIS attempt, or null when it did not run.
+     *
+     * NULL AND EMPTY MEAN DIFFERENT THINGS and both happen: null is "the deterministic
+     * gates rejected this attempt, so nothing was paid to verify text about to be
+     * rewritten", and an empty claims array with no failures is "checked and clean". A
+     * reader of a single boolean could not tell those apart, which is the distinction this
+     * whole file keeps having to make.
+     */
+    fact_check: { claims: CheckedClaim[]; failures: string[] } | null
   }[]
 }
 
@@ -417,15 +428,37 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
     const prose3 = scrub(parsed.email3)
 
     const outcome = gate(prose2, prose3, params)
+
+    // ── THE FACT-CHECK, ONLY ON COPY THE DETERMINISTIC GATES ALREADY ACCEPTED ──
+    //
+    // ORDER IS COST. A rejected attempt is going to be rewritten whatever the fact-check
+    // says, so verifying it would be paying a second model call to describe text nobody
+    // will send. The deterministic gates are free; this one is not.
+    //
+    // IT CANNOT TAKE THE EMAILS DOWN WITH IT. factCheckFollowups returns no failures when
+    // the check itself could not run, and logs why. A verifier outage must not become a
+    // prospect outage: the copy has already passed every rule that is not this one.
+    let factCheck: FactCheckResult | null = null
+    if (outcome.email2.prose !== null) {
+      factCheck = await factCheckFollowups({
+        apiKey: params.apiKey,
+        prose2, prose3,
+        findingsEvidence: params.findingsEvidence,
+        prospectId: params.prospectId,
+      })
+      usage = addTokenUsage(usage, factCheck.usage)
+    }
+
     attempts.push({
       attempt: i,
       email2: prose2,
       email3: prose3,
       failures2: outcome.email2.failures,
       failures3: outcome.email3.failures,
+      fact_check: factCheck ? { claims: factCheck.claims, failures: factCheck.failures } : null,
     })
 
-    if (outcome.email2.prose !== null) {
+    if (outcome.email2.prose !== null && factCheck !== null && factCheck.failures.length === 0) {
       return { ...outcome, usage, retries_used: i, attempts }
     }
 
@@ -437,7 +470,13 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
       prose3 || '(nothing)',
       '',
       'Rejected for:',
-      ...[...new Set([...outcome.email2.failures, ...outcome.email3.failures])].map(f => `- ${f}`),
+      ...[...new Set([
+        ...outcome.email2.failures,
+        ...outcome.email3.failures,
+        // THE FACT-CHECK'S FAILURES ARE QUOTED BACK LIKE ANY OTHER, naming the sentence
+        // rather than the rule, so the rewrite has something specific to change.
+        ...(factCheck?.failures ?? []),
+      ])].map(f => `- ${f}`),
     ].join('\n')
   }
 

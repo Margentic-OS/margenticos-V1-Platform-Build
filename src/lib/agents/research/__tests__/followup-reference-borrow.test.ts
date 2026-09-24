@@ -123,6 +123,33 @@ describe('the writer is told when it is reading a borrowed reference', () => {
     usage: { input_tokens: 10, output_tokens: 10 },
   })
 
+  /**
+   * THE WRITER MAKES TWO DIFFERENT CALLS NOW, and one mock answering both is how a test
+   * starts asserting the wrong thing. The fact-check runs after the deterministic gates
+   * pass, and a writer reply fed to it parses as zero claims, which is itself a failure
+   * ("an empty verdict is not a clean one"). So the mock answers by which system prompt it
+   * was given.
+   */
+  const factCheckReply = (claims: unknown[]) => ({
+    content: [{ type: 'text', text: JSON.stringify({ claims }) }],
+    usage: { input_tokens: 10, output_tokens: 10 },
+  })
+  const CLEAN_CLAIMS = [
+    { email: 2, claim: 'You keep the client work moving.', finding: 1, supported: true, why: 'finding 1 says so' },
+    { email: 3, claim: 'You said yes to the current project.', finding: 1, supported: true, why: 'finding 1 says so' },
+  ]
+  const routed = (email2: string, email3: string) =>
+    createMock.mockImplementation((args?: { system?: unknown }) => {
+      const system = Array.isArray(args?.system)
+        ? (args!.system as Array<{ text?: string }>).map(b => b.text ?? '').join('')
+        : String(args?.system ?? '')
+      return Promise.resolve(
+        system.includes('You check whether an email')
+          ? factCheckReply(CLEAN_CLAIMS)
+          : reply(email2, email3),
+      )
+    })
+
   const PROSE_2 = [
     'You keep the client work moving while the next month of it goes unbuilt.',
     'A separate track keeps the first conversations arriving while you stay on the current job.',
@@ -141,14 +168,17 @@ describe('the writer is told when it is reading a borrowed reference', () => {
       apiKey: 'test', clientName: 'Example Co', buyer: 'an operator',
       email1Body: '{{first_name}},\n\nOne.\n\nTwo.\n\nThree?\n\n' + SIGNOFF,
       findings: 'They opened a second site in March.',
-      findingsEvidence: 'They opened a second site in March.',
+      // NUMBERED, because the fact-check cites BY NUMBER and code checks the number exists.
+      // An unnumbered corpus has zero lines, so every citation into it is fabricated by
+      // definition, which is what this fixture taught when it was written as plain prose.
+      findingsEvidence: '1. They opened a second site in March.\n   source: web | a listings page',
       reference: ref, prospectId: 'borrow-test', offerLine: 'We run the outreach for you.',
       prospectFirstName: null, datedCandidates: [],
     })
   }
 
   it('WRITES BOTH FOLLOW-UPS when email 3 strips to empty', async () => {
-    createMock.mockResolvedValue(reply(PROSE_2, PROSE_3))
+    routed(PROSE_2, PROSE_3)
     const result = await run(OPENER_AND_QUESTION)
     // The claim in one line: the pair is not declined and both bodies exist.
     expect(result.email2.body, result.email2.failures.join(' | ')).not.toBeNull()
@@ -156,7 +186,7 @@ describe('the writer is told when it is reading a borrowed reference', () => {
   })
 
   it('names the substitution in the prompt it sends', async () => {
-    createMock.mockResolvedValue(reply(PROSE_2, PROSE_3))
+    routed(PROSE_2, PROSE_3)
     await run(OPENER_AND_QUESTION)
     const user = String(createMock.mock.calls[0][0].messages[0].content)
     expect(user).toContain('has no usable reference of its own')
@@ -164,7 +194,7 @@ describe('the writer is told when it is reading a borrowed reference', () => {
   })
 
   it('says nothing about a substitution when there was none', async () => {
-    createMock.mockResolvedValue(reply(PROSE_2, PROSE_3))
+    routed(PROSE_2, PROSE_3)
     await run(FULL('A different register paragraph entirely here.'))
     const user = String(createMock.mock.calls[0][0].messages[0].content)
     expect(user).not.toContain('has no usable reference of its own')
