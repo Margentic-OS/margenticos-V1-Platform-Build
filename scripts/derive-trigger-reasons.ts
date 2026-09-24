@@ -371,12 +371,24 @@ async function main() {
     let next = 0
     const merged = allTriggers.map((t, i) => (!only || only.has(i + 1)) ? rewritten[next++] : t)
 
+    // THE SAME ARGUMENT AS CARRIED_FAULT_KINDS, ONE AXIS ACROSS.
+    //
+    // findEvidenceFaults judges the whole MERGED list. With --only, the positions outside
+    // the selection are carried through byte-identical and the model is never asked to
+    // return them, so a fault on one of those is a fault this run cannot repair either.
+    //
+    // It bites hardest on exactly the document --only exists to serve. On a document where
+    // no trigger has a reason yet, every unselected position fails `reason_missing` by
+    // definition, so --only can never pass and the subset feature is unusable on a
+    // first derivation. Measured 2026-09-24: --only 1,2 burned all seven attempts, the
+    // sole blocking fault every time being "trigger 3: no reason at all".
+    const isRewritten = (f: { trigger_index: number }) => !only || only.has(f.trigger_index)
     const allFaults = findEvidenceFaults(merged)
-    const faults = allFaults.filter(f => !CARRIED_FAULT_KINDS.has(f.kind))
-    const carried = allFaults.filter(f => CARRIED_FAULT_KINDS.has(f.kind))
+    const faults = allFaults.filter(f => isRewritten(f) && !CARRIED_FAULT_KINDS.has(f.kind))
+    const carried = allFaults.filter(f => !isRewritten(f) || CARRIED_FAULT_KINDS.has(f.kind))
     console.log(`attempt ${attempt + 1}: ${faults.length} gate fault(s)` +
-      (carried.length ? `, ${carried.length} carried fault(s) on evidence this script does not rewrite` : ''))
-    for (const c of carried) console.log(`  [carried, not blocking] trigger ${c.trigger_index} ${c.kind}: ${c.detail} — "${c.evidence}"`)
+      (carried.length ? `, ${carried.length} carried fault(s) this run does not rewrite` : ''))
+    for (const c of carried) console.log(`  [carried, not blocking] trigger ${c.trigger_index} ${c.kind}: ${c.detail} — "${c.evidence || c.trigger}"`)
     if (faults.length === 0) {
       // ── THE SECOND CHECK: does the service actually do this? ──────────────
       const verdicts = await verifyReasons(client, positioningText,

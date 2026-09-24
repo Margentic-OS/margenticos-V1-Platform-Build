@@ -60,3 +60,40 @@ describe('CARRIED_FAULT_KINDS matches what the gate raises from evidence', () =>
     expect(all.filter(f => !CARRIED_FAULT_KINDS.has(f.kind))).toEqual([])
   })
 })
+
+/**
+ * The second axis: --only. Positions outside the selection are carried through untouched,
+ * so a fault on one of them is not something the run can repair either.
+ *
+ * This is the partition the script applies, restated against the gate's real output, so
+ * that the rule "gate only on what this run rewrote" is checked rather than assumed.
+ */
+describe('a fault outside the --only selection is not this run\'s to fix', () => {
+  const list = [
+    { trigger: 'The company opened a second site.', reason: 'A new site needs stock the local buyers can not get now.', evidence_to_find: [] },
+    { trigger: 'The company named a new head of sales.', reason: '', evidence_to_find: [] },
+  ]
+
+  it('gates on a selected position', () => {
+    const only = new Set([2])
+    const faults = findEvidenceFaults(list)
+      .filter(f => only.has(f.trigger_index) && !CARRIED_FAULT_KINDS.has(f.kind))
+    expect(faults.map(f => f.kind)).toContain('reason_missing')
+  })
+
+  it('does not gate on an unselected position, and still reports it', () => {
+    const only = new Set([1])
+    const all = findEvidenceFaults(list)
+    const blocking = all.filter(f => only.has(f.trigger_index) && !CARRIED_FAULT_KINDS.has(f.kind))
+    const carried = all.filter(f => !only.has(f.trigger_index) || CARRIED_FAULT_KINDS.has(f.kind))
+    expect(blocking).toEqual([])
+    expect(carried.map(f => f.kind)).toContain('reason_missing')
+  })
+
+  it('with no --only every position is this run\'s to fix', () => {
+    const only = null as Set<number> | null
+    const blocking = findEvidenceFaults(list)
+      .filter(f => (!only || only.has(f.trigger_index)) && !CARRIED_FAULT_KINDS.has(f.kind))
+    expect(blocking.map(f => f.kind)).toContain('reason_missing')
+  })
+})
