@@ -22,6 +22,8 @@ import { checkActivityVerdict } from './activity-verdict'
 import { findFirmographicFigures } from './firmographic'
 import { splitIntoSentences } from './sentence-count'
 import { findYearCountFaults } from './year-count'
+import { findRelativeTimeFaults, relativeTimeFeedback } from './relative-time'
+import { missingEventYears, eventYearGateMessage } from '@/lib/agents/research/event-year'
 import {
   findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, isSenderSide,
 } from './assumed-capacity'
@@ -417,7 +419,7 @@ export interface FollowupGateInput {
    * prospectFirstName is: an optional corpus is a gate that silently does not run, and
    * findingsEvidence a few fields up is this file's own worked example of exactly that.
    */
-  datedCandidates: ReadonlyArray<{ date?: string | null }>
+  datedCandidates: ReadonlyArray<{ date?: string | null; observation?: string | null }>
   /** The run clock, so the arithmetic is against the real date rather than the model's. */
   now: Date
   /** The composed body's word count, measured the way composition measures it. */
@@ -547,6 +549,23 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
   // reading of it as a population statement, which is why it needs no sender exemption.
   for (const hit of findAudienceContactClaims(text)) {
     failures.push(`${label}: ${audienceContactFeedback([hit])}`)
+  }
+
+  // ── THE YEAR RULE AND THE RELATIVE TIME RULE, ON FOLLOW-UPS TOO ────────────
+  //
+  // missingEventYears had exactly ONE production call site, Email 1. So an event from a
+  // previous year could be named in a follow-up with no year at all, and it was: one
+  // prospect's Email 2 said "ended in May" about May of the previous year, sixteen months
+  // earlier. The same rule, the same candidate list, the same message.
+  //
+  // The relative-time rule is new and deterministic for the same reason: which month "last
+  // month" means is subtraction. Measured on the same run, an Email 1 said "last month"
+  // about an event four months old.
+  for (const owedYear of missingEventYears(text, datedCandidates, now)) {
+    failures.push(`${label}: ${eventYearGateMessage(owedYear)}`)
+  }
+  for (const fault of findRelativeTimeFaults(text, datedCandidates, now, sentencesOf)) {
+    failures.push(`${label}: ${relativeTimeFeedback(fault)}`)
   }
 
   // ── A COUNT OF YEARS IS ARITHMETIC ─────────────────────────────────────────
