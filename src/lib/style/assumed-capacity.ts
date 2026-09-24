@@ -222,10 +222,31 @@ const SECOND_PERSON_READER = /\byou(?:[\u2019']re|r|rs|rself)?\b/i
  * Judged on the text BEFORE the match, because that is where the subject of the clause sits.
  * A first-person subject earlier in the sentence governs what follows.
  */
+/**
+ * THE READER NOT DOING THE WORK IS A PROMISE ABOUT THE SERVICE.
+ *
+ * "No prospecting on your end", "You don't touch the prospecting", "without you touching
+ * the outreach" all describe what the sender takes over. They are offers, and they are in
+ * the client's own approved template, where they were written deliberately.
+ *
+ * THE POSITIVE FORM IS THE OPPOSITE CLAIM AND STAYS BANNED. "You do all the prospecting
+ * yourself" asserts how this reader's business runs, which nobody outside it knows. The
+ * grammar tells them apart: a NEGATED activity attributed to the reader is the sender
+ * removing it; the same activity asserted is a guess about them.
+ *
+ * Measured 2026-09-24 against the client's approved copy: without this, two of eighty-six
+ * approved sentences were rejected, and both were offer statements.
+ */
+const READER_NOT_DOING_IT =
+  /\b(no|never|without|do(?:es)?n[\u2019']t|do not|does not|stop|stops|stopped)\b/i
+
 export function isSenderSide(sentence: string, matched: string): boolean {
   const at = sentence.indexOf(matched)
   const before = at > 0 ? sentence.slice(0, at) : ''
-  return FIRST_PERSON.test(before)
+  if (FIRST_PERSON.test(before)) return true
+  // Judged on the MATCHED SPAN, not the whole sentence: a negation elsewhere in a long
+  // sentence says nothing about the claim this pattern found.
+  return READER_NOT_DOING_IT.test(matched)
 }
 
 /**

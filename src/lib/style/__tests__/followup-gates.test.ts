@@ -106,6 +106,28 @@ describe('capacity and audience on follow-ups', () => {
     }
   })
 
+  it('NEVER blocks a promise that the reader will NOT do the work', () => {
+    // THE READER NOT DOING IT IS AN OFFER, not a claim about them. Both of these are in the
+    // client's own approved template, written deliberately. Measured 2026-09-24: without the
+    // rule, two of eighty-six approved sentences were rejected and both were offers.
+    for (const line of [
+      'No prospecting on your end.',
+      'You don\u2019t touch the prospecting.',
+      'Without you touching the outreach, the meetings still land.',
+    ]) {
+      const f = run(`You took the second unit on in March.\n\n${line} It changes the month.\n\nWorth a look?`)
+      expect(f.filter(x => x.includes('who does') || x.includes('prospecting')), line).toEqual([])
+    }
+  })
+
+  it('and STILL blocks the same activity asserted rather than removed', () => {
+    // The grammar is what tells them apart. Without this the exemption would swallow the
+    // claim it is carved out of: a negated activity is the sender removing it, the same
+    // activity asserted is a guess about how this reader's business runs.
+    const f = run('You took the second unit on in March.\n\nYou do all the prospecting yourself.\n\nWorth a look?')
+    expect(f.length).toBeGreaterThan(0)
+  })
+
   it('COUNTS rather than blocks the impersonal form, which may be a population statement', () => {
     // A bridge is REQUIRED to say what is typically true of a population, so the impersonal
     // construction cannot be a hard failure without contradicting the house rule one gate up.
