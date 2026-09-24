@@ -122,12 +122,19 @@ const WHO_SELLS: RegExp[] = [
   new RegExp(`\\b${SELL_VERB}\\s+(generation\\s+)?has\\s+no\\s+(operator|owner|one)\\b`, 'i'),
   // ── SECOND MEASURED WIDENING, same day, same method ───────────────────────
   // WHO BRINGS THE WORK IN: "changing who generates new business".
-  /\bwho\s+(generates?|creates?|brings?\s+in|wins?|drives?|owns?|does|handles?|runs?|sources?)\s+(the\s+|new\s+|its\s+|their\s+)*(business|pipeline|leads?|meetings?|clients?|work|revenue|outreach|outbound|prospecting|sales)\b/i,
+  /\bwho\s+(generates?|creates?|brings?\s+in|wins?|finds?|found|lands?|books?|drives?|owns?|does|handles?|runs?|sources?)\s+(the\s+|new\s+|its\s+|their\s+)*(business|pipeline|leads?|meetings?|clients?|work|revenue|outreach|outbound|prospecting|sales)\b/i,
   // THE ONLY ONE ON IT: "removes the only dedicated pipeline function". Asserting a company
   // has exactly one of something is a claim about its staffing.
   new RegExp(`\\b(the\\s+)?only\\s+(dedicated\\s+|full[- ]time\\s+)?${SELL_VERB}\\s+(function|person|resource|hire|role|capability)\\b`, 'i'),
   // A ROLE'S OWN CHANNEL, as the thing the company sells through: "the founder's network".
   /\b(the\s+)?(founder|owner|principal|partner|director)(?:'s|s')\s+(network|contacts|relationships|connections|referrals?)\b/i,
+  // ── THIRD MEASURED WIDENING, 2026-09-24, found the same way as the first two ────────
+  // "A big project pulls the founder into the work" and "That job now falls to the founder".
+  // The existing role patterns covered a role MOVING ITSELF ("re-enters", "goes back into")
+  // and said nothing about a role BEING MOVED, or about work LANDING on one. Both are the
+  // same claim: that this named person is the one who ends up doing it.
+  /\b(pulls?|drags?|draws?|puts?|takes?|forces?)\s+(the\s+)?(founder|owner|principal|partner|director)\s+(in|into|back|out)\b/i,
+  /\b(falls?|lands?|rests?|sits?|defaults?)\s+(back\s+)?(to|on|with)\s+(the\s+)?(founder|owner|principal|partner|director)\b/i,
 ]
 
 /** Split on sentence ends, keeping it simple: this reports, it does not parse. */

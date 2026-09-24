@@ -119,15 +119,15 @@ async function main() {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, timeout: 300_000, maxRetries: 2 })
 
   let feedback: string | null = null
-  // FOUR ATTEMPTS, quoting the offending items each time. The same shape the ICP generator's
+  // SEVEN ATTEMPTS, quoting the offending items each time. The same shape the ICP generator's
   // own gate uses: the rule is already in the system prompt, and what the model has not been
   // shown is which of its own lines broke it.
   //
-  // FOUR RATHER THAN TWO because a reading grade of 6 inside 15 words is a genuinely tight
+  // SEVEN RATHER THAN TWO because a reading grade of 6 inside 15 words is a genuinely tight
   // target, and the first run under it failed all eleven at grades of 10 to 14. A gate that
   // is hard to satisfy needs more chances to satisfy it, or it becomes a gate nobody can
   // pass and therefore a gate somebody exempts.
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 7; attempt++) {
     const user = [
       `THE CLIENT'S DOCUMENTS:\n${JSON.stringify(context, null, 2)}`,
       `THE TRIGGERS, in order:\n${JSON.stringify(triggers.map((t, i) => ({ index: i + 1, trigger: t.trigger })), null, 2)}`,
@@ -166,7 +166,7 @@ async function main() {
     console.log(evidenceFaultFeedback(faults))
     feedback = evidenceFaultFeedback(faults)
   }
-  console.error('\nTwo attempts, still failing the gate. Nothing written.')
+  console.error('\nEvery attempt failed the gate. Nothing written.')
   process.exit(1)
 }
 

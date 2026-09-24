@@ -126,6 +126,29 @@ describe('a role\'s attention, who brings the work in, and being the only one on
   })
 })
 
+// THIRD WIDENING, 2026-09-24. The role patterns covered a role MOVING ITSELF and said
+// nothing about a role BEING MOVED, or about work LANDING on one. Both are the same claim.
+describe('a role being moved into the work, or the work landing on a role', () => {
+  it.each([
+    'A big project pulls the founder into the work.',
+    'That job now falls to the founder.',
+    'The work now rests with the owner.',
+    'The person who found new deals is gone.',
+  ])('flags %s', (sentence) => {
+    expect(hit(sentence)).not.toEqual([])
+  })
+
+  it.each([
+    'More staff means more client work to fill with new deals.',
+    'A new offer needs buyers who have not heard of it yet.',
+    'New eyes land on the firm but have no next step to take.',
+    'A fresh brand needs new people to see it.',
+    'Steady income just stopped. New clients are needed now.',
+  ])('leaves alone: %s', (sentence) => {
+    expect(hit(sentence)).toEqual([])
+  })
+})
+
 describe('counting', () => {
   it('counts a sentence ONCE per kind, however many ways it is phrased', () => {
     // Three time patterns in one sentence is one fault, not three: counting each would make
