@@ -24,6 +24,33 @@ import { findEvidenceFaults, evidenceFaultFeedback, TRIGGER_REASON_MAX_WORDS } f
 
 const MODEL = 'claude-opus-4-6'
 
+/**
+ * ═══ THE GATE CANNOT DEMAND A FIX THIS SCRIPT WILL NOT SEND ═══════════════════
+ *
+ * findEvidenceFaults judges the WHOLE trigger object. This script rewrites two of its
+ * three fields: the sentence and the reason. `evidence_to_find` is carried through
+ * byte-identical, deliberately, because the evidence list is approved content and
+ * re-deriving it is a different job.
+ *
+ * So a fault on an evidence line is one the model is never shown, never asked to repair,
+ * and could not repair if it were. Gating on it makes the loop unwinnable: seven attempts
+ * burn seven calls, every one of them rejected for a line none of them wrote, and nothing
+ * is written. Measured 2026-09-24 on two separate clients' live ICPs, both of which
+ * carried a pre-existing evidence fault and neither of which could be given reasons at all.
+ *
+ * These three kinds are produced ONLY inside the `for (const raw of evidence)` loop in
+ * findEvidenceFaults. They cannot arise from a reason or a trigger sentence, so exempting
+ * them here cannot hide a fault in the text this script does write. The test alongside
+ * this constant is what keeps that true as the gate grows.
+ *
+ * They are NOT ignored. They are reported on every attempt and recorded in the output
+ * file, because they are real faults in the document, owed a separate repair that changes
+ * the evidence list on purpose.
+ */
+export const CARRIED_FAULT_KINDS: ReadonlySet<string> = new Set(['figure', 'absence', 'record_field'])
+
+
+
 function arg(n: string): string | undefined {
   const i = process.argv.indexOf(`--${n}`)
   return i >= 0 ? process.argv[i + 1] : undefined
@@ -344,8 +371,12 @@ async function main() {
     let next = 0
     const merged = allTriggers.map((t, i) => (!only || only.has(i + 1)) ? rewritten[next++] : t)
 
-    const faults = findEvidenceFaults(merged)
-    console.log(`attempt ${attempt + 1}: ${faults.length} gate fault(s)`)
+    const allFaults = findEvidenceFaults(merged)
+    const faults = allFaults.filter(f => !CARRIED_FAULT_KINDS.has(f.kind))
+    const carried = allFaults.filter(f => CARRIED_FAULT_KINDS.has(f.kind))
+    console.log(`attempt ${attempt + 1}: ${faults.length} gate fault(s)` +
+      (carried.length ? `, ${carried.length} carried fault(s) on evidence this script does not rewrite` : ''))
+    for (const c of carried) console.log(`  [carried, not blocking] trigger ${c.trigger_index} ${c.kind}: ${c.detail} — "${c.evidence}"`)
     if (faults.length === 0) {
       // ── THE SECOND CHECK: does the service actually do this? ──────────────
       const verdicts = await verifyReasons(client, positioningText,
@@ -369,7 +400,11 @@ async function main() {
       verdictsForOutput = verdicts
     }
     if (faults.length === 0) {
-      writeFileSync(out, JSON.stringify({ document_id: docId, version: doc.version, triggers: merged, verdicts: verdictsForOutput }, null, 2))
+      writeFileSync(out, JSON.stringify({
+        document_id: docId, version: doc.version, triggers: merged, verdicts: verdictsForOutput,
+        // Recorded so the human reading this file sees the faults the run could not repair.
+        carried_faults: carried,
+      }, null, 2))
       console.log(`wrote ${out}`)
       for (const [i, m] of merged.entries()) {
         console.log(`\n${i + 1}. ${m.trigger}\n   REASON: ${m.reason}`)
