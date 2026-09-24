@@ -516,6 +516,16 @@ The `reason` is about the EVENT, never about the reader:
 
   IT NAMES A CONSEQUENCE OF THE EVENT. What is now true, or now needed, that was not before.
 
+  IT DESCRIBES A NEED THIS CLIENT'S SERVICE DIRECTLY MEETS, as their own positioning
+  document describes that service. Read what the service does and name a need it does. Do
+  not assume it does anything the document does not say.
+
+  THE COMMONEST WAY TO BREAK THIS is to name a need about the prospect's OWN AUDIENCE: their
+  readers, listeners, attendees, followers, subscribers or site visitors. Unless the
+  positioning document says this client contacts a prospect's existing audience, a reason
+  about converting that audience describes work nobody is offering, and the copy written
+  from it promises it.
+
   IT IS ABOUT THE PROSPECT'S NEED, NEVER ABOUT THE SENDER'S OFFER. Say what the event leaves
   the company needing. Do not say what this client's service does, why it works, or what it
   converts. An argument for the offer is a different sentence with a different job, and it
