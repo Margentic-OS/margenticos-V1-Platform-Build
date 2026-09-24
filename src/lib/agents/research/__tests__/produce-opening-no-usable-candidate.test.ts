@@ -20,7 +20,7 @@ vi.mock('@/lib/composition/compose-sequence', () => ({
 }))
 
 import { produceOpening, NO_USABLE_CANDIDATE_REASON } from '../produce-opening'
-import { hasUsableCandidate } from '../synthesize'
+import { hasUsableCandidate, isHookEligible } from '../synthesize'
 import { EMPTY_FOLLOWUP } from '../followup-frame'
 import type { ObservationCandidate, ProspectContext } from '../types'
 
@@ -109,9 +109,26 @@ describe('the writer still runs whenever synthesis would use a candidate', () =>
     expect(writeAndJudgeOpening).toHaveBeenCalledTimes(1)
   })
 
+  // CHANGED 2026-09-24. This used to demote with `readability.hard_fail`, which stopped
+  // being a demotion that day: readability no longer disqualifies a candidate, because a
+  // candidate observation is an internal note the writer rewrites rather than copy. The
+  // test kept PASSING and stopped testing its own title, since the candidate was then
+  // tier-1 eligible and never reached the lower tier at all.
+  //
+  // It now demotes with a gate that still gates: an ambiguous inference direction, which
+  // isHookEligible still excludes.
   it('runs for a six-out-of-six candidate a gate demoted, because it still falls through to the lower tier', async () => {
-    await run([candidate({}, { demoted: true, readability: { ...candidate().readability, hard_fail: true } })])
+    await run([candidate({}, { demoted: true, inference_direction: 'ambiguous_unhandled' })])
     expect(writeAndJudgeOpening).toHaveBeenCalledTimes(1)
+  })
+
+  it('and readability no longer demotes at all, so such a candidate is tier-1 eligible', () => {
+    // The other half, asserted directly on the predicate rather than through the loop, so
+    // the claim is about the rule and not about this one call path.
+    const hardFailed = candidate({}, { readability: { ...candidate().readability, hard_fail: true } })
+    expect(isHookEligible(hardFailed)).toBe(true)
+    // POSITIVE CONTROL: the predicate has not simply been turned off.
+    expect(isHookEligible(candidate({}, { inference_direction: 'ambiguous_unhandled' }))).toBe(false)
   })
 
   it('runs when the selection is null, which is still a real case, if a usable candidate is there', async () => {
