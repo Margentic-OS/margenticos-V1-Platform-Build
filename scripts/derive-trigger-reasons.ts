@@ -182,6 +182,19 @@ Return ONLY this JSON:
 
 {"verdicts":[{"index":1,"supported":true,"quote":"the sentence, exactly","explanation":""}]}`
 
+/**
+ * WHAT THE CALL COST, printed rather than assumed. A script that spends money and says
+ * nothing about it makes a budget impossible to hold to: the only record was the vendor
+ * console, hours later. Purely a log line, so nothing about the derivation changes.
+ */
+function logUsage(label: string, usage: unknown): void {
+  const u = (usage ?? {}) as Record<string, number | undefined>
+  console.log(
+    `  [usage] ${label} in=${u.input_tokens ?? 0} out=${u.output_tokens ?? 0} ` +
+    `cache_write=${u.cache_creation_input_tokens ?? 0} cache_read=${u.cache_read_input_tokens ?? 0}`,
+  )
+}
+
 export async function verifyReasons(
   client: Anthropic,
   positioningText: string,
@@ -195,6 +208,7 @@ export async function verifyReasons(
       `THE REASONS:\n${JSON.stringify(reasons, null, 2)}`,
     ].join('\n\n') }],
   })
+  logUsage('verifier', res.usage)
   const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('')
   const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)
   const parsed = JSON.parse(json) as { verdicts: ReasonVerdict[] }
@@ -310,6 +324,7 @@ async function main() {
       model: MODEL, max_tokens: 4000, temperature: 0,
       system: SYSTEM, messages: [{ role: 'user', content: user }],
     })
+    logUsage(`draft attempt ${attempt + 1}`, res.usage)
     const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('')
     const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)
     const parsed = JSON.parse(json) as { triggers: Array<{ index: number; trigger: string; reason: string }> }
