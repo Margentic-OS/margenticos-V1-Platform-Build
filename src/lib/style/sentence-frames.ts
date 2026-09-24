@@ -55,19 +55,79 @@ export interface FrameCollision {
 // Reduces text to its structural skeleton. Masks numbers, dates, and capitalised words
 // that are not sentence-initial (a serviceable proper-noun test for this copy, which is
 // ordinary prose rather than headline case).
+/**
+ * THE ONE MASKING RULE, used by everything that needs to ignore prospect-specific content.
+ *
+ * `index` is the word's position in its own text: the first word is capitalised by
+ * convention, so capitalisation says nothing about it. Every later capital is treated as a
+ * name, which is a serviceable proper-noun test for ordinary prose.
+ *
+ * EXPORTED so a second caller cannot end up with a second copy of the rule. frameSkeleton
+ * renders a masked token as "#" because it is building shingles; stripProperNouns removes
+ * the word entirely because it is building text to measure. Same rule, two renderings.
+ */
+export function isMaskedWord(word: string, index: number): boolean {
+  if (/\d/.test(word)) return true
+  return index > 0 && /^\p{Lu}/u.test(word)
+}
+
 export function frameSkeleton(text: string): string[] {
   const words = (text ?? '')
     .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')
     .split(/\s+/)
     .filter(Boolean)
 
-  return words.map((word, index) => {
-    if (/\d/.test(word)) return MASK
-    // First word of the text is capitalised by convention, so capitalisation says nothing
-    // about it. Every later capital is treated as a name.
-    if (index > 0 && /^\p{Lu}/u.test(word)) return MASK
-    return word.toLowerCase()
+  return words.map((word, index) => (isMaskedWord(word, index) ? MASK : word.toLowerCase()))
+}
+
+/**
+ * The text with proper nouns, numbers and quoted titles REMOVED, sentence punctuation kept.
+ *
+ * ═══ WHY THIS EXISTS, AND IT IS ONLY FOR MEASURING READING GRADE ═══
+ *
+ * A reason written for one prospect has to name their firm and their role, and a reading
+ * grade formula counts syllables per word. Those names are long, and they cannot be
+ * simplified: the whole point of them is that they are that company's name and not another.
+ * So the formula charges a specific sentence for being specific, which is the opposite of
+ * what the ceiling is there to encourage.
+ *
+ * Measured on the first three prospects a run reached: reasons scored 6.9, 9.9 and 10.9
+ * against a ceiling of 6, and every one was dropped, so every email fell back to the
+ * trigger's generic reason and line two became identical for everyone matching that
+ * trigger. That defeats the purpose of having a per-prospect reason at all.
+ *
+ * SENTENCE PUNCTUATION IS KEPT because the grade formula divides by sentence count. Joining
+ * two sentences into one would inflate words-per-sentence and undo the correction.
+ */
+export function stripProperNouns(text: string): string {
+  // Quoted titles first: a title in quotes is a name however it is capitalised.
+  const unquoted = (text ?? '').replace(/["\u201c\u201d'\u2018\u2019][^"\u201c\u201d'\u2018\u2019]{2,}["\u201c\u201d'\u2018\u2019]/g, ' ')
+  const tokens = unquoted.split(/\s+/).filter(Boolean)
+  const bare = (t: string | undefined) => (t ?? '').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
+  let wordIndex = -1
+  const kept = tokens.map((token, tokenIndex) => {
+    // The word without surrounding punctuation, for the test; the punctuation itself is
+    // kept so sentence boundaries survive.
+    const word = token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
+    if (!word) return token
+    wordIndex += 1
+    // THE FIRST WORD, WHICH isMaskedWord DELIBERATELY EXEMPTS. That exemption is right for
+    // shingling, where every sentence starts capitalised and the opener carries no name
+    // information. It is wrong here: a reason that begins with the prospect's firm was left
+    // holding half a name ("EdgeBrook Lane" kept "EdgeBrook"), and half a name is still an
+    // unsimplifiable polysyllable charged against the grade.
+    //
+    // A capitalised first word FOLLOWED BY another capitalised word is part of a multi-word
+    // name. A capitalised first word alone is an ordinary sentence opener and is kept,
+    // which is why "More staff means..." and "Steady income just stopped." score unchanged.
+    const firstWordOfAName = wordIndex === 0
+      && /^\p{Lu}/u.test(word)
+      && /^\p{Lu}/u.test(bare(tokens[tokenIndex + 1]))
+    if (!isMaskedWord(word, wordIndex) && !firstWordOfAName) return token
+    const trailing = token.match(/[.!?;:]+$/)
+    return trailing ? trailing[0] : ''
   })
+  return kept.filter(Boolean).join(' ').replace(/\s+([.!?;:])/g, '$1').trim()
 }
 
 /** Overlapping n-grams of the skeleton. Empty when the text is shorter than FRAME_LENGTH. */

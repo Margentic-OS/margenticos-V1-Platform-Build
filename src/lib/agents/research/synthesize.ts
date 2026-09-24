@@ -21,6 +21,7 @@ import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
 import { rankCandidates, byTriggerPositionOnly, type RankedCandidate } from './rank-candidates'
 import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
 import { fleschKincaidGrade } from '@/lib/style/reading-grade'
+import { stripProperNouns } from '@/lib/style/sentence-frames'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { TRIGGER_REASON_MAX_WORDS, TRIGGER_REASON_MAX_GRADE } from '@/agents/trigger-evidence-gate'
 import {
@@ -729,9 +730,20 @@ export function findProspectReasonFaults(reason: string): string[] {
   const faults: string[] = []
   const words = reason.trim().split(/\s+/).filter(Boolean).length
   if (words > TRIGGER_REASON_MAX_WORDS) faults.push(`${words} words, over ${TRIGGER_REASON_MAX_WORDS}`)
-  const grade = fleschKincaidGrade(reason)
+  // GRADED WITH THE NAMES TAKEN OUT, and ONLY here. A trigger's reason is generic by
+  // definition and is scored as written; a prospect's reason has to name their firm and
+  // their role, and those words are long and cannot be simplified, so the formula charges
+  // the sentence for being specific. Measured on the first three prospects a run reached:
+  // 6.9, 9.9 and 10.9 against a ceiling of 6, all dropped, so every email fell back to the
+  // trigger's generic reason and line two became identical for everyone matching it.
+  //
+  // THE CEILING IS UNCHANGED, and so are the word cap and the claims check above: those run
+  // on the sentence as written, because a name makes a sentence no longer and asserts
+  // nothing about the reader's time.
+  const gradedText = stripProperNouns(reason)
+  const grade = fleschKincaidGrade(gradedText)
   if (grade && grade.grade > TRIGGER_REASON_MAX_GRADE) {
-    faults.push(`reading grade ${grade.grade.toFixed(1)}, over ${TRIGGER_REASON_MAX_GRADE}`)
+    faults.push(`reading grade ${grade.grade.toFixed(1)} with names removed, over ${TRIGGER_REASON_MAX_GRADE}`)
   }
   for (const h of findAssumedCapacityClaims(reason)) faults.push(`${h.kind}: "${h.matched}"`)
   // THE VERDICT CHECK, which this function CLAIMED parity on and did not run. A reason
