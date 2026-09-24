@@ -38,6 +38,8 @@ export type FitCheckName = (typeof FIT_CHECKS)[number]
 export const FIT_CHECK_RESULTS = ['yes', 'no', 'unknown', 'not_applicable'] as const
 export type FitCheckResult = (typeof FIT_CHECK_RESULTS)[number]
 
+import type { AssumedCapacityKind } from '@/lib/style/assumed-capacity'
+
 export interface FitCheck {
   result:   FitCheckResult
   /** One sentence of evidence, or why there is none. */
@@ -731,7 +733,12 @@ export interface ResearchAssumedCapacityHit {
   prospect_id: string
   /** Which part said it: the second line, the closing question, or the prospect's reason. */
   part: 'second_line' | 'question' | 'prospect_reason'
-  kind: 'their_time' | 'who_sells'
+  /**
+   * DERIVED, never restated. A second copy of this union is a second list to keep in step,
+   * and when 'they_lack' was added on 2026-09-24 the compiler found this one immediately
+   * because it was a literal. It is now impossible to get wrong.
+   */
+  kind: AssumedCapacityKind
   /** What matched, and the sentence it was in, so the report is actionable. */
   matched: string
   sentence: string

@@ -22,6 +22,11 @@ import { checkActivityVerdict } from './activity-verdict'
 import { findFirmographicFigures } from './firmographic'
 import { splitIntoSentences } from './sentence-count'
 import { findYearCountFaults } from './year-count'
+import {
+  findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, isSenderSide,
+} from './assumed-capacity'
+import { findAudienceContactClaims, audienceContactFeedback } from './audience-contact'
+import { logger } from '@/lib/logger'
 
 /** Lowercased, punctuation-stripped, single-spaced. For comparing prose to prose. */
 export function normaliseForEcho(text: string): string {
@@ -504,6 +509,44 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
         'Write to them as "you", or name their company. The email already greets them by name.',
       )
     }
+  }
+
+  // ── CLAIMS ABOUT THE READER'S CAPACITY, AND PROMISES ABOUT THEIR AUDIENCE ──
+  //
+  // Both checks existed and neither reached emails 2 and 3. findAssumedCapacityClaims had
+  // four call sites in src and none was a follow-up; the audience check was never promoted
+  // out of an analysis script at all, so for two runs it was measured and could not act.
+  //
+  // BLOCKING IS DELIBERATELY NARROWER THAN DETECTING, and that split is the whole design.
+  // Measured 2026-09-24: wiring the unchanged detector to block on follow-ups hit four live
+  // sentences, at least two of which were the SENDER describing its own work, and one
+  // rejection here discards BOTH follow-ups. So:
+  //
+  //   BLOCK   a claim that names the reader or their firm and has no first-person subject
+  //           governing it. "Your week is full", "Acme's attention is committed".
+  //   COUNT   everything else, including the impersonal form, which may be the population
+  //           statement a bridge is required to be. Logged, never returned.
+  //
+  // A SENDER-SIDE STATEMENT IS NEVER BLOCKED, per the instruction and per this module's own
+  // header, which has listed sender statements as permitted since it was written.
+  const readerNames = companyNameForms(companyName)
+  for (const hit of findAssumedCapacityClaims(text)) {
+    if (isUnambiguousReaderClaim(hit, readerNames)) {
+      failures.push(`${label}: ${assumedCapacityFeedback([hit])}`)
+    } else {
+      logger.info('followup-gates: assumed-capacity scored, not gated', {
+        position, kind: hit.kind, matched: hit.matched, sentence: hit.sentence,
+        senderSide: isSenderSide(hit.sentence, hit.matched),
+      })
+    }
+  }
+
+  // THE AUDIENCE PROMISE BLOCKS OUTRIGHT. It is not a matter of degree: outbound reaches
+  // people who have never heard of the prospect, so copy promising to reach the audience
+  // they already have describes work nobody is selling, whoever the sender is. There is no
+  // reading of it as a population statement, which is why it needs no sender exemption.
+  for (const hit of findAudienceContactClaims(text)) {
+    failures.push(`${label}: ${audienceContactFeedback([hit])}`)
   }
 
   // ── A COUNT OF YEARS IS ARITHMETIC ─────────────────────────────────────────

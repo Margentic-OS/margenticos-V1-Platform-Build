@@ -76,6 +76,49 @@ const pass = (prose: string, over: Partial<typeof base> = {}) =>
 // name was not in scope at the call site at all.
 //
 // Fixtures are industry-neutral and the names are ordinary given names, not any prospect's.
+// ═══════════════════════════════════════════════════════════════════════════════
+// CAPACITY CLAIMS AND AUDIENCE PROMISES ON EMAILS 2 AND 3.
+//
+// Neither check reached follow-ups before 2026-09-24. BLOCKING IS NARROWER THAN DETECTING,
+// and that split is the design: wiring the whole detector to block hit four live sentences,
+// at least two of which were the SENDER describing its own work, and one rejection here
+// discards BOTH follow-ups.
+describe('capacity and audience on follow-ups', () => {
+  const run = (prose: string, over: Partial<typeof base> = {}) =>
+    checkFollowupGates({ prose: asParagraphs(prose), ...base, ...over })
+  const capacity = (fs: string[]) => fs.filter(f => f.includes('their week') || f.includes('who does') || f.includes('capacity') || f.includes('time'))
+
+  it('BLOCKS a capacity claim that names the reader', () => {
+    const f = run('You took the second unit on in March.\n\nYour week is already full before the quote goes out.\n\nWorth a look?')
+    expect(f.some(x => x.includes('email 2'))).toBe(true)
+  })
+
+  it('NEVER blocks the sender describing its own work', () => {
+    // THE CONTROL THAT MATTERS MOST. These are offer statements, and this module's header
+    // has listed them as permitted since it was written. Measured: blocking the unchanged
+    // detector rejected two of them on live copy.
+    for (const line of [
+      'We map the right targets, run the outreach, and book the meetings into your calendar.',
+      'We keep outbound running so the next meetings are booked before the current work ends.',
+    ]) {
+      const f = run(`You took the second unit on in March.\n\n${line}\n\nWorth a look?`)
+      expect(f.filter(x => x.includes('reader') || x.includes('week') || x.includes('calendar')), line).toEqual([])
+    }
+  })
+
+  it('COUNTS rather than blocks the impersonal form, which may be a population statement', () => {
+    // A bridge is REQUIRED to say what is typically true of a population, so the impersonal
+    // construction cannot be a hard failure without contradicting the house rule one gate up.
+    const f = run('You took the second unit on in March.\n\nThat makes sense when delivery is consuming the week.\n\nWorth a look?')
+    expect(f).toEqual([])
+  })
+
+  it('BLOCKS a promise to reach the audience they already have', () => {
+    const f = run('You took the second unit on in March.\n\nWe can reach your subscribers with the same message.\n\nWorth a look?')
+    expect(f.some(x => x.includes('audience they already have'))).toBe(true)
+  })
+})
+
 describe('the third-person gate', () => {
   const withName = (prose: string, name: string, over: Partial<typeof base> = {}) =>
     checkFollowupGates({ prose: asParagraphs(prose), ...base, prospectFirstName: name, ...over })

@@ -29,7 +29,7 @@
 
 import { splitIntoSentences } from './sentence-count'
 
-export type AssumedCapacityKind = 'their_time' | 'who_sells'
+export type AssumedCapacityKind = 'their_time' | 'who_sells' | 'they_lack'
 
 export interface AssumedCapacityHit {
   kind: AssumedCapacityKind
@@ -72,6 +72,33 @@ const THEIR_TIME: RegExp[] = [
   // already banned; "the founder's attention" is the same claim in the third person, which
   // is the person a trigger reason is written in.
   /\b(the\s+)?(founder|owner|principal|partner|director|team)(?:'s|s')\s+(time|attention|focus|capacity|bandwidth|hours|week|weeks|diary|calendar|schedule)\b/i,
+
+  // ═══ ADDED 2026-09-24, from six lines that shipped and none of which was detected ═══
+  //
+  // Every pattern above anchors the capacity noun to "your" or to a CLOSED LIST of role
+  // words. So the same claim made with a possessive on a NAME, with a definite article, with
+  // a verb form the list omits, or as a zero-sum trade, was invisible. Four shapes, each
+  // named by its grammar rather than its vocabulary, so none carries an industry, a service
+  // or a buyer type. The sender exemption below applies to all of them.
+
+  // A POSSESSIVE ON ANY NAME, plus a capacity noun. The role list was the arbitrary part:
+  // a possessive on a company or a person is the same claim as a possessive on a role.
+  // "Rebel's attention is fully committed" says whose attention it is.
+  /\b[A-Z][A-Za-z0-9&.\u2019'-]*(?:[\u2019']s|s[\u2019'])\s+(time|attention|focus|capacity|bandwidth|hours?|week|weeks|day|days|diary|calendar|schedule|energy)\b/,
+
+  // A CAPACITY NOUN AS THE SUBJECT OF AN ALLOCATION. "The bandwidth that used to go to
+  // business development is now going elsewhere" asserts where the reader's capacity goes
+  // without once saying "your". The noun is the subject and the verb moves it.
+  /\b(time|hours?|bandwidth|capacity|attention|focus|energy|effort)\b[^.!?]{0,60}\b(used to go|now goes|now going|is going|is now going|goes to|went to|goes into|went into)\b/i,
+
+  // AN ACTIVITY CONSUMING A UNIT OF TIME. The verb list above holds "consumes" and not
+  // "consuming", and the noun list holds "weeks" and not "week", so "delivery is consuming
+  // the week" passed on two separate omissions.
+  /\b(consum\w+|eat\w*\s+into|absorb\w*|swallow\w*|soak\w*\s+up|tak\w+\s+up)\s+(the\s+|a\s+)?(hours?|time|weeks?|days?|month|months|diary|calendar|bandwidth|capacity)\b/i,
+
+  // A ZERO-SUM TIME TRADE. "every hour spent chasing X is an hour not spent on Y" states
+  // how the reader's hours divide, which is the same assumption in arithmetic clothing.
+  /\b(an?|every|each)\s+(hour|day|week|minute|afternoon|morning)\b[^.!?]{0,80}\bnot\s+(spent|going|available|free)\b/i,
 ]
 
 /**
@@ -82,6 +109,21 @@ const THEIR_TIME: RegExp[] = [
  * gets done".
  */
 const SELL_VERB = '(prospect(?:ing)?|outreach|outbound|selling|sales|business development|bd|pipeline|new business|chasing|follow[- ]?up)'
+
+/**
+ * ASSERTING THAT THE READER LACKS SOMETHING. Added 2026-09-24.
+ *
+ * "You need a follow-up system" says they have not got one. It is the same family as the
+ * exclusivity rule the house style already states: a problem framed as a pattern survives
+ * being wrong, a verdict about what this reader does not have does not.
+ *
+ * NARROW ON PURPOSE. "You need to see this" is an ordinary sentence and must not match, so
+ * the pattern requires a DETERMINER: the claim has to be about a THING they do not have.
+ */
+const THEY_LACK: RegExp[] = [
+  /\byou\s+(need|lack|are missing|have no|haven[\u2019']t got|don[\u2019']t have)\s+(a|an|any|the)\s+\w+/i,
+  /\bwithout\s+(a|an|any)\s+\w+[^.!?]{0,40}\byou\b/i,
+]
 
 const WHO_SELLS: RegExp[] = [
   // "you do the prospecting", "you're doing the outreach", "you handle the outbound"
@@ -152,11 +194,74 @@ function sentencesOf(text: string): string[] {
   return splitIntoSentences(text)
 }
 
+/**
+ * A first-person subject, which makes a sentence a statement about the SENDER.
+ *
+ * The module header already lists sender-side statements as deliberately not banned. Until
+ * 2026-09-24 nothing enforced that: the detector matched a capacity noun wherever it sat, so
+ * "We map the right targets, run the outreach, and book the meetings directly into your
+ * calendar" matched on "your calendar" and read as a claim about the reader's week. It is
+ * the opposite: it is the sender saying what it does.
+ */
+const FIRST_PERSON = /\b(we|our|ours|us|i|my|mine)\b/i
+
+/**
+ * An EXPLICIT reference to the reader or their firm: second person, or a possessive on a
+ * capitalised name.
+ *
+ * THIS IS WHAT MAKES A HIT UNAMBIGUOUS. "Your week is full" and "Acme's attention is
+ * committed" both say whose capacity is being described. "Delivery is consuming the week"
+ * says the same thing impersonally and might be a population statement, which this codebase
+ * permits and the bridge is required to be.
+ */
+const SECOND_PERSON_READER = /\byou(?:[\u2019']re|r|rs|rself)?\b/i
+
+/**
+ * True when the capacity claim in this sentence is the SENDER describing its own work.
+ *
+ * Judged on the text BEFORE the match, because that is where the subject of the clause sits.
+ * A first-person subject earlier in the sentence governs what follows.
+ */
+export function isSenderSide(sentence: string, matched: string): boolean {
+  const at = sentence.indexOf(matched)
+  const before = at > 0 ? sentence.slice(0, at) : ''
+  return FIRST_PERSON.test(before)
+}
+
+/**
+ * True when the hit names the reader or their firm outright, so there is no reading of it
+ * as a statement about a population.
+ *
+ * THE BLOCKING SUBSET. Everything else is counted and reported. Measured 2026-09-24: wiring
+ * the whole detector to block on follow-ups hit four live sentences, at least two of which
+ * were sender-side offer statements, and one rejection discards BOTH follow-ups.
+ */
+export function isUnambiguousReaderClaim(
+  hit: AssumedCapacityHit,
+  /**
+   * Names that mean THIS READER: their company as stored, and any short form of it. Passed
+   * in rather than guessed, because a capitalised name in a sentence is as likely to be the
+   * SENDER's company, and blocking on that would reject the offer statements this module's
+   * header has always permitted.
+   */
+  readerNames: readonly string[] = [],
+): boolean {
+  // A BARE `.filter(isUnambiguousReaderClaim)` WOULD PASS THE INDEX HERE, and an index of 0
+  // reads as "no reader names", which silently UNDER-blocks. Caught while measuring this on
+  // 2026-09-24. Refusing loudly is better than a gate that quietly stops naming the reader.
+  if (!Array.isArray(readerNames)) {
+    throw new TypeError('isUnambiguousReaderClaim: readerNames must be an array of names')
+  }
+  if (isSenderSide(hit.sentence, hit.matched)) return false
+  if (SECOND_PERSON_READER.test(hit.sentence)) return true
+  return readerNames.some(n => n.trim().length > 1 && hit.sentence.includes(n))
+}
+
 export function findAssumedCapacityClaims(text: string): AssumedCapacityHit[] {
   if (!text || !text.trim()) return []
   const hits: AssumedCapacityHit[] = []
   for (const sentence of sentencesOf(text)) {
-    for (const [kind, patterns] of [['their_time', THEIR_TIME], ['who_sells', WHO_SELLS]] as const) {
+    for (const [kind, patterns] of [['their_time', THEIR_TIME], ['who_sells', WHO_SELLS], ['they_lack', THEY_LACK]] as const) {
       for (const re of patterns) {
         const m = sentence.match(re)
         if (m) {
