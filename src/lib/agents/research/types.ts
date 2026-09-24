@@ -592,6 +592,8 @@ export interface ResearchResult {
   selection_reason: string | null
   /** Why what we found gives THIS prospect a reason. Null when synthesis reached no winner. */
   prospect_reason: string | null
+  /** Where that reason came from. See SynthesisOutput.prospect_reason_source. */
+  prospect_reason_source: 'prospect' | 'trigger' | 'relevance_fallback' | 'none' | null
   /** A second event strengthening the same reason. Null when one was enough. */
   supporting_candidate_id: string | null
   selection_basis: SelectionBasis | null

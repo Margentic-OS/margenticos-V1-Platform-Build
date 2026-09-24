@@ -284,11 +284,19 @@ describe('prompt shape', () => {
   // assignment block in the user message on 2026-08-25 so the system prompt is a constant
   // and can be cached. The prompt is ~9,300 tokens and the writer call runs up to three
   // times per prospect, so a per-variant prefix was costing a full re-read every attempt.
-  it('the assignment block carries the variant P3 and CTA verbatim', () => {
-    const a = buildWriterAssignment({ clientName: 'Acme', buyer: 'THE_BUYER_TITLE', p3: 'THE_P3_LINE', cta: 'THE_CTA_LINE' })
-    expect(a).toContain('THE_P3_LINE')
+  // CHANGED 2026-09-24. The assignment carried the variant's offer line, and the writer is
+  // no longer shown it at all: told to lead into it, the writer restated it, and the echo
+  // gate rejected the whole variant. Measured across two identical cohorts of 20, the echo
+  // went from 1 to 5. The offer line is composed in afterwards and the gate is unchanged.
+  it('the assignment block carries the CTA and the reason, and NOT the offer line', () => {
+    const a = buildWriterAssignment({
+      clientName: 'Acme', buyer: 'THE_BUYER_TITLE', cta: 'THE_CTA_LINE',
+      prospectReason: 'THE_REASON_SENTENCE',
+    })
     expect(a).toContain('THE_CTA_LINE')
+    expect(a).toContain('THE_REASON_SENTENCE')
     expect(a).toContain('Acme')
+    expect(a).not.toMatch(/OFFER LINE/i)
   })
 
   // THE CACHE INVARIANT. If any per-prospect, per-variant or per-client value gets
@@ -380,17 +388,23 @@ describe('prompt shape', () => {
     expect(flat).toContain('goes uncontested to whoever stayed visible')
   })
 
-  it('the writer prompt aims the bridge at the offer, with the Rowan failure verbatim', () => {
+  it('the writer prompt aims the bridge at the REASON, with the Rowan failure verbatim', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     // CHANGED 2026-09-24. The instruction used to be START BY READING THE OFFER LINE, and
     // the writer was told to work out which problem it answers and aim at that. Two offer
     // lines say the sender does the prospecting, so the target the writer derived was "this
     // reader does their own prospecting", which is an assumption about a stranger's
-    // staffing that then appeared in the copy run after run. The target is now the reason
-    // synthesis supplies, and the offer line is what the email leads into.
+    // staffing that then appeared in the copy run after run.
+    //
+    // CHANGED AGAIN THE SAME DAY. The replacement told the writer the offer line was what
+    // the email LEADS INTO, and still showed it the line. The writer copies what it is
+    // shown: the echo gate went from 1 rejection in 20 to 5 in 20 across two identical
+    // cohorts. The offer line is now removed from everything the writer sees, and it is
+    // composed in afterwards. The gate that catches an echo is unchanged.
     expect(p).toContain('START BY READING THE REASON')
-    expect(p).toContain('THE OFFER LINE IS WHAT THE EMAIL LEADS INTO, NOT WHAT YOU AIM AT')
+    expect(p).not.toMatch(/LEADS INTO/i)
+    expect(p).not.toMatch(/offer line/i)
     expect(p).toContain('AIMED WRONG:')
     expect(p).toContain('AIMED RIGHT')
     // The real failure, verbatim.
@@ -507,15 +521,15 @@ describe('writer output parsing', () => {
 })
 
 describe('the writer prompt carries the question job and the Rowan failure', () => {
-  it('names the three parts and pins the offer line as fixed', () => {
+  it('names the three parts and pins the middle paragraph as fixed AND unseen', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('[YOUR CLOSING QUESTION GOES HERE]')
-    expect(flat).toContain('The offer line in the middle is FIXED')
-    // The skeleton now names the slot and points at the assignment block, rather than
-    // interpolating the variant's own P3, which is what made the prompt cacheable.
-    expect(flat).toContain('THE OFFER LINE')
-    expect(flat).toContain('ASSIGNMENT block')
+    // The slot still exists, so the writer knows a paragraph sits between the bridge and
+    // the question. Its TEXT is gone, and so is every instruction to read it.
+    expect(flat).toContain('A FIXED PARAGRAPH YOU DO NOT WRITE AND ARE NOT SHOWN')
+    expect(flat).toContain('The paragraph in the middle is FIXED and you are not shown it')
+    expect(flat).not.toMatch(/THE OFFER LINE/)
   })
 
   it('carries no sendable anchor questions, only a description of the register', () => {
@@ -721,11 +735,12 @@ describe('the writer prompt varies the bridge construction', () => {
     expect(flat).toContain('People who like your wedding photos rarely ask for your prices.')
   })
 
-  it('limits the concession model to offers that follow up', () => {
-    // It lands on people who already know the work, which the offer-line rule above bans for
-    // any offer that generates new conversations. The caption carries that condition.
+  it('limits the concession model to reasons about people already reached', () => {
+    // It lands on people who already know the work, which the rule above bans when the
+    // reason is about people they have NOT reached. The condition is now carried by the
+    // reason rather than by an offer line the writer cannot see.
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('only permitted where the offer line follows up rather than generates')
+    expect(flat).toContain('only permitted where the REASON is about people they have already reached')
   })
 
   it('the four worked shapes do not collide with each other', () => {
@@ -779,7 +794,7 @@ describe('the writer prompt treats the approved questions as register, not a men
     expect(flat).toContain('The approved question for this particular variant is named in the ASSIGNMENT block')
     expect(flat).toContain('It is there to show you REGISTER AND LENGTH')
 
-    const assignment = buildWriterAssignment({ clientName: 'Acme', buyer: 'THE_BUYER_TITLE', p3: 'x', cta: 'Worth a look?' })
+    const assignment = buildWriterAssignment({ clientName: 'Acme', buyer: 'THE_BUYER_TITLE', cta: 'Worth a look?' })
       .replace(/\s+/g, ' ')
     expect(assignment).toContain('The approved closing question for this particular variant is "Worth a look?"')
     expect(assignment).toContain('it shows register and length')
@@ -800,10 +815,11 @@ describe('the writer prompt asks for three paragraphs, returned as three blocks'
     const p = prompt()
     expect(p).toContain('[YOUR OBSERVATION GOES HERE]')
     expect(p).toContain('[YOUR BRIDGE GOES HERE]')
-    // Order matters: observation, bridge, offer line, question.
+    // Order matters: observation, bridge, the fixed paragraph, question.
+    const fixedSlot = p.indexOf('A FIXED PARAGRAPH YOU DO NOT WRITE')
     expect(p.indexOf('[YOUR OBSERVATION GOES HERE]')).toBeLessThan(p.indexOf('[YOUR BRIDGE GOES HERE]'))
-    expect(p.indexOf('[YOUR BRIDGE GOES HERE]')).toBeLessThan(p.indexOf('OFFER LINE'))
-    expect(p.indexOf('OFFER LINE')).toBeLessThan(p.indexOf('[YOUR CLOSING QUESTION GOES HERE]'))
+    expect(p.indexOf('[YOUR BRIDGE GOES HERE]')).toBeLessThan(fixedSlot)
+    expect(fixedSlot).toBeLessThan(p.indexOf('[YOUR CLOSING QUESTION GOES HERE]'))
   })
 
   it('says explicitly that they are separate paragraphs', () => {
@@ -1707,14 +1723,15 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
 describe('the offer line rules one destination out without choosing the other', () => {
   const prompt = () => buildWriterPrompt()
 
-  it('derives the rule from the offer line rather than naming a service', () => {
-    // Stated as a principle so it holds for any client whose offer line generates rather
-    // than follows up. Naming the product would make it one client's rule.
+  it('derives the rule from the REASON rather than naming a service', () => {
+    // Stated as a principle so it holds for any client. It used to be derived from the offer
+    // line; the writer is no longer shown one, and the reason carries the same information
+    // because it says what the event leaves the company needing.
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('THE CONSEQUENCE MUST NOT TURN THE OFFER LINE INTO A DIFFERENT JOB')
-    expect(flat).toContain('Go back to the offer line')
-    expect(flat).toContain('whether it promises to GENERATE new conversations or to follow up on ones that already exist')
-    expect(flat).toContain('It is not a fact about one product')
+    expect(flat).toContain('THE CONSEQUENCE MUST NOT TURN THE REASON INTO A DIFFERENT NEED')
+    expect(flat).toContain('Go back to the REASON')
+    expect(flat).toContain('has to be that need and not a neighbouring one')
+    expect(flat).not.toMatch(/offer line/i)
   })
 
   it('bans the three ways of naming an audience they already have', () => {

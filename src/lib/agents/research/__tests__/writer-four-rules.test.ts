@@ -74,11 +74,22 @@ describe('RULE 2: never assert what the findings do not evidence', () => {
   })
 })
 
-describe('RULE 4: the closing question must ask what the offer line can answer', () => {
+// RULE 4 WAS RECAST ON 2026-09-24, not removed. It protected against a question whose yes
+// the sender could not act on, and it did that by telling the writer to read the offer line.
+// The writer is no longer shown the offer line at all, because being shown it made the
+// writer restate it: the echo gate went from 1 rejection in 20 to 5 in 20 across two
+// identical cohorts.
+//
+// THE PROTECTION SURVIVES because the REASON carries the same information. It is derived
+// from the client's own documents and says what the event leaves this company needing, so a
+// question aimed at the reason is aimed at something the sender came to offer.
+describe('RULE 4: the closing question must ask about the consequence the reason names', () => {
   it('states the rule', () => {
-    expect(prompt).toContain(
-      'THE QUESTION MUST ASK ABOUT SOMETHING THE APPROVED OFFER LINE CAN ACTUALLY ANSWER',
-    )
+    expect(prompt).toContain('THE QUESTION MUST ASK ABOUT THE CONSEQUENCE THE REASON NAMES')
+  })
+
+  it('and no longer asks the writer to read an offer line it cannot see', () => {
+    expect(prompt).not.toMatch(/offer line/i)
   })
 
   it('says why the existing aim test cannot catch it', () => {

@@ -20,7 +20,7 @@ import {
 import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
 import { rankCandidates, byTriggerPositionOnly, type RankedCandidate } from './rank-candidates'
 import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
-import { fleschKincaidGrade } from '@/lib/style/reading-grade'
+import { fleschKincaidGrade, MAX_READING_GRADE } from '@/lib/style/reading-grade'
 import { stripProperNouns } from '@/lib/style/sentence-frames'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { TRIGGER_REASON_MAX_WORDS, TRIGGER_REASON_MAX_GRADE } from '@/agents/trigger-evidence-gate'
@@ -726,6 +726,12 @@ const SHARING_VERBS = /\b(shar(?:ed|es|ing)|reshar(?:e|ed|es|ing)|re-shar(?:e|ed
  * what happens next: a trigger reason is regenerated, and this one is dropped, because
  * there is a working fallback here and none there.
  */
+/**
+ * The prospect reason's grade ceiling: the one emails 2 to 4 already use, not Email 1's.
+ * See the comment in findProspectReasonFaults for why the units differ.
+ */
+export const PROSPECT_REASON_MAX_GRADE = MAX_READING_GRADE
+
 export function findProspectReasonFaults(reason: string): string[] {
   const faults: string[] = []
   const words = reason.trim().split(/\s+/).filter(Boolean).length
@@ -740,10 +746,23 @@ export function findProspectReasonFaults(reason: string): string[] {
   // THE CEILING IS UNCHANGED, and so are the word cap and the claims check above: those run
   // on the sentence as written, because a name makes a sentence no longer and asserts
   // nothing about the reader's time.
+  //
+  // AGAINST 8, NOT 6, AND IT IS NOT A NEW NUMBER. MAX_READING_GRADE is the ceiling emails 2
+  // to 4 already carry; 6 is Email 1's, measured for a whole email body rather than for one
+  // dense sentence. Flesch-Kincaid on a single 13-word sentence runs structurally higher
+  // than on a body full of short function words, so holding one sentence to the body's
+  // ceiling was applying a number to a different unit than the one it was measured for.
+  //
+  // MEASURED: with names already removed, 11 of 20 reasons were dropped at 6.7 to 9.3, three
+  // of them between 6.7 and 6.8. Every drop fell back to the trigger's generic reason, so
+  // line two became identical for everyone matching the same trigger.
+  //
+  // A TRIGGER'S REASON STAYS AT 6. It is generic by definition, it carries no names, and it
+  // is written once per client where a rewrite costs one call.
   const gradedText = stripProperNouns(reason)
   const grade = fleschKincaidGrade(gradedText)
-  if (grade && grade.grade > TRIGGER_REASON_MAX_GRADE) {
-    faults.push(`reading grade ${grade.grade.toFixed(1)} with names removed, over ${TRIGGER_REASON_MAX_GRADE}`)
+  if (grade && grade.grade > PROSPECT_REASON_MAX_GRADE) {
+    faults.push(`reading grade ${grade.grade.toFixed(1)} with names removed, over ${PROSPECT_REASON_MAX_GRADE}`)
   }
   for (const h of findAssumedCapacityClaims(reason)) faults.push(`${h.kind}: "${h.matched}"`)
   // THE VERDICT CHECK, which this function CLAIMED parity on and did not run. A reason

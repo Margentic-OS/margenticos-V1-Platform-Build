@@ -198,6 +198,7 @@ export async function storeResearchResult(
       selection_reason:      synthesis.selection_reason || null,
       selection_basis:       synthesis.selection_basis,
       prospect_reason:       synthesis.prospect_reason || null,
+      prospect_reason_source: synthesis.prospect_reason_source,
       supporting_candidate_id: synthesis.supporting_candidate_id,
       // Omitted entirely when null so the column's own DEFAULT now() applies. Passing
       // null explicitly would violate NOT NULL.
@@ -839,6 +840,7 @@ export async function runProspectResearchAgentV2({
       selection_reason:      synthesis.selection_reason || null,
       selection_basis:       synthesis.selection_basis,
       prospect_reason:       synthesis.prospect_reason || null,
+      prospect_reason_source: synthesis.prospect_reason_source,
       supporting_candidate_id: synthesis.supporting_candidate_id,
       trigger_readability:   synthesis.trigger_readability,
       demotion_reason:       synthesis.demotion_reason,

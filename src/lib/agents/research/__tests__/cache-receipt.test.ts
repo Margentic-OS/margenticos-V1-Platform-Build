@@ -61,7 +61,6 @@ describe.runIf(process.env.RUN_CACHE_PROBE)('prompt cache receipt (live API)', (
     const assignment = buildWriterAssignment({
       clientName: CLIENT_CTX.clientName,
       buyer: 'Operations Lead',
-      p3: 'We run outbound so the calls arrive without you touching it.',
       cta: 'Is this a gap you are looking to close?',
     })
 

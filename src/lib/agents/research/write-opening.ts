@@ -243,9 +243,9 @@ export interface OpeningResult {
 // they define the target better than any description of it would.
 
 /**
- * The per-run assignment: who the client is, the fixed offer line, and the approved
+ * The per-run assignment: who the client is, the prospect's reason, and the approved
  * closing question for this variant. Goes at the TOP of the user message, above the
- * findings, because the prompt tells the writer to read the offer line before the findings.
+ * findings, because the prompt tells the writer to read the reason before the findings.
  *
  * WHY THIS IS NOT IN THE SYSTEM PROMPT ANY MORE. Caching is a prefix match. clientName sat
  * on line 1 of the system prompt and p3 on line 22, so on a ~9,300-token prompt only the
@@ -266,7 +266,6 @@ export function buildWriterAssignment(params: {
    * would miss the cache on every writer call in the system.
    */
   buyer: string
-  p3: string
   cta: string
   /**
    * Why what was found gives THIS prospect a reason to want what the sender offers, from
@@ -277,7 +276,7 @@ export function buildWriterAssignment(params: {
   /** A second event that strengthens the same reason. Optional, and usually absent. */
   supportingEvent?: string | null
 }): string {
-  // THE REASON GOES FIRST, above the offer line, because the instructions tell the writer
+  // THE REASON GOES FIRST, and it is now the only target in the block, because the
   // to read it first. The order of this block and the order of the prompt have to agree or
   // one of them is a lie about the other.
   const reason = params.prospectReason?.trim()
@@ -292,11 +291,6 @@ You are writing for: ${params.clientName}
 
 Who you are writing to: ${params.buyer}
 ${reason}${supporting}
-THE OFFER LINE (this is the fixed middle paragraph referred to in your instructions. It is
-the client's approved positioning. Reproduce it exactly, do not alter or paraphrase it):
-
-  ${params.p3}
-
 The approved closing question for this particular variant is "${params.cta}", and it shows
 register and length. It is not an instruction to reuse it.`
 }
@@ -321,8 +315,7 @@ Here is the email, exactly as it will send. You write the three bracketed parts:
 
   [YOUR BRIDGE GOES HERE]
 
-  [THE OFFER LINE — given verbatim as "THE OFFER LINE" in the ASSIGNMENT block above the
-   findings. You do not write this paragraph. It ships exactly as given.]
+  [A FIXED PARAGRAPH YOU DO NOT WRITE AND ARE NOT SHOWN. It is added after you finish.]
 
   [YOUR CLOSING QUESTION GOES HERE]
 
@@ -330,8 +323,9 @@ The observation and the bridge are SEPARATE PARAGRAPHS with a blank line between
 They are not one paragraph and they are never run together. Each one gets its own line of
 white space, which is what stops you cramming two jobs into one sentence.
 
-The offer line in the middle is FIXED. It is the client's positioning and what they
-approved. Do not alter it, do not paraphrase it, do not work around it.
+The paragraph in the middle is FIXED and you are not shown it. Do not guess at it, do not
+write a version of it, and do not write anything whose job it would do. You write three
+things: the observation, the bridge and the closing question. Nothing else.
 
 START BY READING THE REASON, BEFORE YOU LOOK AT ANYTHING ELSE.
 
@@ -341,10 +335,6 @@ sender offers. THAT REASON IS YOUR TARGET. Everything you write aims at it.
 It holds for anyone the observation describes. It is not a claim about how this reader runs
 their business, who does their selling, or how busy they are. You do not know any of that,
 and a stranger told how their week goes stops reading.
-
-THE OFFER LINE IS WHAT THE EMAIL LEADS INTO, NOT WHAT YOU AIM AT. Do not read it and work
-backwards to a problem this reader must be having. It is fixed, it ships as written, and
-your job is to make the two lines above it earn it.
 
 YOUR JOB IS THREE THINGS.
 
@@ -393,9 +383,8 @@ not manufacture one in order to have something to name. Nothing in these instruc
 requires a bridge to find a gap, and an absence asserted against an observation that does
 not support it is worse than no personalisation at all.
 
-Third, the closing question. It goes where [YOUR CLOSING QUESTION GOES HERE] sits, after the offer
-line. It is the obvious thing to ask THIS person once they have read the observation, the
-bridge and the offer line above it. One question, ending in a question mark. Low
+Third, the closing question. It goes where [YOUR CLOSING QUESTION GOES HERE] sits, last. It
+is the obvious thing to ask THIS person once they have read the observation and the bridge. One question, ending in a question mark. Low
 commitment and easy to answer. No meeting request, no calendar link, no "worth a call".
 
 WRITE THE CLOSING QUESTION. DO NOT PICK ONE.
@@ -521,16 +510,12 @@ That is not "you have no posts". It is "your posts are for somebody else's compa
 is worse, because it implies he chose that. Never tell the reader what they have decided
 to put first.
 
-THE CONSEQUENCE MUST NOT TURN THE OFFER LINE INTO A DIFFERENT JOB.
+THE CONSEQUENCE MUST NOT TURN THE REASON INTO A DIFFERENT NEED.
 
-Go back to the offer line. Work out whether it promises to GENERATE new conversations or to
-follow up on ones that already exist. If it generates, then the consequence you name must
-not be one that only an audience they already have could answer. Naming a gap about an
-audience they already have turns the offer line into an offer to chase their own followers,
-which is a different job and not the one on the page.
-
-This holds for any client whose offer line generates rather than follows up. It is not a
-fact about one product, it is a fact about what the paragraph underneath your bridge says.
+Go back to the REASON. It says what the event leaves this company needing. The consequence
+you name has to be that need and not a neighbouring one: a reason about finding people they
+have never spoken to is not answered by a gap about following up people they already know,
+and naming the second promises a different job from the one the reason describes.
 
 Never name a gap about converting, following up with, or re-engaging an audience they
 already have.
@@ -655,8 +640,8 @@ Every shape below is ONE sentence, and so is every bridge you write.
 
   WHAT A WORKING THING DOES NOT REACH. The observation has already conceded what works. The
   bridge names the one thing it does not reach. This one lands on people who already know
-  the work, which is only permitted where the offer line follows up rather than generates,
-  as set out above.
+  the work, which is only permitted where the REASON is about people they have already
+  reached rather than people they have not, as set out above.
     A wedding photographer: "People who like your wedding photos rarely ask for your prices."
 
 There are more shapes than these four, and every one of them is a single sentence: a plain
@@ -887,8 +872,8 @@ Three fixes at once: the subject is the reader, the compressed phrase became the
 it was hiding, and "the diary" became the twenty stalls around yours.
 
 
-THE AIM TEST, run it on every draft. Read your observation, your bridge, the offer line
-and your question as one message. If the reader could answer that question with "that is
+THE AIM TEST, run it on every draft. Read your observation, your bridge and your question
+as one message. If the reader could answer that question with "that is
 not quite my problem", either the bridge aimed at the wrong gap or the question asks about
 something the bridge never raised. Rewrite whichever is wrong.
 
@@ -913,25 +898,25 @@ the observation is pointing back, and NEVER POINT BACK rejects it.
 THE AIM TEST HAS A SECOND HALF, AND THE FIRST HALF CANNOT SEE IT.
 
 Everything above checks the question against the BRIDGE. A question can pass that completely,
-match the bridge exactly, and still ask about something THE OFFER LINE CANNOT DO. Reading the
+match the bridge exactly, and still ask about something THE REASON DOES NOT NAME. Reading the
 bridge and the question together will never surface that, because both of them agree.
 
-THE QUESTION MUST ASK ABOUT SOMETHING THE APPROVED OFFER LINE CAN ACTUALLY ANSWER.
+THE QUESTION MUST ASK ABOUT THE CONSEQUENCE THE REASON NAMES.
 
-Read the offer line again and work out what it does. Then read your question and ask whether
-a yes to it is something that offer could act on. If the answer is no, the email has just
-promised something it does not do.
+Read the REASON again. Then read your question and ask whether a yes to it is that same
+need. If it is a different need, however reasonable, the email has just promised something
+the sender did not come to offer.
 
 That is the worst reply the email can earn. Not silence: interest, in the wrong thing. The
 sender has to open by withdrawing what the question offered, and the prospect learns the
 personalisation was aimed at a job nobody is selling.
 
-IF THE BRIDGE NAMES A GAP THE OFFER CANNOT CLOSE, THE BRIDGE IS AIMED WRONG, AND SO IS THE
+IF THE BRIDGE NAMES A GAP THE REASON DOES NOT NAME, THE BRIDGE IS AIMED WRONG, AND SO IS THE
 QUESTION THAT FOLLOWS FROM IT. Rewrite the bridge first. A question repaired on its own then
 disagrees with the paragraph above it, which is the failure the first half of this test
 catches.
 
-SO RUN IT TWICE, EVERY DRAFT. Bridge against question. Then question against the offer line.
+SO RUN IT TWICE, EVERY DRAFT. Bridge against question. Then question against the REASON.
 A draft that passes the first and fails the second is the most personal email in the batch,
 asking for the wrong thing.
 
@@ -973,7 +958,7 @@ CONSTRAINTS, and there are only four:
   text: the email already greets them by name on the line above.
   Use only what is in the findings below. Invent nothing, and do not soften a fact into
   something the findings do not support.
-  Do not pitch and do not name the service. The offer line does that.
+  Do not pitch and do not name the service. The fixed paragraph does that.
 
 THE SUBJECT LINE. YOU WRITE IT, AND YOU WRITE IT LAST.
 
@@ -2119,7 +2104,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     ? params.candidates.find(c => c.id === params.supportingCandidateId)?.observation ?? null
     : null
   const assignment = buildWriterAssignment({
-    clientName: params.clientName, buyer: params.buyer, p3: params.p3, cta: params.cta,
+    clientName: params.clientName, buyer: params.buyer, cta: params.cta,
     prospectReason: params.prospectReason ?? null,
     supportingEvent,
   })
@@ -2144,7 +2129,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       ? `\n\n## Closing questions already taken in this batch\n\nDo not use any of these, and do not reword one slightly:\n${taken.map(q => `- ${q}`).join('\n')}`
       : ''
 
-    // Assignment first: the prompt instructs the writer to read the offer line BEFORE the
+    // Assignment first: the prompt instructs the writer to read the reason BEFORE the
     // findings, so it has to physically precede them.
     const user = feedback
       ? `${assignment}\n\n## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the five labelled blocks.`
