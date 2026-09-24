@@ -217,6 +217,9 @@ async function main() {
       apiKey,
       clientName,
       buyer: buyer.description,
+      // Same value composed into email1Body two lines above, which is where the writer
+      // reads the name it must not reuse.
+      prospectFirstName: (p.first_name ?? null) as string | null,
       email1Body,
       // The variant's approved offer line, for the narrow echo gate. Read from the same
       // frame composition reads, so the gate sees the line the prospect actually got.

@@ -437,6 +437,9 @@ export async function produceOpening({
     apiKey,
     clientName,
     buyer: buyer.description,
+    // The name the gate refuses to see in the prose. THE SAME VALUE that was substituted
+    // into the email 1 body above, which is where the writer learns it.
+    prospectFirstName: ctx.first_name ?? null,
     email1Body,
     offerLine: frame.p3,
     findings: buildFindingsBlock(candidates, {

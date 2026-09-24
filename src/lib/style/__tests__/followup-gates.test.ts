@@ -34,6 +34,9 @@ const base = {
   position: 2 as const,
   reference: REFERENCE,
   companyName: 'Northgate Fabrication',
+  // Null by default so the existing fixtures are unaffected by the third-person gate; the
+  // tests that are ABOUT that gate pass a name explicitly.
+  prospectFirstName: null as string | null,
   bodyWordCount: 60,
   minWords: 30,
   maxWords: 85,
@@ -60,6 +63,82 @@ function asParagraphs(prose: string): string {
 
 const pass = (prose: string, over: Partial<typeof base> = {}) =>
   checkFollowupGates({ prose: asParagraphs(prose), ...base, ...over })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE RECIPIENT IS NEVER NAMED IN THE THIRD PERSON.
+//
+// Measured on the runs of 2026-09-24: two follow-ups wrote about the reader by name. Email
+// 1 has forbidden this since it had a writer; follow-ups never inherited it, because the
+// name was not in scope at the call site at all.
+//
+// Fixtures are industry-neutral and the names are ordinary given names, not any prospect's.
+describe('the third-person gate', () => {
+  const withName = (prose: string, name: string, over: Partial<typeof base> = {}) =>
+    checkFollowupGates({ prose: asParagraphs(prose), ...base, prospectFirstName: name, ...over })
+  const thirdPerson = (fs: string[]) => fs.filter(f => f.includes('third person'))
+
+  it('rejects the reader named mid-sentence', () => {
+    const f = thirdPerson(withName(
+      'You took on the second unit in March. That is the month Andrea stops doing the prospecting herself.\n\nWorth a look?',
+      'Andrea',
+    ))
+    expect(f).toHaveLength(1)
+    expect(f[0]).toContain('Andrea')
+    expect(f[0]).toContain('Write to them as "you"')
+  })
+
+  it('accepts the same copy written in the second person', () => {
+    // POSITIVE CONTROL. Without it the test above would pass on a gate that rejects
+    // everything, and one rejection here discards BOTH follow-ups.
+    expect(thirdPerson(withName(
+      'You took on the second unit in March. That is the month you stop doing the prospecting yourself.\n\nWorth a look?',
+      'Andrea',
+    ))).toEqual([])
+  })
+
+  it('does NOT reject an ordinary word that happens to be the reader\'s name', () => {
+    // A first name is often a common English word. A bare word-boundary match would reject
+    // correct copy, and the cost of a false positive here is both follow-ups.
+    for (const [name, prose] of [
+      ['Will', 'You took on the second unit in March. Nobody will own the quiet month.\n\nWorth a look?'],
+      ['Bill', 'You took on the second unit in March. The bill for that arrives later.\n\nWorth a look?'],
+      ['Mark', 'You took on the second unit in March. That is the mark of a firm growing fast.\n\nWorth a look?'],
+      ['Rose', 'You took on the second unit in March. Output rose through the summer.\n\nWorth a look?'],
+    ] as const) {
+      expect(thirdPerson(withName(prose, name)), `${name}: ${prose}`).toEqual([])
+    }
+  })
+
+  it('STILL rejects those names when they are used as names', () => {
+    // The other half of the same claim: the exemption is about CASE, not about the word.
+    expect(thirdPerson(withName(
+      'You took on the second unit in March. The quiet month is what Will feels first.\n\nWorth a look?',
+      'Will',
+    ))).toHaveLength(1)
+  })
+
+  it('does not fire on a sentence-initial capital, where the capital says nothing', () => {
+    expect(thirdPerson(withName(
+      'You took on the second unit in March. Will that month stay quiet?\n\nWorth a look?',
+      'Will',
+    ))).toEqual([])
+  })
+
+  it('leaves the callback gate an alternative when the firm is named after the reader', () => {
+    // THE DORMANT CONFLICT. The callback gate accepts copy that names the COMPANY. If a
+    // company form contains the first name, both gates would fire on the same sentence and
+    // there would be no legal move. The company forms are cut out before this gate reads.
+    const prose = 'Hartley Fabrication took on a second unit in March.\n\nThat changes what a quiet month costs.\n\nWorth a look?'
+    const f = withName(prose, 'Hartley', { companyName: 'Hartley Fabrication' })
+    expect(thirdPerson(f)).toEqual([])
+    expect(f.filter(x => x.includes('opens without addressing the reader'))).toEqual([])
+  })
+
+  it('does nothing when no name is supplied, and nothing for a one-letter name', () => {
+    expect(thirdPerson(withName('Andrea took the unit on in March.\n\nIt changes the month.\n\nWorth a look?', ''))).toEqual([])
+    expect(thirdPerson(withName('A took the unit on in March.\n\nIt changes the month.\n\nWorth a look?', 'A'))).toEqual([])
+  })
+})
 
 describe('the callback gate: the opening sentence is about this reader', () => {
   it('accepts an opening that says "you"', () => {

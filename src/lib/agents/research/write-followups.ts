@@ -223,6 +223,14 @@ One question mark per email, and it is the closing question.
 
 Use only what is in the findings and in email 1. Invent nothing.
 
+WRITE TO THEM, as "you" or by naming their company. NEVER WRITE THEIR FIRST NAME in the
+text. You are shown email 1 with the greeting already filled in with their real name, and
+that is the one word in it you must not copy: the email greets them by name on the line
+above, and a second use reads as talking about them rather than to them.
+
+THE SAME INSTRUCTION EMAIL 1'S WRITER HAS, and it is here for the same reason it is there.
+The gate below rejects it either way, and a rejection costs BOTH follow-ups.
+
 No figure from their record: no revenue, no headcount, no funding, no money amount. Qualify
 by role, stage or situation instead. A wrong number reads as a database lookup.
 
@@ -288,6 +296,11 @@ export interface WriteFollowupsParams {
   findingsEvidence: string
   reference: FollowupReference
   prospectId: string
+  /**
+   * The prospect's first name, for the third-person gate. REQUIRED, null when unknown.
+   * See FollowupGateInput.prospectFirstName for why it is not optional.
+   */
+  prospectFirstName: string | null
 }
 
 /** Splits the two labelled blocks. Absent means empty string, never undefined. */
@@ -481,12 +494,14 @@ function gate(
   const f2 = checkFollowupGates({
     prose: prose2, position: 2, reference: params.reference.reference2, offerLine: params.offerLine,
     companyName: params.reference.companyName, findingsEvidence: params.findingsEvidence,
+    prospectFirstName: params.prospectFirstName,
     bodyWordCount: words2,
     minWords: EMAIL_WORD_LIMITS.email2MinWords, maxWords: EMAIL_WORD_LIMITS.email2MaxWords,
   })
   const f3 = checkFollowupGates({
     prose: prose3, position: 3, reference: params.reference.reference3, offerLine: params.offerLine,
     companyName: params.reference.companyName, findingsEvidence: params.findingsEvidence,
+    prospectFirstName: params.prospectFirstName,
     bodyWordCount: words3,
     minWords: EMAIL_WORD_LIMITS.email3MinWords, maxWords: EMAIL_WORD_LIMITS.email3MaxWords,
   })

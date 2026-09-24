@@ -394,6 +394,18 @@ export interface FollowupGateInput {
   offerLine?: string | null
   /** The prospect's company name, which counts as addressing them by name. */
   companyName?: string | null
+  /**
+   * The prospect's own first name, so the gate can refuse copy that uses it in the third
+   * person. REQUIRED, and null is an explicit value rather than an omission.
+   *
+   * NOT OPTIONAL, deliberately, and this is the one design decision in the field. Email 1's
+   * equivalent is a required positional parameter (write-opening.ts:1371), so no caller can
+   * forget it and the compiler says so. An optional field here would let a third call site
+   * arrive later, compile, and silently skip the check, which is this codebase's most
+   * repeated failure: a gate that exists and never runs reads on every report as a gate that
+   * found nothing. Every caller that genuinely has no name passes null and says so.
+   */
+  prospectFirstName: string | null
   /** The composed body's word count, measured the way composition measures it. */
   bodyWordCount: number
   /** The band for this position, from EMAIL_WORD_LIMITS. */
@@ -410,7 +422,7 @@ export interface FollowupGateInput {
  */
 export function checkFollowupGates(input: FollowupGateInput): string[] {
   const failures: string[] = []
-  const { prose, position, reference, companyName, bodyWordCount, minWords, maxWords } = input
+  const { prose, position, reference, companyName, prospectFirstName, bodyWordCount, minWords, maxWords } = input
   const offerLine = input.offerLine ?? null
   const label = `email ${position}`
 
@@ -431,6 +443,58 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
   // exist here.
   for (const v of checkActivityVerdict(text, '', { prospectId: `followup-${position}` }, 'block')) {
     failures.push(`${label}: ${v}`)
+  }
+
+  // ── THE RECIPIENT IS NEVER NAMED IN THE THIRD PERSON ───────────────────────
+  //
+  // Measured on the runs of 2026-09-24: two follow-ups wrote about the reader by name,
+  // "<first name> stops doing the prospecting herself" and "<first name> does not need to
+  // shift focus". Email 1 has forbidden this since it had a writer; follow-ups never
+  // inherited it, because the name was not in scope at this call site at all.
+  //
+  // WHY THE MODEL DOES IT, which is the part worth recording: the follow-up writer is handed
+  // Email 1 with the merge tag ALREADY RESOLVED to the real name (produce-opening.ts), so it
+  // reads "Andrea," as a literal greeting and reuses it as an ordinary proper noun. It is
+  // imitating its input correctly. The defence is the gate, not a hope.
+  //
+  // NAMING THE COMPANY STAYS LEGAL. That is the callback gate's own alternative a few lines
+  // below, and the two must not contradict each other.
+  //
+  // THE ORDINARY-WORD EXEMPTION. A first name is often a common English word: Mark, Grant,
+  // Bill, Will, Rose, May, Art, Dawn, Drew, Hope. A bare word-boundary match on those would
+  // reject correct copy for saying "will" or "the bill", which is the expensive direction:
+  // one failure here discards BOTH follow-ups. So the match requires the name to be
+  // CAPITALISED mid-sentence, which is what a proper noun looks like and what an ordinary
+  // word does not, and the check is skipped at the start of a sentence where the capital
+  // carries no information.
+  if (prospectFirstName && prospectFirstName.trim().length > 1) {
+    const name = prospectFirstName.trim()
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // Capitalised as written, and NOT at the start of a sentence: preceded by a word
+    // character or a space that is not the first character after terminal punctuation.
+    const thirdPerson = new RegExp(`(?<![.!?]\\s)(?<!^)\\b${escaped}\\b`, 'g')
+    // THE CALLBACK GATE'S ALTERNATIVE MUST STAY AVAILABLE. A few lines below, copy passes
+    // by naming the company. If a company form CONTAINS the first name, as in a firm named
+    // after its founder, that same sentence would trip this gate, and the two gates would
+    // demand opposite things with no legal move between them. The company forms are
+    // therefore cut out of the text before this gate reads it.
+    const companyForms = companyNameForms(companyName)
+    const withoutCompany = companyForms.reduce(
+      (acc, form) => acc.split(form).join(' '.repeat(form.length)),
+      text,
+    )
+    const hits = [...withoutCompany.matchAll(thirdPerson)].filter(m => {
+      const matched = withoutCompany.slice(m.index ?? 0, (m.index ?? 0) + name.length)
+      // Case-SENSITIVE on the first letter: "Will" is a name, "will" is a verb.
+      return matched[0] === name[0].toUpperCase()
+    })
+    if (hits.length > 0) {
+      const sentence = sentencesOf(text).find(x => new RegExp(`\\b${escaped}\\b`).test(x)) ?? text
+      failures.push(
+        `${label} names the reader in the third person ("${name}"): ${quote(sentence)}. ` +
+        'Write to them as "you", or name their company. The email already greets them by name.',
+      )
+    }
   }
 
   const sentences = sentencesOf(text)
