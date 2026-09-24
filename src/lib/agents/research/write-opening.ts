@@ -1551,9 +1551,25 @@ export function checkOpeningGates(
     }
   }
 
-  // ── Report-only observation, per part. Neither of the two checks below can reject
-  // anything on this commit: the finite-verb gate returns an empty array while its mode
-  // constant says 'report', and the readability score is logged and never read.
+  // ── Per-part checks. MIXED: some of these BLOCK and some only report, and which is
+  // which is stated at each one rather than here, because this heading has been wrong twice.
+  //
+  // It read "neither of the two checks below can reject anything on this commit: the
+  // finite-verb gate returns an empty array while its mode constant says 'report', and the
+  // readability score is logged and never read." Both halves of the second clause went
+  // stale. Sentence length is GATED, at WRITER_MAX_SENTENCE_WORDS, and it is the single most
+  // common gate failure in the system; the activity-verdict check below is 'block' too.
+  //
+  // Verified 2026-09-24 against the constants themselves rather than against this comment:
+  //   FINITE_VERB_GATE_MODE      'report'   finite-verb.ts:86
+  //   OPENING_REFERENCE_MODE     'report'   opening-reference.ts:157
+  //   ACTIVITY_VERDICT_MODE      'block'    activity-verdict.ts:63
+  //   readability sentence length GATED     below, no mode constant
+  //
+  // A COMMENT THAT CALLS A BLOCKING GATE REPORT-ONLY IS WORSE THAN NO COMMENT. It is read
+  // when someone is deciding whether a rejection could have come from here, and it sends
+  // them to look somewhere else. Whoever edits a mode constant edits this block in the same
+  // commit, or deletes the list rather than leaving it to rot.
   //
   // PER PART, NOT ON THE COMBINED BLOCK. Every gate above runs on `opening`, which is the
   // observation, the bridge and the question joined together. That is right for a word cap
@@ -1565,9 +1581,11 @@ export function checkOpeningGates(
   // Guarded on `params` because it is optional: tests call this function with the parts
   // undefined, and with nothing to attribute a hit to there is nothing worth logging.
   if (params) {
-    // POINTING BACK INSTEAD OF NAMING THE THING AGAIN. Report-only on this commit: the
-    // function returns an empty array while OPENING_REFERENCE_MODE says 'report', and logs
-    // every hit with the prospect, the part and the sentence.
+    // POINTING BACK INSTEAD OF NAMING THE THING AGAIN. REPORTS, does not block: the
+    // function returns an empty array while OPENING_REFERENCE_MODE is 'report'
+    // (opening-reference.ts:157), and logs every hit with the prospect, the part and the
+    // sentence. Still true when checked on 2026-09-24, unlike its two neighbours; the
+    // phrase "on this commit" is gone because that is the wording that rotted in both.
     //
     // RUN ON THE PARTS AND NOT ON `opening`, for the reason the block below already gives
     // and for a second one specific to this check. The parts are what the detector's
@@ -1586,10 +1604,13 @@ export function checkOpeningGates(
     // brief forbids both in five separate places and nothing has ever checked either, so
     // the same fault has reached real prospects run after run with every gate green.
     //
-    // REPORT-ONLY on this commit: returns an empty array while ACTIVITY_VERDICT_MODE says
-    // 'report'. Measured over the last four export runs of the pinned cohort before being
-    // wired here, 24 hits across 246 attempts, because a detector of this kind is only
-    // worth gating on once its rate on the PERMITTED shape is known. See the module.
+    // THIS BLOCKS. ACTIVITY_VERDICT_MODE is 'block' (activity-verdict.ts:63), flipped on
+    // 2026-09-16, and this comment said 'report' for eight days after that.
+    //
+    // It shipped in report mode first, deliberately: 24 hits across 246 attempts over four
+    // export runs of the pinned cohort, because a detector of this kind is only worth gating
+    // on once its rate on the PERMITTED shape is known. Two of those hits had reached real
+    // prospects and both were genuine violations, which is what made the flip safe.
     //
     // BOTH PARTS, on the ban's own terms: "THE ABSENCE BAN. IT COVERS THE OBSERVATION AND
     // THE BRIDGE, BOTH." Twenty of those 24 hits were in the observation.

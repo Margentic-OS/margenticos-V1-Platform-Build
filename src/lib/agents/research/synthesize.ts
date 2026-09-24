@@ -695,9 +695,26 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
     inference_direction,
     readability,
     demoted,
-    rejection_reason: demotionNotes.length > 0
-      ? demotionNotes.join(' ')
-      : modelRejection,
+    // BOTH REASONS, NEVER ONE INSTEAD OF THE OTHER. Changed 2026-09-24.
+    //
+    // This read `demotionNotes.length > 0 ? demotionNotes.join(' ') : modelRejection`, so a
+    // candidate that the MODEL rejected and that our gates then demoted kept only our note.
+    // The model's own sentence was overwritten and never stored anywhere else, and that is
+    // the sentence that says why the observation was weak as an observation. Ours only says
+    // which gate it tripped.
+    //
+    // The two answer different questions and a reader of the candidate list needs both: the
+    // demotion note says what the code did, the model's reason says what was wrong with the
+    // material. Losing the second made every demoted candidate look like a formatting
+    // casualty when some of them were genuinely poor findings.
+    //
+    // LABELLED, because they now sit in one string and the demotion notes already carry
+    // their own labels. Unlabelled concatenation would read as one continuous verdict from
+    // one author.
+    rejection_reason: [
+      modelRejection ? `Model: ${modelRejection}` : null,
+      ...demotionNotes,
+    ].filter(Boolean).join(' ') || null,
   }
 }
 
