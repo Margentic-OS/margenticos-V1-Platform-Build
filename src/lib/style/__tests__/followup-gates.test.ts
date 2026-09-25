@@ -44,6 +44,10 @@ const base = {
   bodyWordCount: 60,
   minWords: 30,
   maxWords: 85,
+  // The corpus the traceability gate reads. Carries the proper nouns the existing fixtures
+  // use, so those tests keep testing what they were written to test rather than all failing
+  // on an untraceable company name. Tests ABOUT traceability pass their own.
+  findingsEvidence: '1. Northgate Fabrication added a second unit in March.\n   source: website',
 }
 
 /**
@@ -714,5 +718,62 @@ describe("the reference's closing question is not an echo", () => {
       prose: 'You took the unit on.\n\nThe bench is bigger than it was and the diary has not caught up yet.',
     })
     expect(f.some(x => x.includes('reproduces'))).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NAMES MUST COME FROM THE FINDINGS. Added 2026-09-25.
+//
+// findingsEvidence was declared on this input, documented as what the traceability check
+// reads, and NOTHING READ IT. The doc on datedCandidates already cited it by name as this
+// file's own worked example of an optional corpus being a gate that silently does not run.
+//
+// What it cost, measured on the 104: a follow-up shipped "Vivian and Yomal keep delivering".
+// "Yomal" appears zero times in that prospect's entire research record. A fabricated
+// colleague, named to a stranger, in copy one step from upload.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('a name the findings do not carry is rejected', () => {
+  const CORPUS = [
+    '1. Vivian Sierra is listed as Director of Business Operations on the company page.',
+    '   source: apollo | enrichment record',
+    '2. The firm published three articles in September.',
+    '   source: website',
+  ].join('\n')
+
+  it('REJECTS an invented colleague, and names it', () => {
+    const f = pass('Vivian and Yomal keep delivering while you are in interviews. Worth a look?', {
+      findingsEvidence: CORPUS,
+    })
+    expect(f.some(x => x.includes('Yomal'))).toBe(true)
+    expect(f.some(x => x.includes('claims not traceable to any finding'))).toBe(true)
+  })
+
+  it('CONTROL: a name the findings DO carry passes', () => {
+    // Vivian is in the corpus. Asserted separately so the rejection above is about Yomal
+    // alone and not about the gate rejecting every capitalised word.
+    const f = pass('Vivian keeps delivering while you are in interviews. Worth a look?', {
+      findingsEvidence: CORPUS,
+    })
+    expect(f.some(x => x.includes('Vivian'))).toBe(false)
+  })
+
+  it('CONTROL: ordinary sentence-initial capitals are not names', () => {
+    expect(
+      pass('Delivery keeps moving while you are in interviews. That gap costs a quarter. Worth a look?', {
+        findingsEvidence: CORPUS,
+      }),
+    ).toEqual([])
+  })
+
+  it('CONTROL: the numbers half does NOT run here, so ordinary arithmetic survives', () => {
+    // Email 1 checks numbers against the corpus. A follow-up argues FROM the fact and reaches
+    // for arithmetic the corpus never carried. Both existing tests for this still pass; this
+    // one states the reason next to the new gate.
+    expect(
+      pass('You took the second unit on 13 months ago. The bench is bigger. Worth a look?', {
+        findingsEvidence: CORPUS,
+      }),
+    ).toEqual([])
   })
 })

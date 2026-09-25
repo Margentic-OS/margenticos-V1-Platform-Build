@@ -28,6 +28,7 @@ import {
   findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, isSenderSide,
 } from './assumed-capacity'
 import { findAudienceContactClaims, audienceContactFeedback } from './audience-contact'
+import { untraceableNames } from '@/lib/agents/research/write-opening'
 import { logger } from '@/lib/logger'
 
 /** Lowercased, punctuation-stripped, single-spaced. For comparing prose to prose. */
@@ -377,8 +378,15 @@ export interface FollowupGateInput {
   /**
    * The evidence corpus the traceability and firmographic checks read. Same string the
    * Email 1 gates read, so a figure legal there is legal here.
+   *
+   * REQUIRED SINCE 2026-09-25, and it was optional before. This field was declared, was
+   * documented as what the traceability check reads, and NOTHING READ IT. The doc on
+   * datedCandidates below already cited it by name as "this file's own worked example" of an
+   * optional corpus being a gate that silently does not run, and it stayed optional anyway.
+   * A follow-up shipped "Vivian and Yomal keep delivering", inventing a colleague, while
+   * Email 1 had rejected untraceable names since it had a writer.
    */
-  findingsEvidence?: string
+  findingsEvidence: string
   /** The written middle prose for this email. */
   prose: string
   /** Which email this is, for the message. */
@@ -438,7 +446,7 @@ export interface FollowupGateInput {
  */
 export function checkFollowupGates(input: FollowupGateInput): string[] {
   const failures: string[] = []
-  const { prose, position, reference, companyName, prospectFirstName, datedCandidates, now, bodyWordCount, minWords, maxWords } = input
+  const { prose, position, reference, companyName, prospectFirstName, datedCandidates, now, bodyWordCount, minWords, maxWords, findingsEvidence } = input
   const offerLine = input.offerLine ?? null
   const label = `email ${position}`
 
@@ -459,6 +467,25 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
   // exist here.
   for (const v of checkActivityVerdict(text, '', { prospectId: `followup-${position}` }, 'block')) {
     failures.push(`${label}: ${v}`)
+  }
+
+  // ── NAMES AND NUMBERS MUST COME FROM THE FINDINGS ──────────────────────────
+  //
+  // THE SAME FUNCTION EMAIL 1 USES, imported rather than restated, so a name legal in the
+  // opening is legal here and the two cannot drift. Email 1 has rejected untraceable names
+  // since it had a writer; follow-ups never inherited it, and the corpus they needed was
+  // being passed to this function the whole time with nothing reading it.
+  //
+  // WHAT IT COST, measured 2026-09-25 on the 104: a follow-up shipped "Vivian and Yomal keep
+  // delivering". "Yomal" appears zero times in that prospect's entire research record. A
+  // fabricated colleague, named to a stranger, in copy one step from being uploaded.
+  // NAMES ONLY, not the numbers half Email 1 also runs. Email 1's observation quotes its
+  // numbers from the corpus; a follow-up ARGUES from that fact and reaches for ordinary
+  // arithmetic the corpus never contained ("two quarters on", "13 months ago"). Two existing
+  // tests assert those must pass, and the whole check broke both. Names are the half that
+  // carries the fabrication risk and the half that transfers.
+  for (const name of untraceableNames(text, findingsEvidence)) {
+    failures.push(`${label}: claims not traceable to any finding: ${name}`)
   }
 
   // ── THE RECIPIENT IS NEVER NAMED IN THE THIRD PERSON ───────────────────────

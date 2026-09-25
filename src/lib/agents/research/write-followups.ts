@@ -483,6 +483,8 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
         prose2, prose3,
         findingsEvidence: params.findingsEvidence,
         prospectId: params.prospectId,
+        // So the coverage rule can tell a sentence about THEIR firm from one about ours.
+        companyName: params.reference.companyName,
       })
       usage = addTokenUsage(usage, factCheck.usage)
     }

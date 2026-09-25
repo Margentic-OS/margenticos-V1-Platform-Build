@@ -1250,8 +1250,12 @@ export interface JudgeComparison {
  * transfer to a bare figure, so this widens the half it applies to and leaves the half it
  * does not.
  */
-function untraceableClaims(opening: string, findingsText: string, numbersText?: string): string[] {
-  const haystack = findingsText.toLowerCase()
+/**
+ * EXPORTED 2026-09-25 so the follow-ups can run the same check. It was private while Email 1
+ * was the only writer with a findings corpus; emails 2 and 3 have had one passed to their
+ * gates all along and nothing read it. See followup-gates.ts.
+ */
+export function untraceableClaims(opening: string, findingsText: string, numbersText?: string): string[] {
   const numberHaystack = `${findingsText}\n${numbersText ?? ''}`.toLowerCase()
   const untraceable: string[] = []
 
@@ -1260,6 +1264,25 @@ function untraceableClaims(opening: string, findingsText: string, numbersText?: 
     const bare = token.replace(/[.,]$/, '')
     if (!numberHaystack.includes(bare.toLowerCase())) untraceable.push(bare)
   }
+
+  return [...new Set([...untraceable, ...untraceableNames(opening, findingsText)])]
+}
+
+/**
+ * THE NAMES HALF ON ITS OWN: capitalised words that are not sentence-initial and appear
+ * nowhere in the findings.
+ *
+ * SPLIT OUT 2026-09-25 so the follow-ups can run it WITHOUT the numbers half. Email 1's
+ * observation is built from a dated fact and its numbers are all quoted from the corpus, so
+ * checking them there is right. A follow-up argues FROM that fact and reaches for ordinary
+ * arithmetic the corpus was never going to contain: "two quarters on", "13 months ago",
+ * "your third depot opened in 2024". Two existing follow-up tests assert exactly those pass,
+ * and applying the whole check broke both. Names are the half that carries the fabrication
+ * risk, and they are the half that transfers.
+ */
+export function untraceableNames(opening: string, findingsText: string): string[] {
+  const haystack = findingsText.toLowerCase()
+  const untraceable: string[] = []
 
   // Capitalised words that are not sentence-initial read as names of things.
   const words = opening.split(/\s+/)

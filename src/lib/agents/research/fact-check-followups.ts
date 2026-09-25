@@ -47,6 +47,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { logger } from '@/lib/logger'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { splitIntoSentences } from '@/lib/style/sentence-count'
+import { companyNameForms } from '@/lib/style/followup-gates'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage, type TokenUsage } from './types'
 
 const FACT_CHECK_MODEL = 'claude-sonnet-4-6'
@@ -229,6 +230,47 @@ export function findReaderArrangements(text: string): string[] {
   return splitIntoSentences(text).filter(s => READER_ARRANGEMENT.test(s)).map(s => s.trim())
 }
 
+/**
+ * A DECLARATIVE sentence whose subject is the reader or their firm.
+ *
+ * NARROW ON PURPOSE, because this rule fails the whole email. A question is excluded: a
+ * follow-up's CTA is not a claim. A sentence with the SENDER as subject is excluded, because
+ * describing the offer asserts nothing about them. What is left is the shape that has to be
+ * checked: "You did X", "Your team is Y", "<Firm> published Z".
+ */
+function sentencesNamingThem(text: string, companyName: string | null | undefined): string[] {
+  const forms = companyNameForms(companyName ?? null).map(f => f.toLowerCase()).filter(f => f.length > 2)
+  return splitIntoSentences(text)
+    .map(s => s.trim())
+    .filter(s => {
+      if (!s || s.endsWith('?')) return false
+      const low = s.toLowerCase()
+      // The sender as subject is the offer, not a claim about them.
+      if (/^(we|our|i)\b/.test(low)) return false
+      if (/^(you|your)\b/.test(low)) return true
+      return forms.some(f => low.startsWith(f) || low.startsWith(`the ${f}`))
+    })
+}
+
+/**
+ * Does this claim cover the sentence's OPENING, i.e. its subject and verb?
+ *
+ * `covers` CANNOT ANSWER THIS, and using it here was the first version's bug. It is loose
+ * containment in either direction, so a claim that is a FRAGMENT of the sentence reads as
+ * covering the whole of it. That is exactly the decomposition being caught: Karl's trailing
+ * clause "which signals active investment in growth" is contained in the sentence, so
+ * `covers` said the sentence was checked while its premise was never looked at.
+ *
+ * Asking about the opening asks the right question. The subject and the verb are where the
+ * assertion lives; a verifier that did not read them did not check the sentence.
+ */
+function coversOpening(claim: string, sentence: string): boolean {
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const c = norm(claim)
+  const opening = norm(sentence).slice(0, 30)
+  return opening.length > 0 && c.includes(opening)
+}
+
 /** Loose containment, so a claim quoted with different trimming still counts as covering. */
 export function covers(claim: string, sentence: string): boolean {
   const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -247,6 +289,7 @@ export function checkCitations(
   findingsEvidence: string,
   prose2: string,
   prose3: string,
+  companyName?: string | null,
 ): string[] {
   const failures: string[] = []
   const lineCount = countFindingLines(findingsEvidence)
@@ -285,6 +328,37 @@ export function checkCitations(
     }
   }
 
+  // ═══ EVERY DECLARATIVE SENTENCE ABOUT THEM MUST BE COVERED BY A RETURNED CLAIM ═══
+  //
+  // WHAT THIS CATCHES, and it is a real escape rather than a hypothetical. Measured
+  // 2026-09-25, a follow-up shipped:
+  //
+  //     "You refreshed the Higher Impact site in early 2026, which signals active
+  //      investment in growth."
+  //
+  // Nothing in that prospect's research mentions a website, a refresh, or 2026. The
+  // fact-check RAN and REJECTED the sentence, but only its trailing clause: it returned the
+  // claim as "which signals active investment in growth" and explained that "the finding
+  // notes the site was refreshed but makes no claim about growth investment intent". There
+  // is no such finding. The verifier DECOMPOSED the sentence, checked the inference, treated
+  // the premise as established, and invented a finding to justify doing so.
+  //
+  // So the failure is not a wrong verdict on a claim. It is a claim that was never returned,
+  // and the existing rules could not see it: the arrangement detector matches "your X runs",
+  // not "You refreshed X", and the shortfall rule only fires when the list is EMPTY, which
+  // it was not.
+  //
+  // ADR-028 again: deciding a sentence is about them is a shape, which is code's job. Saying
+  // which finding supports it is the model's.
+  for (const sentence of [prose2, prose3].flatMap(p => sentencesNamingThem(p, companyName))) {
+    if (!claims.some(c => coversOpening(c.claim, sentence))) {
+      failures.push(
+        `states something about them that the fact-check never returned as a claim: ` +
+        `${JSON.stringify(sentence)}. Every sentence about this prospect has to be checked.`,
+      )
+    }
+  }
+
   // THE SHORTFALL CHECK, and it is the one that matters. A verifier that returns two claims
   // about a six-sentence email has checked neither the other four nor itself. Counted
   // against sentences that make a statement, so questions and the sign-off do not inflate it.
@@ -308,6 +382,8 @@ export interface FactCheckParams {
   /** The NUMBERED findings the verifier cites into. */
   findingsEvidence: string
   prospectId: string
+  /** For spotting a sentence whose subject is their firm. Null is handled. */
+  companyName?: string | null
 }
 
 /**
@@ -371,7 +447,7 @@ export async function factCheckFollowups(params: FactCheckParams): Promise<FactC
   }
 
   const claims = parseFactCheckResponse(raw, [2, 3])
-  const failures = checkCitations(claims, params.findingsEvidence, params.prose2, params.prose3)
+  const failures = checkCitations(claims, params.findingsEvidence, params.prose2, params.prose3, params.companyName ?? null)
 
   // THE FAILURES THEMSELVES, not just how many. Counted-only logging was enough to know the
   // check fired and useless for saying WHAT it rejected: after the run of 2026-09-24 the

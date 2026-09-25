@@ -87,9 +87,14 @@ describe('checkCitations', () => {
   it('reports a claim the verifier itself marked unsupported, quoting it', () => {
     const bad = [{ email: 2, claim: 'You brought on a new operations lead.', finding: null, supported: false, why: 'the finding says the post directed people to them' }]
     const f = checkCitations(bad, CORPUS, PROSE_2, PROSE_3)
-    expect(f).toHaveLength(1)
-    expect(f[0]).toContain('You brought on a new operations lead.')
-    expect(f[0]).toContain('directed people to them')
+    // TWO failures, and the second is correct rather than noise. PROSE_2 asserts "You posted
+    // for a site manager in August", and this verifier returned a claim about something else
+    // entirely, so that sentence was never checked. The coverage rule added 2026-09-25 says
+    // so. The count is asserted exactly rather than relaxed to a `some`, so a third failure
+    // appearing later is still a test change and not a silent drift.
+    expect(f).toHaveLength(2)
+    expect(f.some(x => x.includes('You brought on a new operations lead.') && x.includes('directed people to them'))).toBe(true)
+    expect(f.some(x => x.includes('never returned as a claim') && x.includes('You posted for a site manager'))).toBe(true)
   })
 
   it('REJECTS AN EMPTY VERDICT, which is the failure mode that looks clean', () => {
@@ -97,8 +102,11 @@ describe('checkCitations', () => {
     // reply, a refusal or an outage all read as a pass, and the whole check becomes
     // decorative. This is the assertion the module exists for.
     const f = checkCitations([], CORPUS, PROSE_2, PROSE_3)
-    expect(f).toHaveLength(1)
-    expect(f[0]).toContain('an empty verdict is not a clean one')
+    // An empty verdict trips BOTH rules, which is right: nothing was checked, and the
+    // sentence about them in particular was not.
+    expect(f).toHaveLength(2)
+    expect(f.some(x => x.includes('an empty verdict is not a clean one'))).toBe(true)
+    expect(f.some(x => x.includes('never returned as a claim'))).toBe(true)
   })
 
   it('does not fire the shortfall check when there is nothing to check', () => {
@@ -195,5 +203,69 @@ describe('the fact-check prompt', () => {
 
   it('excludes the sender only when the SENDER is the subject', () => {
     expect(p).toContain('with the SENDER as the subject')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE SENTENCE THE VERIFIER NEVER RETURNED. Added 2026-09-25.
+//
+// A follow-up shipped "You refreshed the Higher Impact site in early 2026, which signals
+// active investment in growth." Nothing in that prospect's research mentions a website, a
+// refresh, or 2026.
+//
+// The fact-check RAN and REJECTED it, but only the trailing clause: it returned the claim as
+// "which signals active investment in growth" and explained that "the finding notes the site
+// was refreshed but makes no claim about growth investment intent". There is no such finding.
+// The verifier decomposed the sentence, checked the inference, treated the premise as
+// established, and invented a finding to justify doing so.
+//
+// So the escape was not a wrong verdict. It was a claim never returned, invisible to the
+// arrangement rule (which matches "your X runs", not "You refreshed X") and to the shortfall
+// rule (which fires only on an EMPTY list, and the list was not empty).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('a sentence about them that the verifier never returned', () => {
+  const FINDINGS = [
+    '1. Karl ended his Director of Coaching role in January 2025, after holding it since September 2022.',
+    '   source: linkedin | profile',
+  ].join('\n')
+
+  const KARL = 'You refreshed the Higher Impact site in early 2026, which signals active investment in growth.'
+
+  it('POSITIVE CONTROL: the real escape is caught', () => {
+    // Exactly what the verifier returned on the day: the trailing clause only.
+    const claims = [{
+      email: 3, claim: 'which signals active investment in growth',
+      finding: null, supported: false,
+      why: 'No finding draws this inference; the finding notes the site was refreshed.',
+    }]
+    const f = checkCitations(claims, FINDINGS, 'Worth a look?', KARL, 'Higher Impact Consulting Group')
+    expect(f.some(x => x.includes('never returned as a claim'))).toBe(true)
+    expect(f.some(x => x.includes('You refreshed the Higher Impact site'))).toBe(true)
+  })
+
+  it('CONTROL: the same sentence passes once the verifier actually returns it', () => {
+    const claims = [{
+      email: 3, claim: 'You refreshed the Higher Impact site in early 2026',
+      finding: 1, supported: true, why: 'covered',
+    }]
+    const f = checkCitations(claims, FINDINGS, 'Worth a look?', KARL, 'Higher Impact Consulting Group')
+    expect(f.some(x => x.includes('never returned as a claim'))).toBe(false)
+  })
+
+  it('CONTROL: a question is not a claim, so a CTA never trips this', () => {
+    const f = checkCitations(
+      [{ email: 2, claim: 'x', finding: 1, supported: true, why: '' }],
+      FINDINGS, 'Is that something you are working on?', 'Worth a look?', 'Higher Impact Consulting Group',
+    )
+    expect(f.some(x => x.includes('never returned as a claim'))).toBe(false)
+  })
+
+  it('CONTROL: a sentence about the SENDER is the offer, not a claim about them', () => {
+    const f = checkCitations(
+      [{ email: 2, claim: 'x', finding: 1, supported: true, why: '' }],
+      FINDINGS, 'We run the outreach so meetings keep arriving.', 'Worth a look?', 'Higher Impact Consulting Group',
+    )
+    expect(f.some(x => x.includes('never returned as a claim'))).toBe(false)
   })
 })
