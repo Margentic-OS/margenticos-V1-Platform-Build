@@ -3208,6 +3208,45 @@ there. Accumulate first, decide later.
 
 - [pre-c1, BLOCKER ON VOLUME] Apify is on the FREE plan and it, not the request
   timeout, is now the ceiling on research volume.
+
+  ═══ SUPERSEDED 2026-09-25. EVERY FIGURE BELOW IS STALE. READ THE CORRECTION FIRST. ═══
+
+  The account is NOT on the free plan and has not been for some time. Measured live
+  2026-09-25 from GET /v2/users/me and /v2/users/me/limits:
+
+    plan                     STARTER, isPaying true
+    monthlyBasePriceUsd      19
+    monthlyUsageCreditsUsd   19      (was 5 on free)
+    maxMonthlyUsageUsd       30      (was 10 on free)
+    overageThresholdUsd      20
+    monthlyUsageCycle        2026-09-17 to 2026-10-16, NOT the calendar month
+    dataRetentionDays        31      (was 7)
+    current monthlyUsageUsd  17.74   93% of the included credit, 21 days left in cycle
+
+  And the per-prospect figure below is wrong twice over. COST_APIFY is $0.01005, not
+  $0.006, and ONE actor runs per prospect, not two: the profile scraper was dropped on
+  2026-08-25 after producing 1 candidate in 147. Measured from the Apify API over the
+  321 runs of 2026-09-24 and 2026-09-25, mean $0.00726 a run, median $0.01005, and NOT
+  ONE run above the $0.01005 ceiling.
+
+  So the real monthly ceilings, at the measured mean, are roughly:
+    included credit ($19)   ~2,600 prospects
+    hard stop ($30)         ~4,100 prospects
+  rather than the 833 and 1,666 below. Brave is not a constraint at all: it is not
+  configured, and it was attempted on 0 of 185 prospects on 2026-09-24.
+
+  THE ONE THING BELOW THAT IS STILL TRUE AND NOW MATTERS MORE: the free plan's $10 hard
+  block was doing the job a spend alert should do, and Starter replaced it with a $30
+  ceiling and silent overage from $20. See the Notion Backlog row "Set the Apify spend
+  alert before upgrading to Starter", which was filed 2026-08-31 for exactly this and is
+  still Open after the upgrade happened.
+
+  Also worth knowing before reading the history: $12.57 of the $17.74 spent this cycle is
+  a SINGLE day, 2026-09-21, when maxPosts was unset and 141 of 158 runs billed above the
+  ceiling, 77 of them at exactly $0.10005 for one start plus fifty posts. Without that day
+  the cycle would sit at $5.17.
+
+  ─── the original entry, kept because it is the reasoning of the day ───
   Measured live 2026-08-24 from GET /v2/users/me/limits:
     maxMonthlyUsageUsd 10, monthlyUsageCreditsUsd 5, maxMonthlyActorComputeUnits 625,
     maxConcurrentActorJobs 25, dataRetentionDays 7
@@ -3224,6 +3263,7 @@ there. Accumulate first, decide later.
   circuit breaker (turns the job type's flag off after N consecutive credit/auth
   failures) is what stops a dry account being hammered.
   Next action: price the Apify paid tier before the first real client onboarding.
+  [The upgrade happened. The next action is the spend alert, in Notion.]
 
 - [pre-c1] Anthropic rate limits are nowhere near binding, and the queue must not
   pretend otherwise.
