@@ -234,6 +234,15 @@ One question mark per email, and it is the closing question.
 
 Use only what is in the findings and in email 1. Invent nothing.
 
+NAME THE YEAR OF ANY EVENT THAT IS NOT FROM THIS YEAR. Each finding carries its stored date
+and today's date is given above. A reader assumes anything undated is recent, so "in May"
+about something from last May reads as five months ago when it was seventeen. Write "in May
+2025". An event from the CURRENT year needs no year: "in May" is right there and shorter.
+
+THIS IS THE LARGEST SINGLE REASON FOLLOW-UPS GET THROWN AWAY. On 2026-09-25 it was 17 of 44
+rejected pairs, every one an event from a previous year named without its year. The gate
+that rejects it cannot be argued with, and the date you need is in front of you.
+
 WRITE TO THEM, as "you" or by naming their company. NEVER WRITE THEIR FIRST NAME in the
 text. You are shown email 1 with the greeting already filled in with their real name, and
 that is the one word in it you must not copy: the email greets them by name on the line
@@ -316,7 +325,15 @@ export interface WriteFollowupsParams {
    * The dated findings and the run clock, for the year-count check. Both required: see
    * FollowupGateInput for why nothing here is optional.
    */
-  datedCandidates: ReadonlyArray<{ date?: string | null }>
+  /**
+   * WITH THE OBSERVATION, not the date alone. Widened 2026-09-25: both the event-year rule
+   * and the relative-time rule decide WHICH finding a sentence is about by content overlap
+   * against `observation`, so a date-only element makes those checks match nothing and pass
+   * silently. Production always passed whole candidates; the narrow type merely hid what
+   * they depend on, which is how a caller could have supplied dates alone and turned two
+   * gates off without a compile error.
+   */
+  datedCandidates: ReadonlyArray<{ date?: string | null; observation?: string | null }>
   now?: Date
 }
 
@@ -350,6 +367,9 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
     params.email1Body,
     ``,
     `## The findings behind it`,
+    ``,
+    `Today is ${(params.now ?? new Date()).toISOString().slice(0, 10)}. Each finding below`,
+    `carries its stored date, and that date is the truth about when the thing happened.`,
     ``,
     params.findings,
     ``,

@@ -158,3 +158,45 @@ describe('a retry rewrites only the failing email', () => {
     expect(r.email2.prose).toBe(CLEAN_2)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE WRITER IS GIVEN EACH EVENT'S DATE AND TODAY'S DATE.
+//
+// The event-year gate was the largest single cause of follow-up loss, 17 of 44 pairs on
+// 2026-09-25, every one an event from a previous year named without its year. The writer was
+// being asked for a year it had never been given: buildFindingsBlock rendered the
+// observation, the source, the provenance and the counter-reading, and NOT c.date. A date
+// reached it only when synthesis happened to write one into the observation prose.
+describe('the follow-up writer is told the dates', () => {
+  beforeEach(() => createMock.mockReset())
+
+  it('states today, and the rule, and carries each stored date', async () => {
+    route([`EMAIL2:\n${CLEAN_2}\nEMAIL3:\n${CLEAN_3}`])
+    await writeFollowups({
+      apiKey: 'test', clientName: 'Example Co', buyer: 'an operator',
+      email1Body: '{{first_name}},\n\nOne.\n\nTwo.\n\nThree?\n\n' + SIGNOFF,
+      offerLine: 'A separate track keeps the conversations arriving.',
+      // The findings block as produce-opening builds it, with the date line.
+      findings: '1. They took on a second unit in March.\n   date: 2025-03-04\n   source: web | a page',
+      findingsEvidence: '1. They took on a second unit in March.\n   source: web | a page',
+      reference: REFERENCE, prospectId: 'dates-test', prospectFirstName: null,
+      datedCandidates: [{ date: '2025-03-04', observation: 'They took on a second unit in March.' }],
+      now: new Date('2026-09-25T00:00:00Z'),
+    })
+    const writerCall = createMock.mock.calls.find(c => {
+      const sys = Array.isArray(c[0]?.system) ? c[0].system.map((b: { text?: string }) => b.text ?? '').join('') : String(c[0]?.system ?? '')
+      return !sys.includes('You check whether an email')
+    })!
+    const user = String(writerCall[0].messages[0].content)
+    const system = Array.isArray(writerCall[0].system)
+      ? (writerCall[0].system as Array<{ text?: string }>).map(b => b.text ?? '').join('')
+      : String(writerCall[0].system)
+
+    expect(user).toContain('Today is 2026-09-25')
+    expect(user).toContain('date: 2025-03-04')
+    expect(system).toContain('NAME THE YEAR OF ANY EVENT THAT IS NOT FROM THIS YEAR')
+    // POSITIVE CONTROL ON THE RULE'S OTHER HALF: a current-year event needs no year, or the
+    // instruction would push a year onto every sentence and cost words for nothing.
+    expect(system).toContain('An event from the CURRENT year needs no year')
+  })
+})

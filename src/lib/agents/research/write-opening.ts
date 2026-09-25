@@ -1824,7 +1824,17 @@ export function buildFindingsBlock(
       const counter = c.opposite_reading
         ? `\n   counter-reading (${c.inference_direction}): ${c.opposite_reading}`
         : '\n   counter-reading: none supplied, so this finding\'s conclusion is unhandled'
-      return `${i + 1}.${mark}${shared} ${c.observation}\n   source: ${c.source} | ${c.provenance || 'no provenance'}${counter}`
+      // THE STORED DATE, ADDED 2026-09-25. It was never rendered: the block carried the
+      // observation, the source, the provenance and the counter-reading, and a date reached
+      // the writer only when synthesis happened to bake one into the observation prose.
+      //
+      // WHAT THAT COST, measured on the runs of 2026-09-24 and 2026-09-25: the event-year
+      // gate was the single largest cause of follow-up loss, 17 of 44 pairs, every one an
+      // event from a previous year named without its year. The writer was being asked for a
+      // year it had not been given, then told in the retry feedback what the year was. This
+      // hands it over up front, in the one form that cannot be misread.
+      const dated = c.date ? `\n   date: ${c.date}` : '\n   date: not dated'
+      return `${i + 1}.${mark}${shared} ${c.observation}${dated}\n   source: ${c.source} | ${c.provenance || 'no provenance'}${counter}`
     })
     .join('\n')
 
