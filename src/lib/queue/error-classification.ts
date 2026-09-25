@@ -110,6 +110,24 @@ const ACCOUNT_EXHAUSTION_PATTERNS = [
   // These two phrases carry the same signal with none of the ambiguity.
   'billing issue',
   'billing problem',
+  // ADDED 2026-09-24, after the inline runner dispatched 81 prospects into the same wall.
+  //
+  // Anthropic's account-level refusal reads "You have reached your specified API usage
+  // limits. You will regain access on <date> at 00:00 UTC." NEITHER 'monthly usage limit'
+  // NOR 'usage limit exceeded' ABOVE MATCHES IT, so this list had the identical blind spot
+  // as the agent-side markers and for the same reason: both were written from the wording
+  // of a different refusal.
+  //
+  // It meets this file's own bar. 'specified api usage limit' cannot plausibly appear in an
+  // ordinary error, which is the test the comment above sets. The whole phrase is the
+  // marker rather than 'usage limit', because a per-minute rate limit also mentions limits
+  // being exceeded and tripping the breaker on one of those would stop a job type for
+  // every client over something that clears by itself.
+  //
+  // And tripping the breaker IS the right answer here: the account is refusing every
+  // request until the cap is raised or the cycle resets, so there is no work for any
+  // client to do.
+  'specified api usage limit',
 ]
 
 interface ErrorShape {

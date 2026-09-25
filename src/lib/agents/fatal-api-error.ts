@@ -11,6 +11,9 @@
 // next prospect, and every further attempt spends nothing but wall clock while writing
 // wrong data. It has to abort the run and say why.
 //
+// It happened again on 2026-09-24, with a different message: an account-level USAGE CAP
+// rather than an empty balance. See USAGE_CAP_MARKERS below. Two causes, one shape.
+//
 // Deliberately narrow. Rate limits are NOT fatal: callWithRetry already backs off and
 // they clear on their own. Connection blips, 500s and model refusals stay non-fatal too,
 // because those really are per-request and the fallback path is the right answer.
@@ -43,6 +46,36 @@ const BILLING_MARKERS = [
   'payment required',
 ]
 
+// ─── A USAGE CAP IS NOT A SPENT BALANCE, AND THE FIX IS DIFFERENT ────────────
+//
+// THE 2026-09-24 RECURRENCE. 81 prospects were dispatched and refused one at a time,
+// each having paid for part of its source fetch first, because the message below matches
+// nothing in BILLING_MARKERS. Mean time to failure was 22.4s against 250s for a completed
+// run, so every one of them had started fetching before the refusal landed. This is the
+// 2026-08-19 failure exactly, in wording the marker list did not cover.
+//
+//   400 invalid_request_error
+//   "You have reached your specified API usage limits.
+//    You will regain access on 2026-10-01 at 00:00 UTC."
+//
+// SEPARATE FROM BILLING_MARKERS ON PURPOSE, because the two need different actions from
+// the operator and the reason string is what they read. A spent balance needs money. This
+// needs the monthly cap raised in the Anthropic Console: the account has funds and has hit
+// a ceiling the account holder set. Folding it into 'credit balance exhausted' would send
+// someone to top up a balance that is not the problem.
+//
+// THE MARKER IS THE PHRASE, NOT THE WORDS 'usage limit'. A per-minute rate limit also
+// talks about limits being exceeded, and rate limits are deliberately non-fatal because
+// callWithRetry backs off and they clear on their own. 'specified api usage limit' cannot
+// plausibly appear in one. The date is excluded because it moves every month.
+const USAGE_CAP_MARKERS = [
+  'specified api usage limit',
+]
+
+/** What the operator has to do about it, in the string they will actually see. */
+const USAGE_CAP_REASON =
+  'Anthropic API usage limit reached (a self-imposed monthly cap, not a spent balance: raise it in the Anthropic Console)'
+
 /**
  * Returns a human reason when the error means the whole run should stop, or null when
  * the caller should degrade as before.
@@ -61,6 +94,10 @@ export function fatalApiReason(err: unknown): string | null {
     (() => { try { return JSON.stringify(raw?.error ?? '') } catch { return '' } })(),
     String(err ?? ''),
   ].join(' ').toLowerCase()
+
+  // Checked BEFORE the billing markers so the more specific reason wins. 'billing' is a
+  // bare substring in that list and a future Anthropic message could carry both.
+  if (USAGE_CAP_MARKERS.some(m => message.includes(m))) return USAGE_CAP_REASON
 
   if (err instanceof BadRequestError && BILLING_MARKERS.some(m => message.includes(m))) {
     return 'Anthropic credit balance exhausted'

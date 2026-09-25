@@ -38,6 +38,40 @@ describe('fatal failures that must abort the run', () => {
     expect(fatalApiReason(new Error('Error: 400 credit balance is too low'))).toBe('Anthropic credit balance exhausted')
   })
 
+
+  // ── THE 2026-09-24 RECURRENCE ──────────────────────────────────────────────
+  //
+  // 81 prospects were dispatched and refused one at a time, each having paid for part of
+  // its source fetch first, because this message matches none of the credit-balance
+  // markers. Same class as 2026-08-19, different wording: the account had funds and had
+  // reached a ceiling the account holder set.
+  //
+  // THE EXACT STRING PRODUCTION THREW, from logs/failed-prospects-2026-09-25T01-02-24.json.
+  it('catches the exact usage-limit message that fired on 2026-09-24', () => {
+    const err = bad('You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC.')
+    expect(fatalApiReason(err)).toContain('usage limit')
+  })
+
+  // The date moves every month, so the marker must not depend on it.
+  it('catches the usage-limit message with a different reset date', () => {
+    const err = bad('You have reached your specified API usage limits. You will regain access on 2027-03-01 at 00:00 UTC.')
+    expect(fatalApiReason(err)).toContain('usage limit')
+  })
+
+  it('names the usage limit as a cap rather than a spent balance, because the fix differs', () => {
+    const cap = fatalApiReason(bad('You have reached your specified API usage limits.'))
+    // Asserted non-null FIRST. Without this the inequality below passes on null, which is
+    // exactly the pre-fix behaviour, so the test would have gone green over the bug.
+    expect(cap).not.toBeNull()
+    expect(cap).not.toBe('Anthropic credit balance exhausted')
+  })
+
+  it('catches the usage limit when it reaches us already stringified through the agent', () => {
+    // How prospect-research-v2 recorded it in agent_runs.error_message.
+    const wrapped = new Error('prospect-research-v2 failed: 400 {"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC."},"request_id":"req_011CfPFizTWYP35fCmemCvas"}')
+    expect(fatalApiReason(wrapped)).toContain('usage limit')
+  })
+
   it('throwIfFatal throws a FatalApiError carrying the context', () => {
     const err = bad('your credit balance is too low')
     expect(() => throwIfFatal(err, 'synthesis for prospect abc')).toThrow(FatalApiError)
@@ -65,6 +99,28 @@ describe('failures that must NOT abort the run', () => {
 
   it('does not treat a connection blip as fatal', () => {
     expect(fatalApiReason(new Error('socket hang up'))).toBeNull()
+  })
+
+
+  // ── THE NEGATIVE CONTROL THAT KEEPS THE NEW MARKER HONEST ─────────────────
+  //
+  // A rate limit clears on its own and callWithRetry backs off, so it must stay
+  // non-fatal even though its text also talks about limits being exceeded. This is the
+  // false positive the new marker could plausibly have caused, which is why the marker is
+  // the whole phrase and not the words 'usage limit'.
+  it('does not treat a per-minute rate limit as fatal even though it mentions a limit', () => {
+    const err = new RateLimitError(
+      429,
+      { type: 'error', error: { type: 'rate_limit_error', message: 'Number of request tokens has exceeded your per-minute rate limit' } },
+      'ignored by the SDK',
+      new Headers(),
+    )
+    expect(fatalApiReason(err)).toBeNull()
+  })
+
+  it('does not treat an output-token limit complaint as fatal', () => {
+    // A 400 about max_tokens is a malformed request, and the words overlap.
+    expect(fatalApiReason(bad('max_tokens: 200000 > 64000, which is the maximum allowed number of output tokens'))).toBeNull()
   })
 
   it('throwIfFatal is a no-op for non-fatal errors', () => {

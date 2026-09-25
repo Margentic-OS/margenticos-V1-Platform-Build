@@ -112,6 +112,20 @@ describe('isAccountExhaustion — the circuit breaker trigger', () => {
     expect(isAccountExhaustion(new Error('Monthly usage limit reached for this account'))).toBe(true)
   })
 
+  it('detects the exact Anthropic usage-cap refusal of 2026-09-24', () => {
+    // Neither 'monthly usage limit' nor 'usage limit exceeded' matched this, which is how
+    // 81 prospects were dispatched into a wall on the inline path the same night.
+    const err = new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC."}}')
+    expect(isAccountExhaustion(err)).toBe(true)
+    expect(classifyError(err)).toBe('permanent')
+  })
+
+  it('does NOT fire on a per-minute rate limit that also mentions an exceeded limit', () => {
+    // The false positive the new phrase could have caused. A rate limit clears by itself,
+    // and tripping the breaker on one would stop a job type for every client.
+    expect(isAccountExhaustion(new Error('Number of request tokens has exceeded your per-minute rate limit'))).toBe(false)
+  })
+
   it('does NOT fire on the word credits appearing in an ordinary reply', () => {
     // Apollo's normal success payload contains credits_consumed. A false positive here
     // would turn a whole job type off, so the patterns are deliberately narrow.
