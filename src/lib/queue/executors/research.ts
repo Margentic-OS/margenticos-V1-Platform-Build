@@ -40,6 +40,7 @@
 import { logger } from '@/lib/logger'
 import type { JobContext, JobHandler } from '../execute-job'
 import { runProspectResearchAgentV2 } from '@/lib/agents/prospect-research-agent-v2'
+import { ProspectUnmailableError } from '@/lib/sourcing/send-eligibility-policy'
 
 /**
  * Build the handler for one research job.
@@ -57,7 +58,20 @@ export function researchHandler(): JobHandler {
   return async (ctx: JobContext): Promise<string> => {
     const { job } = ctx
 
-    const result = await ctx.paid(
+    // ── A PROSPECT WHO BECAME UNMAILABLE IS A DONE JOB ─────────────────────────
+    //
+    // The agent re-reads eligibility before it spends anything, because a job waits between
+    // being enqueued and being claimed and a prospect can be suppressed, held or verified
+    // undeliverable inside that window. When it refuses, NOTHING WAS CALLED and nothing was
+    // billed, so there is no spend to stamp and no work to retry.
+    //
+    // Marked done rather than failed, the same rule this file already applies to a held or
+    // disqualified verdict below: the job's purpose is to reach a research verdict, and
+    // "this prospect is not researchable" is one. Failing it would inflate MON-018 and
+    // invite a retry of a decision that will be identical next time.
+    let result: Awaited<ReturnType<typeof runProspectResearchAgentV2>>
+    try {
+      result = await ctx.paid(
       'research.full_run',
       () =>
         runProspectResearchAgentV2({
@@ -133,7 +147,19 @@ export function researchHandler(): JobHandler {
         // queries per prospect. Zero on a stored-findings reuse, which calls nothing.
         web_search_count:            research.web_search_count,
       }),
-    )
+      )
+    } catch (err) {
+      if (err instanceof ProspectUnmailableError) {
+        logger.info('research-executor: prospect no longer mailable, nothing spent', {
+          job_id: job.id,
+          prospect_id: job.prospect_id,
+          organisation_id: job.organisation_id,
+          reason: err.ineligible_reason,
+        })
+        return `research: skipped, prospect is not researchable (${err.ineligible_reason})`
+      }
+      throw err
+    }
 
     logger.info('research-executor: prospect researched', {
       job_id: job.id,

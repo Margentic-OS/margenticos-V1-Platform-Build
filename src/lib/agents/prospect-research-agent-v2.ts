@@ -16,6 +16,7 @@ import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { fetchAllSources } from './research/fetch-sources'
 import { synthesizeResearch, loadClientContext }  from './research/synthesize'
+import { checkResearchEligibility, ProspectUnmailableError } from '@/lib/sourcing/send-eligibility-policy'
 import { FrameRegistry, frameShingles, sentenceKey } from '@/lib/style/sentence-frames'
 import { BatchUniquenessRegistry, overusedPhrases, OVERUSE_FRACTION, type OverusedPhrase } from '@/lib/agents/research/batch-uniqueness'
 import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
@@ -341,6 +342,57 @@ async function recordResearchUsage(
       path: usageMeta.path,
       error: error.message,
     })
+  }
+}
+
+/**
+ * Refuse to research a prospect the system already knows it will not email.
+ *
+ * READS THE ROW FRESH rather than trusting whatever the caller selected on, because the
+ * whole point is to catch a change that happened after that selection. Same columns and the
+ * same policy function phase 2 of the batch path uses, so the two paths cannot disagree
+ * about who is researchable.
+ *
+ * SUPPRESSION IS CHECKED HERE TOO, and separately from the verification verdict. It is not
+ * part of checkResearchEligibility, which is about whether an ADDRESS is usable; suppression
+ * is about whether a PERSON has asked not to be contacted. One refusal is a spend decision,
+ * the other is a compliance one, and conflating them would report the wrong reason.
+ */
+async function refuseIfUnmailable(prospect_id: string, client_id: string): Promise<void> {
+  const supabase = getServiceClient()
+  const { data: live } = await supabase
+    .from('prospects')
+    // ONE STRING LITERAL, not a concatenation. The typed client infers the row shape from
+    // the literal, and a concatenated select widens it to GenericStringError.
+    .select('suppressed, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
+    // Agent isolation: scoped by organisation as well as id, like every other read here.
+    .eq('id', prospect_id)
+    .eq('organisation_id', client_id)
+    .single()
+
+  // A ROW THAT CANNOT BE READ IS NOT REFUSED. The caller already selected this prospect, and
+  // a transient read failure is not evidence that anybody is unmailable. Failing closed here
+  // would turn a Supabase blip into a silent no-op batch, which is the harder fault to see.
+  if (!live) return
+
+  if (live.suppressed === true) {
+    throw new ProspectUnmailableError(
+      prospect_id, 'suppressed',
+      'The prospect is suppressed, so nothing will be emailed to them.',
+    )
+  }
+
+  const verdict = checkResearchEligibility({
+    independent_verified_at:      (live.independent_verified_at as string | null) ?? null,
+    independent_email_status:     (live.independent_email_status as string | null) ?? null,
+    email_send_ineligible_reason: (live.email_send_ineligible_reason as string | null) ?? null,
+    verification_provider:        (live.verification_provider as string | null) ?? null,
+    second_pass_status:           (live.second_pass_status as string | null) ?? null,
+    second_pass_provider:         (live.second_pass_provider as string | null) ?? null,
+  })
+
+  if (!verdict.eligible) {
+    throw new ProspectUnmailableError(prospect_id, verdict.reason, verdict.detail)
   }
 }
 
@@ -734,6 +786,18 @@ export async function runProspectResearchAgentV2({
   const agentRun = await startAgentRun({ organisation_id: client_id, agent_name: 'prospect-research-v2' })
 
   try {
+    // ═══ IS THIS PROSPECT STILL WORTH RESEARCHING? READ LIVE, BEFORE ANY SPEND ═══
+    //
+    // The selection and enqueue gates already ran, and they are not enough on their own: a
+    // queued job waits before it is claimed, and a prospect can be suppressed, held or
+    // verified undeliverable inside that window. Phase 2 of the batch path has always
+    // re-read the row for exactly this reason; nothing else did, so the single-job executor
+    // and every inline caller could spend on a verdict that had already changed.
+    //
+    // FIRST, BEFORE loadProspectContext AND BEFORE ANY SOURCE FETCH. Sources are the
+    // expensive and irreversible half: an Apify run cannot be un-billed once started.
+    await refuseIfUnmailable(prospect_id, client_id)
+
     // Load prospect and resolve its segment.
     //
     // EXTRACTED to research/prospect-context.ts on 2026-08-26 so the batch path's phase 1
@@ -1292,6 +1356,22 @@ export async function runProspectResearchAgentV2Batch({
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
 
+        // ── A PROSPECT WHO BECAME UNMAILABLE IS A SKIP, NOT A FAILURE ──────────
+        //
+        // Nothing went wrong: the gate declined to spend money. Counting it as failed would
+        // inflate MON-018 and invite a retry of a decision that will be identical next time.
+        // Same rule the collect agent applies to a held verdict.
+        if (err instanceof ProspectUnmailableError) {
+          summary.skipped++
+          logger.info('prospect-research-v2 batch: skipped, no longer mailable', {
+            prospect_id,
+            reason: err.ineligible_reason,
+          })
+          // NOT `return`. The progress log below this try/catch increments `processed` and
+          // computes the ETA, and returning here would leave both wrong for the rest of the
+          // run. Skipping only the rest of the CATCH is what is wanted.
+        } else {
+
         // COUNT THE SOURCE, NOT JUST THE PROSPECT. A held prospect names which sources did
         // not come back, and those counts are what make a run like 2026-09-21 visibly
         // wrong while it is still running rather than two days later.
@@ -1318,6 +1398,7 @@ export async function runProspectResearchAgentV2Batch({
         // Counted, never priced. Whatever this prospect spent before throwing is not
         // recoverable from here, and calling it zero is what made a failing run look free.
         unpricedFailures++
+        }
       }
 
       processed++

@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createFakeQueue, makeJob } from './fake-queue'
 import { executeJob } from '../execute-job'
+import { ProspectUnmailableError } from '@/lib/sourcing/send-eligibility-policy'
 
 let researchImpl: (...args: unknown[]) => unknown = () => {
   throw new Error('test did not set researchImpl')
@@ -82,6 +83,69 @@ describe('researchHandler — agent isolation', () => {
     // Re-fetching every source is the expensive half of a run and must never be the
     // default. The route refuses use_stored_findings=false on the queued path instead.
     expect(researchCalls[0][0]).toMatchObject({ use_stored_findings: true })
+  })
+})
+
+describe('researchHandler — a prospect who became unmailable', () => {
+  // The agent re-reads eligibility before spending, because a job waits between enqueue and
+  // claim and a prospect can be suppressed, held or verified undeliverable in that window.
+
+  it('marks the job DONE, not failed, because the gate working is not a fault', async () => {
+    researchImpl = async () => {
+      throw new ProspectUnmailableError('p1', 'operator_hold', 'A hold is in place.')
+    }
+    const job = makeJob({ job_type: 'research', state: 'claimed', claimed_by: 'w1',
+                          organisation_id: ORG, prospect_id: 'p1' })
+    const fake = createFakeQueue([job])
+
+    await executeJob(fake.client, job, 'w1', researchHandler())
+
+    // Failing it would inflate MON-018 and invite a retry of a decision that will be
+    // identical next time.
+    expect(fake.get(job.id)!.state).toBe('done')
+  })
+
+  it('stamps NO spend, because nothing was called', async () => {
+    researchImpl = async () => {
+      throw new ProspectUnmailableError('p1', 'suppressed', 'Suppressed.')
+    }
+    const job = makeJob({ job_type: 'research', state: 'claimed', claimed_by: 'w1',
+                          organisation_id: ORG, prospect_id: 'p1' })
+    const fake = createFakeQueue([job])
+
+    await executeJob(fake.client, job, 'w1', researchHandler())
+
+    // THE WHOLE POINT. A spend stamp on a run that spent nothing would make the ledger
+    // report cost for a prospect that was never researched.
+    expect(fake.get(job.id)!.spend_recorded_at).toBeNull()
+  })
+
+  it('says which reason in the job result, so a skip is readable without the logs', async () => {
+    researchImpl = async () => {
+      throw new ProspectUnmailableError('p1', 'undeliverable', 'Invalid address.')
+    }
+    const job = makeJob({ job_type: 'research', state: 'claimed', claimed_by: 'w1',
+                          organisation_id: ORG, prospect_id: 'p1' })
+    const fake = createFakeQueue([job])
+
+    // Read from the OUTCOME executeJob returns, which is where the handler's summary goes.
+    const outcome = await executeJob(fake.client, job, 'w1', researchHandler())
+
+    expect(outcome.status).toBe('done')
+    expect(String((outcome as { summary?: string }).summary ?? '')).toContain('undeliverable')
+  })
+
+  it('still FAILS an ordinary error, so the skip path did not swallow real faults', async () => {
+    // The control. Without it, catching ProspectUnmailableError could have been written as a
+    // catch-all and every failure would silently become a done job.
+    researchImpl = async () => { throw new Error('Anthropic returned 500') }
+    const job = makeJob({ job_type: 'research', state: 'claimed', claimed_by: 'w1',
+                          organisation_id: ORG, prospect_id: 'p1' })
+    const fake = createFakeQueue([job])
+
+    await executeJob(fake.client, job, 'w1', researchHandler())
+
+    expect(fake.get(job.id)!.state).not.toBe('done')
   })
 })
 

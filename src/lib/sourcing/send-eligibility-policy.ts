@@ -259,3 +259,39 @@ export function summariseIneligible(reasons: IneligibleReason[]): string {
     .map(([reason, n]) => `${n} ${LABELS[reason]}`)
     .join(', ')
 }
+
+/**
+ * Thrown when a prospect became unmailable between being selected and being researched.
+ *
+ * ═══ WHY THIS EXISTS WHEN THE SELECTION GATE ALREADY RAN ═════════════════════
+ *
+ * checkResearchEligibility is applied at SELECTION and at ENQUEUE, and has been since
+ * 2026-08-25. Both are correct and neither is the end of the story: on the queue path a job
+ * waits between being enqueued and being claimed, and on the batch path phase 1 waits again
+ * for a batch that may take hours. A prospect can be suppressed, held or verified
+ * undeliverable inside those windows.
+ *
+ * Phase 2 of the batch path already re-reads the row and refuses. Nothing else did, so the
+ * single-job executor and every inline caller spent on a verdict that had already changed.
+ *
+ * ═══ IT IS A SKIP, NOT A FAILURE ═════════════════════════════════════════════
+ *
+ * Nothing went wrong. The system declined to spend money, which is the gate working. A batch
+ * counts it as skipped and the queue marks the job DONE, the same rule the collect agent
+ * already applies to a held verdict: marking it failed would inflate MON-018 and invite a
+ * retry of a decision that will be identical next time.
+ */
+export class ProspectUnmailableError extends Error {
+  readonly prospect_id: string
+  readonly ineligible_reason: IneligibleReason | 'suppressed'
+
+  constructor(prospect_id: string, reason: IneligibleReason | 'suppressed', detail: string) {
+    super(
+      `Prospect ${prospect_id} is not researchable (${reason}): ${detail} ` +
+      'No source or model call was made.',
+    )
+    this.name = 'ProspectUnmailableError'
+    this.prospect_id = prospect_id
+    this.ineligible_reason = reason
+  }
+}
