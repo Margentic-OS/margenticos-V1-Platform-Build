@@ -1,4 +1,4 @@
--- Status: PENDING
+-- Status: APPLIED (verified live 2026-09-25, both production hjpvnvjryxdjcfdsfhzy and test tidqheqjzvwmrrrebzir)
 -- research_usage.arm: which cost experiment produced this row.
 --
 -- ═══ WITHOUT THIS THE MEASUREMENT DAY CANNOT BE READ BACK ════════════════════
