@@ -25,11 +25,22 @@
  * write verb. The single exception is the research_usage ledger row, written with a
  * service-role client and an `arm` label, which is the point of the exercise.
  *
- * ═══ ARM C IS DIFFERENT AND CANNOT USE THIS SCRIPT ═══════════════════════════
+ * ═══ ARM C RE-FETCHES ONE SOURCE, AND ONLY ONE ══════════════════════════════
  *
- * Brief web search changes what is FETCHED, so it cannot be replayed from stored sources. It
- * runs as an ordinary production research batch with ARM_BRIEF_WEB_SEARCH=true, and its rows
- * are labelled by the same env var this script reads. See the plan in the session report.
+ * Brief web search changes what is FETCHED, so it cannot be replayed from stored bytes. With
+ * --refetch-web-search the runner re-fetches WEB SEARCH ONLY, with brief mode on, and keeps
+ * the STORED linkedin, apollo and website results. So exactly one source differs from the
+ * control's inputs and everything else is byte-identical.
+ *
+ * That is better than running arm C as a fresh production batch, for three reasons. It is
+ * PAIRED on the same 40 prospects rather than compared across two cohorts. It does not need a
+ * send-eligible never-researched cohort, which client zero does not currently have. And it
+ * re-fetches one source instead of four, so it costs one web search rather than a full run and
+ * cannot re-bill Apify or Apollo at all.
+ *
+ * THE COST COMPARISON IS AGAINST THE PROSPECT'S OWN STORED SEARCH COUNT. The evidence row
+ * carries search_count from when brief was off, so each prospect is its own before-and-after
+ * and the population mean (2.83 over 73 prospects) is a cross-check rather than the baseline.
  *
  * Run:
  *   ARM_CANDIDATE_CAP=4 npx tsx --env-file=.env.local scripts/run-cost-arm.ts \
@@ -47,8 +58,11 @@ import { writerInputFromSynthesis } from '@/lib/agents/research/writer-input'
 import { produceOpening, resolveVariantId, loadClientName } from '@/lib/agents/research/produce-opening'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
-import { activeArms } from '@/lib/agents/research/cost-arms'
-import { usdForTokens, RESEARCH_SONNET_MODEL } from '@/lib/agents/research/cost-constants'
+import { activeArms, briefWebSearch } from '@/lib/agents/research/cost-arms'
+import { fetchWebSearchSource } from '@/lib/agents/research/sources/web-search'
+import {
+  usdForTokens, RESEARCH_SONNET_MODEL, COST_WEB_SEARCH_PER_SEARCH,
+} from '@/lib/agents/research/cost-constants'
 import type { TokenUsage } from '@/lib/agents/research/types'
 
 function arg(name: string): string | undefined {
@@ -62,6 +76,8 @@ function usage(msg: string): never {
   console.error('  --ids-file <path>      one prospect id per line. The FIXED set.')
   console.error('  --arm <label>          research_usage.arm, 1 to 64 characters')
   console.error('  --ceiling <usd>        refuse to start another prospect past this. REQUIRED.')
+  console.error('  --refetch-web-search   arm C: re-fetch WEB SEARCH only, keeping the other')
+  console.error('                         three stored sources. Costs one web search per prospect.')
   console.error('  --out <dir>            reading file directory (default .cost-arms)\n')
   process.exit(1)
 }
@@ -81,6 +97,10 @@ interface ArmRecord {
   opening_usage: TokenUsage
   synthesis_usd: number
   opening_usd: number
+  /** Billable searches this run made. Zero on a replay, which fetches nothing. */
+  search_count: number
+  /** What the SAME prospect's stored evidence recorded, with brief off. The before figure. */
+  stored_search_count: number
 }
 
 async function main() {
@@ -89,6 +109,7 @@ async function main() {
   const armLabel = arg('arm') ?? usage('--arm is required.')
   const ceilingRaw = arg('ceiling')
   const outDir = arg('out') ?? '.cost-arms'
+  const refetchWebSearch = process.argv.includes('--refetch-web-search')
 
   // ── THE CEILING IS REQUIRED, NOT DEFAULTED ────────────────────────────────
   //
@@ -126,6 +147,27 @@ async function main() {
   }
   if (Object.keys(arms).length > 0 && isControl) {
     usage(`--arm is "${armLabel}" but ${Object.keys(arms).join(', ')} is set. A control changes nothing.`)
+  }
+
+  // ── THE TWO HALVES OF ARM C MUST BE SET TOGETHER ──────────────────────────
+  //
+  // ARM_BRIEF_WEB_SEARCH only affects a FETCH. Setting it without --refetch-web-search is the
+  // dangerous direction: the run replays stored bytes, nothing about the search changes, and
+  // the rows are labelled as an arm that produced a saving of zero. That reads as "brief mode
+  // does not work" when what happened is that brief mode never ran.
+  if (briefWebSearch() && !refetchWebSearch) {
+    usage(
+      'ARM_BRIEF_WEB_SEARCH is set but --refetch-web-search is not. Brief mode only affects a ' +
+      'fetch, so this run would replay stored sources and record a saving of zero for an arm ' +
+      'that never ran.',
+    )
+  }
+  if (refetchWebSearch && !briefWebSearch()) {
+    usage(
+      '--refetch-web-search without ARM_BRIEF_WEB_SEARCH would pay for a fresh search and ' +
+      'change nothing. If a re-fetch at the CURRENT setting is genuinely wanted, that is a ' +
+      'control for arm C and the arm label must say so.',
+    )
   }
 
   const read = readOnlyClient(url, key)
@@ -170,6 +212,11 @@ async function main() {
   let spent = 0
   let skippedNoEvidence = 0
   let failed = 0
+  // Counted separately as well as into `spent`, because the fee and the Haiku tokens are the
+  // two halves of the web-search bill and reporting one without the other is how this project
+  // understated a lookup by 10x for a month.
+  let webSearchFees = 0
+  let webSearchTokenUsd = 0
 
   for (const [i, prospectId] of ids.entries()) {
     if (spent >= ceiling) {
@@ -190,7 +237,25 @@ async function main() {
         continue
       }
 
-      const synthesis = await synthesizeResearch(ctx, evidence.raw, orgId)
+      // ── ARM C: ONE SOURCE RE-FETCHED, THREE KEPT ─────────────────────────
+      //
+      // The stored web search is what this prospect got with brief OFF, so its search_count
+      // is the before figure and the fresh one is the after, on the same prospect. The other
+      // three sources are the stored bytes, so nothing but the search differs from the
+      // control's inputs.
+      const storedSearchCount = evidence.raw.web_search.search_count ?? 0
+      let raw = evidence.raw
+      if (refetchWebSearch) {
+        const fresh = await fetchWebSearchSource(ctx)
+        raw = { ...evidence.raw, web_search: fresh }
+        webSearchFees += fresh.search_count * COST_WEB_SEARCH_PER_SEARCH
+        webSearchTokenUsd += usdForTokens(
+          { input_tokens: fresh.input_tokens, output_tokens: fresh.output_tokens },
+          fresh.model,
+        )
+      }
+
+      const synthesis = await synthesizeResearch(ctx, raw, orgId)
       const clientCtx = await loadClientContext(orgId, ctx.segment_id)
       const messaging = await messagingFor(ctx.segment_id)
       // THE SAME THREE ARGUMENTS PRODUCTION PASSES. An arm that assigned variants differently
@@ -215,7 +280,13 @@ async function main() {
       const synthModel = process.env.ARM_SYNTHESIS_MODEL || RESEARCH_SONNET_MODEL
       const synthesisUsd = usdForTokens(synthesisUsage, synthModel)
       const openingUsd = usdForUsage(openingUsage)
-      spent += synthesisUsd + openingUsd
+      // The web search is part of what this prospect cost, so the ceiling must see it. Zero
+      // when the arm did not re-fetch.
+      const searchUsd = refetchWebSearch
+        ? raw.web_search.search_count * COST_WEB_SEARCH_PER_SEARCH
+          + usdForTokens({ input_tokens: raw.web_search.input_tokens, output_tokens: raw.web_search.output_tokens }, raw.web_search.model)
+        : 0
+      spent += synthesisUsd + openingUsd + searchUsd
 
       const selected = synthesis.candidates.find(c => c.id === synthesis.selected_candidate_id)
 
@@ -234,6 +305,8 @@ async function main() {
         opening_usage: openingUsage,
         synthesis_usd: synthesisUsd,
         opening_usd: openingUsd,
+        search_count: refetchWebSearch ? raw.web_search.search_count : 0,
+        stored_search_count: storedSearchCount,
       })
 
       // THE LEDGER ROW. research_result_id NULL, which the CHECK permits only because `arm`
@@ -247,9 +320,17 @@ async function main() {
         synthesis: { ...synthesisUsage, model: synthModel },
         opening: openingUsage,
         followups: opening.followup_usage ?? null,
-        // ZERO, AND IT IS A FACT RATHER THAN A GAP: this run fetched nothing, so it ran no
-        // searches. Arm C's rows carry real numbers here because it does fetch.
-        web_search: { input_tokens: 0, output_tokens: 0, model: null, search_count: 0 },
+        // REAL NUMBERS WHEN THE ARM RE-FETCHED, zeroes otherwise. A zero here is a FACT
+        // about a replay run, which fetched nothing and therefore ran no searches, rather
+        // than a gap in the record.
+        web_search: refetchWebSearch
+          ? {
+              input_tokens:  raw.web_search.input_tokens,
+              output_tokens: raw.web_search.output_tokens,
+              model:         raw.web_search.model,
+              search_count:  raw.web_search.search_count,
+            }
+          : { input_tokens: 0, output_tokens: 0, model: null, search_count: 0 },
         synthesis_batched: false,
       } as never)
       if (error) console.error(`  LEDGER WRITE FAILED for ${prospectId}: ${error.message}`)
@@ -290,6 +371,20 @@ async function main() {
       ? Number((records.reduce((t, r) => t + r.candidates, 0) / records.length).toFixed(2)) : 0,
     mean_synthesis_output_tokens: records.length
       ? Math.round(records.reduce((t, r) => t + r.synthesis_usage.output_tokens, 0) / records.length) : 0,
+    // ── ARM C's HEADLINE, PAIRED ───────────────────────────────────────────
+    // Each prospect against its own stored count, not against a population mean. Null on a
+    // replay run, where no search happened and a zero would read as a 100% saving.
+    web_search: refetchWebSearch ? {
+      fees_usd: Number(webSearchFees.toFixed(4)),
+      token_usd: Number(webSearchTokenUsd.toFixed(4)),
+      mean_search_count: records.length
+        ? Number((records.reduce((t, r) => t + r.search_count, 0) / records.length).toFixed(3)) : 0,
+      mean_stored_search_count: records.length
+        ? Number((records.reduce((t, r) => t + r.stored_search_count, 0) / records.length).toFixed(3)) : 0,
+      prospects_with_fewer_searches: records.filter(r => r.search_count < r.stored_search_count).length,
+      prospects_with_more_searches: records.filter(r => r.search_count > r.stored_search_count).length,
+      prospects_unchanged: records.filter(r => r.search_count === r.stored_search_count).length,
+    } : null,
     notes: [
       'No research result row and no prospect column was written. Ledger row only.',
       'Synthesis ran on raw sources already on file, so only the arm variable changed.',
@@ -305,6 +400,12 @@ async function main() {
   console.log(`  Personalised : ${won} (${(summary.personalised_rate * 100).toFixed(1)}%)`)
   console.log(`  Candidates   : ${summary.mean_candidates} mean`)
   console.log(`  Synth output : ${summary.mean_synthesis_output_tokens} tokens mean`)
+  if (refetchWebSearch) {
+    const w = summary.web_search!
+    console.log(`  Searches     : ${w.mean_search_count} mean, against ${w.mean_stored_search_count} stored (brief off)`)
+    console.log(`  Paired       : ${w.prospects_with_fewer_searches} fewer, ${w.prospects_unchanged} same, ${w.prospects_with_more_searches} more`)
+    console.log(`  Search cost  : $${w.fees_usd} fees + $${w.token_usd} tokens`)
+  }
   console.log(`  Spend        : $${spent.toFixed(2)} ($${summary.usd_per_prospect} per prospect)`)
   console.log(`  Reading file : ${base}.reading.md`)
   console.log('')
