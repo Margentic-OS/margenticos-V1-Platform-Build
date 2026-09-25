@@ -84,11 +84,39 @@ export function countFindingLines(findingsEvidence: string): number {
   return findingsEvidence.split('\n').filter(l => /^\s*\d+\.\s/.test(l)).length
 }
 
-export function buildFactCheckPrompt(): string {
+/**
+ * THE RULES, SHARED BY EVERY FACT-CHECK. Parameterised rather than copied: a second prompt
+ * holding the same rules is a second thing to keep in step, and the rules are the expensive
+ * part. Only what genuinely differs between Email 1 and the follow-ups is a parameter.
+ */
+export function buildFactCheckPrompt(opts: {
+  /** How the corpus is described, e.g. 'two emails' or 'one email'. */
+  emailsShown: string
+  /** The email number used in the output example, so the model returns a number that parses. */
+  exampleEmail: number
+  /**
+   * Whether a QUESTION can itself carry a claim.
+   *
+   * False for follow-ups, where the closing question is a CTA and asserts nothing. True for
+   * Email 1, whose question is written against the observation and routinely PRESUPPOSES it:
+   * "Is finding new clients to replace those introductions something you're working on?"
+   * asserts that introductions existed, in a sentence ending in a question mark. Excluding
+   * questions wholesale would let the single most confident claim in the email through
+   * unchecked.
+   */
+  questionsCanCarryClaims: boolean
+}): string {
+  const questionRule = opts.questionsCanCarryClaims
+    ? `A QUESTION CAN CARRY A CLAIM, and Email 1's usually does. "Is replacing those
+introductions something you're working on?" asserts that introductions existed. Judge what
+the question TAKES FOR GRANTED about them, not the asking. A question that assumes nothing
+("Worth a look?") returns nothing.`
+    : `  a question`
+
   return `You check whether an email's claims follow from a set of research findings. You are
 not writing, editing or judging quality. One question only: is each claim supported?
 
-You are shown NUMBERED FINDINGS and two emails. Return every claim the emails make ABOUT
+You are shown NUMBERED FINDINGS and ${opts.emailsShown}. Return every claim they make ABOUT
 THE PROSPECT OR THEIR COMPANY, and for each one the finding number that supports it.
 
 WHAT COUNTS AS A CLAIM ABOUT THEM:
@@ -116,9 +144,10 @@ those is a fact about their business that somebody has to have established.
 
 WHAT IS NOT A CLAIM ABOUT THEM, and must not be returned:
   what the SENDER does or offers, with the SENDER as the subject
-  a question
-  a statement about a whole market that would be equally true of any firm in it
+${opts.questionsCanCarryClaims ? '' : '  a question\n'}  a statement about a whole market that would be equally true of any firm in it
   a greeting or a sign-off
+
+${questionRule}
 
 SUPPORTED MEANS THE FINDING SAYS IT. Not "is consistent with", not "is plausible given".
 THE VERB MATTERS AS MUCH AS THE NOUN. If a finding says a post directed people to someone,
@@ -138,13 +167,13 @@ checked, which is treated as a failure.
 
 Return ONLY this JSON, no prose around it:
 
-{"claims":[{"email":2,"claim":"<quoted from the email>","finding":3,"supported":true,"why":"<one line>"}]}
+{"claims":[{"email":${opts.exampleEmail},"claim":"<quoted from the email>","finding":3,"supported":true,"why":"<one line>"}]}
 
 finding is the NUMBER of the finding, or null when nothing supports the claim.`
 }
 
 /** Splits the JSON out of the reply. Absent or malformed reads as "checked nothing". */
-export function parseFactCheckResponse(raw: string): CheckedClaim[] {
+export function parseFactCheckResponse(raw: string, allowedEmails: readonly number[]): CheckedClaim[] {
   const match = raw.match(/\{[\s\S]*\}/)
   if (!match) return []
   try {
@@ -154,7 +183,7 @@ export function parseFactCheckResponse(raw: string): CheckedClaim[] {
       if (!c || typeof c !== 'object') return []
       const o = c as Record<string, unknown>
       const email = Number(o.email)
-      if (email !== 2 && email !== 3) return []
+      if (!allowedEmails.includes(email)) return []
       const finding = o.finding === null || o.finding === undefined ? null : Number(o.finding)
       return [{
         email,
@@ -201,7 +230,7 @@ export function findReaderArrangements(text: string): string[] {
 }
 
 /** Loose containment, so a claim quoted with different trimming still counts as covering. */
-function covers(claim: string, sentence: string): boolean {
+export function covers(claim: string, sentence: string): boolean {
   const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
   const c = norm(claim)
   const x = norm(sentence)
@@ -308,7 +337,7 @@ export async function factCheckFollowups(params: FactCheckParams): Promise<FactC
     const reply = await client.messages.create({
       model: FACT_CHECK_MODEL,
       max_tokens: 2000,
-      system: buildFactCheckPrompt(),
+      system: buildFactCheckPrompt({ emailsShown: 'two emails', exampleEmail: 2, questionsCanCarryClaims: false }),
       messages: [{ role: 'user', content: user }],
     })
     usage = addTokenUsage(usage, readTokenUsage(reply.usage))
@@ -341,7 +370,7 @@ export async function factCheckFollowups(params: FactCheckParams): Promise<FactC
     return { claims: [], failures: [], usage, raw: '' }
   }
 
-  const claims = parseFactCheckResponse(raw)
+  const claims = parseFactCheckResponse(raw, [2, 3])
   const failures = checkCitations(claims, params.findingsEvidence, params.prose2, params.prose3)
 
   // THE FAILURES THEMSELVES, not just how many. Counted-only logging was enough to know the

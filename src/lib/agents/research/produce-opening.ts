@@ -15,6 +15,7 @@ import {
 import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
 import { writeAndJudgeOpening, buildFindingsBlock, buildFindingsEvidence, type OpeningResult, type AttemptObservation, type NotWrittenReason } from './write-opening'
 import { writeFollowups, type FollowupResult } from './write-followups'
+import { factCheckOpening } from './fact-check-opening'
 import { fingerprintEmail1 } from '@/lib/composition/followup-assignment'
 import {
   buildFollowupReference,
@@ -365,6 +366,27 @@ export async function produceOpening({
     prospectId: ctx.id,
     uniqueness,
     onAttempt,
+    // ═══ EMAIL 1'S FACT-CHECK, WIRED HERE BECAUSE THIS IS WHERE THE CORPUS LIVES ═══
+    //
+    // Injected as a closure rather than imported inside the writer, for the reason the
+    // parameter's doc gives: the key and the findings belong to the caller, and a writer
+    // test must be able to run the whole attempt loop offline.
+    //
+    // THE SAME CORPUS THE WRITER READ, built from the same `candidates` array. Rebuilding
+    // it from a different source would be a second corpus that could disagree with the
+    // first, and a citation check against a list nobody saw checks nothing.
+    factCheck: async ({ bridge, question }) => {
+      if (!bridge.trim() && !question.trim()) return []
+      const fc = await factCheckOpening({
+        apiKey,
+        bridge,
+        question,
+        findingsEvidence: buildFindingsEvidence(candidates),
+        prospectId: ctx.id,
+        companyName: ctx.company_name ?? null,
+      })
+      return fc.failures
+    },
   })
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -37,7 +37,7 @@ describe('countFindingLines', () => {
 describe('parseFactCheckResponse', () => {
   it('reads the claims out of a reply with prose around the JSON', () => {
     const raw = 'Here is my check:\n{"claims":[{"email":2,"claim":"x","finding":1,"supported":true,"why":"y"}]}\nDone.'
-    expect(parseFactCheckResponse(raw)).toEqual([
+    expect(parseFactCheckResponse(raw, [2, 3])).toEqual([
       { email: 2, claim: 'x', finding: 1, supported: true, why: 'y' },
     ])
   })
@@ -45,18 +45,18 @@ describe('parseFactCheckResponse', () => {
   it('returns NOTHING for a malformed or absent reply, which then fails the shortfall check', () => {
     // Deliberately not throwing: an unreadable verdict is "checked nothing", and the
     // shortfall check below turns that into a failure rather than a silent pass.
-    expect(parseFactCheckResponse('no json here')).toEqual([])
-    expect(parseFactCheckResponse('{"claims": not json}')).toEqual([])
+    expect(parseFactCheckResponse('no json here', [2, 3])).toEqual([])
+    expect(parseFactCheckResponse('{"claims": not json}', [2, 3])).toEqual([])
   })
 
   it('drops a claim about an email that does not exist', () => {
     const raw = '{"claims":[{"email":1,"claim":"x","finding":1,"supported":true},{"email":2,"claim":"y","finding":1,"supported":true}]}'
-    expect(parseFactCheckResponse(raw)).toHaveLength(1)
+    expect(parseFactCheckResponse(raw, [2, 3])).toHaveLength(1)
   })
 
   it('reads a null citation as null rather than as zero', () => {
     const raw = '{"claims":[{"email":2,"claim":"x","finding":null,"supported":false,"why":"nothing says so"}]}'
-    expect(parseFactCheckResponse(raw)[0].finding).toBeNull()
+    expect(parseFactCheckResponse(raw, [2, 3])[0].finding).toBeNull()
   })
 })
 
@@ -168,7 +168,7 @@ describe('an arrangement must be covered by a supported claim', () => {
 })
 
 describe('the fact-check prompt', () => {
-  const p = buildFactCheckPrompt()
+  const p = buildFactCheckPrompt({ emailsShown: 'two emails', exampleEmail: 2, questionsCanCarryClaims: false })
 
   it('says the verb matters, which is the failure it was built for', () => {
     // "brought on X" where the finding says a post DIRECTED people to X. Every proper noun

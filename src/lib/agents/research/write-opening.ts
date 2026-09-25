@@ -1992,7 +1992,7 @@ export interface AttemptObservation {
    * no longer ends an attempt, so no attempt can end that way, and leaving the value in the
    * union would let a reader believe a histogram over it might still show one.
    */
-  kind: 'gated' | 'floored' | 'compared'
+  kind: 'gated' | 'factchecked' | 'floored' | 'compared'
   /** The deterministic gates this attempt tripped. Empty for every other kind. */
   gate_failures: string[]
 
@@ -2121,6 +2121,17 @@ export interface WriteAndJudgeParams {
    * See AttemptObservation for why the returned gate_failures cannot serve this purpose.
    */
   onAttempt?: (observation: AttemptObservation) => void
+  /**
+   * THE EMAIL 1 FACT-CHECK, injected rather than imported.
+   *
+   * A function because the caller owns the API key and the findings corpus, and because a
+   * writer test must be able to run the whole loop without a network call. Absent means the
+   * check does not run, which is what every existing test and the template-arm path want:
+   * a gate that cannot be switched off would make this module untestable offline.
+   *
+   * Returns the failures. Empty means the copy may ship.
+   */
+  factCheck?: (copy: { bridge: string; question: string }) => Promise<string[]>
 }
 
 /**
@@ -2483,6 +2494,11 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
   // that does not carry the text cannot be expressed.
   type Attempt = AttemptText & (
     | { kind: 'gated'; gates: string[] }
+    // A FOURTH VARIANT RATHER THAN MORE STRINGS IN `gates`, so the compiler names every
+    // place that has to learn about it: the feedback builder, the attempt emit and the
+    // exhaustion reason. Folding it into `gates` would compile silently and the retry
+    // would quote a fact-check failure as though a deterministic gate had produced it.
+    | { kind: 'factchecked'; failures: string[] }
     | { kind: 'floored'; floor: FloorCheck }
     | { kind: 'compared'; c: JudgeComparison }
   )
@@ -2496,6 +2512,20 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
       question: w.question, subject: w.subject, subject_discarded: w.subject_discarded,
     }
     if (w.gates.length > 0) return { ...text, kind: 'gated', gates: w.gates }
+
+    // ═══ THE FACT-CHECK, AFTER THE FREE GATES AND BEFORE THE PAID ONES ═══
+    //
+    // AFTER the deterministic gates because an attempt they already rejected is going to be
+    // rewritten whatever this says, and paying for a verdict on it buys nothing. BEFORE the
+    // floor check and the comparison because those two ask whether the copy is GOOD, and a
+    // sentence the findings do not support should never reach a question about quality.
+    //
+    // The bridge and the question only. The observation is a finding quoted back and is
+    // covered by the traceability gate; the sign-off and the greeting assert nothing.
+    if (params.factCheck) {
+      const fc = await params.factCheck({ bridge: w.bridge ?? '', question: w.question })
+      if (fc.length > 0) return { ...text, kind: 'factchecked', failures: fc }
+    }
 
     // THE BRIDGE TALLY, NOT A GATE. Recorded synchronously, before either model call below,
     // so two prospects running concurrently are both counted rather than one being missed.
@@ -2537,6 +2567,8 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
   const feedbackFrom = (a: Attempt): string =>
     a.kind === 'gated'
       ? `${a.opening} ${a.question}|||${a.gates.join('; ')}`
+      : a.kind === 'factchecked'
+        ? `${a.opening} ${a.question}|||${a.failures.join('; ')}. Write a version whose every statement about this prospect is one the findings actually carry, or make the statement about the population rather than about them.`
       : a.kind === 'floored'
         ? `${a.opening} ${a.question}|||A reviewer said this claims private knowledge about the prospect: ${a.floor.reason}. Say only what can be seen from outside.`
         : `${a.c.opening} ${a.c.question}|||${a.c.reason}`
@@ -2554,7 +2586,10 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     params.onAttempt?.({
       attempt: i,
       kind: a.kind,
-      gate_failures: a.kind === 'gated' ? a.gates : [],
+      // BOTH REJECTING KINDS, or a fact-checked attempt would be stored as rejected with no
+      // reason attached and writer_attempts would answer "why" with an empty list, which is
+      // the exact gap that column was added to close.
+      gate_failures: a.kind === 'gated' ? a.gates : a.kind === 'factchecked' ? a.failures : [],
       // Copied field by field rather than spread from `a`, because `a` also carries the
       // per-kind members (`gates`, `reason`, `floor`, `c`) and `opening`, and a spread
       // would put all of them into the observation and into the exported JSON. The names
