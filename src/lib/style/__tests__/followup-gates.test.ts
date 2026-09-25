@@ -347,13 +347,32 @@ describe('the pair gates', () => {
   const e2 = 'You took on the second unit in March. The bench is bigger now. Worth a look?'
   const e3 = 'Your second unit changes what a quiet month costs. Worth fifteen minutes?'
 
-  it('rejects email 3 being longer than email 2', () => {
+  // CHANGED 2026-09-25. This used to assert a REJECTION. On the 104-prospect run it was the
+  // second largest cause of a follow-up pair falling back to template, 28 of 59, most of
+  // them near-misses at two words. It is the same shape as the Email 2 coupling that was
+  // deleted for the same reason: both emails are written in ONE response, so Email 3's
+  // budget depends on a figure for Email 2 that does not exist while the copy is written.
+  // The model cannot aim at it. The taper is carried by the bands themselves (85/70/50).
+  it('COUNTS email 3 being longer than email 2, and does not reject it', () => {
     const f = checkFollowupPairGates(e2, e3, 50, 70)
-    expect(f.some(x => x.includes('it must not be longer'))).toBe(true)
+    expect(f.filter(x => x.includes('it must not be longer'))).toEqual([])
+    // And nothing else fires on this pair either, so the pair really does ship.
+    expect(f).toEqual([])
   })
 
-  it('accepts equal lengths', () => {
+  it('accepts equal lengths, and a shorter email 3, as it always did', () => {
+    // POSITIVE CONTROL ON THE OTHER SIDE: the change must not have turned the whole pair
+    // gate off. A shared sentence is still rejected, asserted in the next test.
     expect(checkFollowupPairGates(e2, e3, 50, 50)).toEqual([])
+    expect(checkFollowupPairGates(e2, e3, 70, 50)).toEqual([])
+  })
+
+  it('THE PAIR GATE STILL GATES: a sentence repeated across the two is rejected', () => {
+    // Without this, making the length rule report-only would be indistinguishable from
+    // deleting checkFollowupPairGates, and the repeat rule is the one that matters.
+    const shared = 'You took the second unit on in March and it changes what a quiet month costs.'
+    const f = checkFollowupPairGates(`${shared}\n\nWorth a look?`, `${shared}\n\nWorth a call?`, 50, 40)
+    expect(f.length).toBeGreaterThan(0)
   })
 
   it('rejects a sentence repeated verbatim across the two', () => {

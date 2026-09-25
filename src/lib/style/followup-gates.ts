@@ -704,11 +704,31 @@ export function checkFollowupPairGates(
 ): string[] {
   const failures: string[] = []
 
-  // Email 3 no longer than Email 2. The taper is carried by the bands themselves; this
-  // binds only when Email 2 lands near its floor, which is the same shape and the same
-  // justification as the rule the messaging agent keeps for the template path.
+  // ── EMAIL 3 NO LONGER THAN EMAIL 2: COUNTED, NEVER REJECTED. Changed 2026-09-25. ──
+  //
+  // It blocked, and on the 104-prospect run of 2026-09-25 it was the SECOND largest cause
+  // of a follow-up pair falling back to template: 28 of 59. Most were near-misses, several
+  // at two words, e.g. "email 3 is 56 words against email 2's 54".
+  //
+  // IT IS THE SAME SHAPE AS THE EMAIL 2 COUPLING THAT WAS DELETED, and for the same reason.
+  // That rule chained Email 2's length to Email 1's, both emails are written in ONE response,
+  // so the number it demanded did not exist while the copy was being written. This rule has
+  // the identical defect: Email 3's budget depends on a figure for Email 2 that is only
+  // known after both are finished. The model cannot aim at it, so it misses by a word or two
+  // and a researched pair is thrown away.
+  //
+  // THE TAPER IS CARRIED BY THE BANDS THEMSELVES, which is what the deleted rule's own
+  // epitaph says: 85 / 70 / 50. Email 3's band already ends 15 words below Email 2's, so the
+  // sequence tapers whether or not this rule binds. What this rule added was a constraint on
+  // the one case where Email 2 lands near its floor, and that case is not worth a prospect's
+  // follow-ups.
+  //
+  // COUNTED, so the decision is reviewable rather than forgotten: every occurrence is logged
+  // with both counts, and nothing is returned.
   if (words3 > words2) {
-    failures.push(`email 3 is ${words3} words against email 2's ${words2}: it must not be longer`)
+    logger.info('followup-gates: email 3 longer than email 2, scored not gated', {
+      words2, words3, over_by: words3 - words2,
+    })
   }
 
   // ONE FINDING DEVELOPED, NOT ONE SENTENCE REPEATED. A shared sentence means email 3 is
