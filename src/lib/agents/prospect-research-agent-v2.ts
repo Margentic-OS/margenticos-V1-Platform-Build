@@ -147,7 +147,13 @@ export async function storeResearchResult(
   rawData: RawSourceData,
   synthesis: Awaited<ReturnType<typeof synthesizeResearch>>,
   runId: string | null,
-  opening: OpeningResult,
+  /**
+   * The opening, plus the follow-up attempts when the caller produced them. Widened on
+   * 2026-09-25: produceOpening returns OpeningWithFollowups and this signature only ever
+   * declared OpeningResult, so `followup_attempts` was present at runtime, invisible to the
+   * compiler, and never stored.
+   */
+  opening: OpeningResult & { followup_attempts?: unknown },
   /**
    * When synthesis actually happened. NULL means now, which is right for an inline run
    * where the call just returned.
@@ -207,6 +213,16 @@ export async function storeResearchResult(
       // forget it. stripNulls for the same reason every other text field here gets it: the
       // attempt text comes from the model and can carry a NUL byte Postgres will not store.
       writer_attempts:       stripNulls(opening.attempts),
+      // EVERY FOLLOW-UP ATTEMPT, rejected prose included. Present only on the path that
+      // writes follow-ups, which is the batch path: the inline agent passes an OpeningResult
+      // with no follow-up fields, and `undefined` is omitted from the insert rather than
+      // written as null, so a row from that path stays silently correct.
+      //
+      // The audit of 2026-09-25 could not classify six gate hits because this prose was
+      // discarded, while Email 1's equivalent had been stored since the day before.
+      ...(opening.followup_attempts !== undefined
+        ? { followup_attempts: stripNulls(opening.followup_attempts) }
+        : {}),
       // Omitted entirely when null so the column's own DEFAULT now() applies. Passing
       // null explicitly would violate NOT NULL.
       ...(synthesizedAt ? { synthesized_at: synthesizedAt } : {}),

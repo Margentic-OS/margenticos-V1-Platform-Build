@@ -75,6 +75,21 @@ const ATTEMPTS: AttemptObservation[] = [
   },
 ]
 
+// ONE FOLLOW-UP ATTEMPT, so the sibling column is exercised by the same real insert.
+// Added 2026-09-25: followup_attempts was computed and returned on every run and stored
+// nowhere, which is why six gate hits in that day's audit could not be classified.
+const FOLLOWUP_ATTEMPTS = [{
+  attempt: 0,
+  email2: 'You opened a second site in March.\n\nThe month after is the one nobody owns.',
+  email3: 'The second site needs work booked before it opens.\n\nWorth a look?',
+  failures2: [],
+  failures3: ['email 3 opens without addressing the reader: "The second site needs work booked before it opens."'],
+  fact_check: {
+    claims: [{ email: 2, claim: 'You opened a second site in March.', finding: 1, supported: true, why: 'finding 1' }],
+    failures: [],
+  },
+}]
+
 const OPENING = {
   attempts: ATTEMPTS,
   usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
@@ -90,6 +105,7 @@ const OPENING = {
   judge_reasoning: ATTEMPTS[2].judge_reasoning,
   comparisons: [],
   gate_failures: [],
+  followup_attempts: FOLLOWUP_ATTEMPTS,
 } as unknown as OpeningResult
 
 const RAW = {
@@ -169,6 +185,7 @@ afterAll(async () => {
 
 describe('storeResearchResult persists every writer attempt', () => {
   let stored: AttemptObservation[]
+  let storedFollowups: unknown[] | null
 
   beforeAll(async () => {
     const resultId = await storeResearchResult(
@@ -180,11 +197,12 @@ describe('storeResearchResult persists every writer attempt', () => {
     )
     const { data, error } = await supabase
       .from('prospect_research_results')
-      .select('writer_attempts')
+      .select('writer_attempts, followup_attempts')
       .eq('id', resultId)
       .single()
     if (error) throw new Error(`read back failed: ${error.message}`)
     stored = (data as unknown as { writer_attempts: AttemptObservation[] }).writer_attempts
+    storedFollowups = (data as unknown as { followup_attempts: unknown[] | null }).followup_attempts
   })
 
   it('stores one element per attempt, in order', () => {
@@ -222,6 +240,17 @@ describe('storeResearchResult persists every writer attempt', () => {
     expect(stored[0].observation).toBe(ATTEMPTS[0].observation)
     expect(stored[0].bridge).toBe(ATTEMPTS[0].bridge)
     expect(stored[0].question).toBe(ATTEMPTS[0].question)
+  })
+
+  it('stores the FOLLOW-UP attempts too, with the rejected prose and the gate failure', () => {
+    // The gap the 2026-09-25 audit hit: a gate message with no quoted sentence and no route
+    // back to the prose. Both are now on the row.
+    expect(storedFollowups).toHaveLength(1)
+    const a = storedFollowups![0] as Record<string, unknown>
+    expect(a.email2).toContain('You opened a second site in March.')
+    expect(a.email3).toContain('The second site needs work booked')
+    expect((a.failures3 as string[])[0]).toContain('opens without addressing the reader')
+    expect((a.fact_check as Record<string, unknown>).failures).toEqual([])
   })
 
   it('POSITIVE CONTROL: the column really is a column, and a wrong one is rejected', () => {
