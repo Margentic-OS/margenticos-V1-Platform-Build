@@ -1280,6 +1280,26 @@ export function untraceableClaims(opening: string, findingsText: string, numbers
  * and applying the whole check broke both. Names are the half that carries the fabrication
  * risk, and they are the half that transfers.
  */
+/**
+ * Capitalised words that are ordinary English rather than the name of a thing.
+ *
+ * WEEKDAYS AND MONTHS. Measured 2026-09-25 while applying this check retroactively to 122
+ * stored follow-ups: 6 failed and one was "Tuesday", in the CTA "Is a Tuesday call this week
+ * worth 20 minutes?". A weekday is capitalised in English and is not a claim about anybody,
+ * so the findings will never contain one unless a dated event happens to fall on it.
+ * Clearing that email would have forced a rewrite to fix nothing.
+ *
+ * MONTHS ARE HERE FOR THE SAME REASON AND ARE THE RISKIER OMISSION: a month usually IS in the
+ * corpus, because the observation is dated, so the gap only shows when a follow-up reasons
+ * forward to a month the findings never named. That is arithmetic, not a fabricated name, and
+ * it is the same distinction that keeps the numbers half of this check out of the follow-ups.
+ */
+const CALENDAR_WORDS = new Set([
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+])
+
 export function untraceableNames(opening: string, findingsText: string): string[] {
   const haystack = findingsText.toLowerCase()
   const untraceable: string[] = []
@@ -1302,6 +1322,7 @@ export function untraceableNames(opening: string, findingsText: string): string[
     if (clean.length < 3) return
     if (i === 0) return
     if (!/^\p{Lu}/u.test(clean)) return
+    if (CALENDAR_WORDS.has(clean.toLowerCase())) return
     // A capital straight after a full stop is sentence-initial, not a name.
     if (i > 0 && /[.!?]$/.test(words[i - 1])) return
     if (haystack.includes(clean.toLowerCase())) return

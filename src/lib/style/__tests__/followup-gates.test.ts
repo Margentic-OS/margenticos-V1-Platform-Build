@@ -777,3 +777,24 @@ describe('a name the findings do not carry is rejected', () => {
     ).toEqual([])
   })
 })
+
+describe('a weekday is not the name of a thing', () => {
+  const CORPUS = '1. The firm posted a role in March.\n   source: website'
+
+  it('CONTROL: a weekday in a CTA is not an untraceable name', () => {
+    // Measured 2026-09-25: applying this gate to 122 stored follow-ups failed 6, and one was
+    // "Tuesday" in "Is a Tuesday call this week worth 20 minutes?". Clearing that email would
+    // have forced a rewrite to fix nothing.
+    expect(pass('You posted a role in March. A call sets the week up. Is a Tuesday call this week worth 20 minutes?', {
+      findingsEvidence: CORPUS,
+    })).toEqual([])
+  })
+
+  it('STILL REJECTS a real invented name in the same sentence shape', () => {
+    const f = pass('You posted a role in March. Is a Tuesday call with Yomal worth 20 minutes?', {
+      findingsEvidence: CORPUS,
+    })
+    expect(f.some(x => x.includes('Yomal'))).toBe(true)
+    expect(f.some(x => x.includes('Tuesday'))).toBe(false)
+  })
+})

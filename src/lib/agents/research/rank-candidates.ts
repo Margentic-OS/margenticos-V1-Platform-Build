@@ -28,6 +28,8 @@ export interface RankableCandidate {
   /** True when what they reshared was their own firm's announcement, which is their news. */
   reshare_of_own_firm?: boolean | null
   source?: string | null
+  /** Where the fact came from, as the source recorded it. Read for locatability. */
+  provenance?: string | null
 }
 
 export interface RankedCandidate extends RankableCandidate {
@@ -41,6 +43,8 @@ export interface RankedCandidate extends RankableCandidate {
     specificity: number
     reason_strength: number
     trigger_position: number | null
+    /** Day-precise AND locatable: a reader could go and check it. */
+    checkable: boolean
   }
 }
 
@@ -49,6 +53,21 @@ export interface RankedCandidate extends RankableCandidate {
  * than a year, because "dated" in the specificity test means a reader can go and check it.
  */
 export type DatePrecision = 'day' | 'month' | 'year' | 'none'
+
+/**
+ * Does the provenance point somewhere a reader could actually look?
+ *
+ * A SCHEME, A BARE DOMAIN, OR A PROFILE PATH. Bare domains count because that is how website
+ * provenance is recorded here: "example-firm.com/resources/blog, post dated July 8, 2026" has
+ * no scheme and is perfectly locatable. Measured 2026-09-25 across 567 candidates: requiring
+ * a scheme called 65% unlocatable; allowing bare domains puts it at 51%.
+ */
+const LOCATABLE =
+  /https?:\/\/|\b[\w-]+\.(?:com|net|org|io|co|uk|ai|dev|us|biz|info|group|consulting)\b/i
+
+export function isLocatable(provenance: string | null | undefined): boolean {
+  return !!provenance && LOCATABLE.test(provenance)
+}
 
 export function datePrecision(date: string | null | undefined): DatePrecision {
   if (!date) return 'none'
@@ -139,6 +158,7 @@ export function rankBasis(c: RankableCandidate, now: Date): RankedCandidate['ran
     specificity: specificity(c),
     reason_strength: reasonStrength(c),
     trigger_position: c.matched_trigger ?? null,
+    checkable: datePrecision(c.date) === 'day' && isLocatable(c.provenance),
   }
 }
 
@@ -150,6 +170,8 @@ export function rankBasis(c: RankableCandidate, now: Date): RankedCandidate['ran
  *   0. MATCHED A TRIGGER. The client's list decides what counts at all, so anything that
  *      matched outranks anything that did not. Below that the same order applies, because a
  *      client with no triggers still needs its candidates sorted.
+ *   0b. CHECKABLE BEFORE UNCHECKABLE. Day-dated and locatable provenance. An approximate
+ *      date or a reference nobody can follow never outranks a verifiable one.
  *   1. THEIR OWN POST BEFORE A RESHARE. A reshare is not their event. It is still evidence
  *      of what they chose to amplify, so it stays in the list rather than being dropped, and
  *      it can still win when nothing of their own qualifies.
@@ -180,6 +202,24 @@ export function rankCandidates<T extends RankableCandidate>(
     .sort((a, b) => {
       const A = a.rank_basis, B = b.rank_basis
       if (A.matched !== B.matched) return A.matched ? -1 : 1
+      // ═══ CHECKABLE BEATS UNCHECKABLE, ABOVE EVERYTHING BUT THE TRIGGER MATCH ═══
+      //
+      // A candidate with an approximate date or provenance nobody can follow never outranks
+      // one a reader could verify, whatever its trigger position.
+      //
+      // MEASURED, 2026-09-25, and this sits above own_post because own_post is what actually
+      // decided the case it was written for. One prospect's chosen hook was a web-search
+      // snippet with no URL, dated "approximately August 2026", which the year-precision
+      // parse resolved to January and scored 267 days old. It beat a three-day-old LinkedIn
+      // post with a profile URL, not on trigger rank as the recorded reason claimed, but
+      // because the snippet was an own post and the LinkedIn item was a reshare, and own_post
+      // is read before recency. A rule placed below own_post would not have changed it.
+      //
+      // BLAST RADIUS, stated because it is large: of 567 candidates in the 104 cohort, 451
+      // are day-dated and 276 locatable, so roughly half the corpus is uncheckable and this
+      // step reorders it. That is the intended effect. A hook the prospect cannot recognise
+      // as true of them is worse than a less on-theme one they can.
+      if (A.checkable !== B.checkable) return A.checkable ? -1 : 1
       if (A.own_post !== B.own_post) return A.own_post ? -1 : 1
       if (A.recency_band !== B.recency_band) {
         if (A.recency_band == null) return 1
