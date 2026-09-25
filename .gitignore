@@ -13,15 +13,17 @@ dist/
 
 # Environment variables — NEVER commit these
 .env
-.env.local
+# WILDCARD FIRST, so a new env file is ignored by DEFAULT rather than by remembering.
+# The named list below was exhaustive for the files that existed and silently left every
+# later one tracked: on 2026-09-25 a dedicated Anthropic key for a reconciliation run was
+# about to go into .env.reconcile.local, which matched nothing here and would have been
+# committable. The commit gate would have caught an sk-ant- literal, but the first layer
+# should not be the last one.
+.env*.local
 .env.development
-.env.development.local
 .env.test
-.env.test.local
 .env.staging
-.env.staging.local
 .env.production
-.env.production.local
 
 # Debug logs
 npm-debug.log*
