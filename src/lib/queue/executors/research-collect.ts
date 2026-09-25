@@ -42,6 +42,40 @@ export function researchCollectHandler(): JobHandler {
               // How often the messaging document moved under a batch. Reported here so
               // the rate is visible in spend_detail as well as in MON-021.
               doc_superseded: collected.doc_superseded,
+
+              // ─── WHAT THIS JOB'S MODEL CALLS COST ──────────────────────────────
+              //
+              // This executor recorded which entry it collected and nothing about tokens,
+              // so the production path at volume — every prospect since the Batch API
+              // split — had no per-prospect cost on record at all. The synthesis half is
+              // not missing: it was billed on the Batch API hours earlier and sits on
+              // synthesis_batch_entries.usage. These are the calls THIS job made.
+              opening_input_tokens:                collected.opening_usage.input_tokens,
+              opening_output_tokens:               collected.opening_usage.output_tokens,
+              opening_cache_creation_input_tokens: collected.opening_usage.cache_creation_input_tokens,
+              opening_cache_read_input_tokens:     collected.opening_usage.cache_read_input_tokens,
+              // Writer, floor judge and judge across every attempt, so a retried prospect
+              // is readable as one. They are ONE accumulator inside write-opening.ts and
+              // cannot be split here.
+              opening_calls:                       collected.opening_usage.calls,
+
+              // THE LINE THAT HAD NO MEASUREMENT OF ANY KIND. Present only on the
+              // generated arm, which is what makes its absence meaningful: no keys means
+              // no follow-up call was paid for, rather than one that was paid for and not
+              // counted.
+              ...(collected.followup_usage
+                ? {
+                    followup_input_tokens:                collected.followup_usage.input_tokens,
+                    followup_output_tokens:               collected.followup_usage.output_tokens,
+                    followup_cache_creation_input_tokens: collected.followup_usage.cache_creation_input_tokens,
+                    followup_cache_read_input_tokens:     collected.followup_usage.cache_read_input_tokens,
+                    // Follow-up attempts PLUS the fact-check calls they triggered:
+                    // write-followups.ts adds the fact-check usage into this same
+                    // accumulator, deliberately, so the check can never be billed
+                    // invisibly.
+                    followup_calls:                       collected.followup_usage.calls,
+                  }
+                : {}),
             }
           : {
               outcome: 'stored_without_opening',

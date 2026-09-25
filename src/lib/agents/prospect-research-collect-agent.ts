@@ -60,7 +60,7 @@ import { checkResearchEligibility } from '@/lib/sourcing/send-eligibility-policy
 import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
 import {
   ZERO_TOKEN_USAGE, readTokenUsage, addTokenUsage, COLLECTABLE_ENTRY_STATES,
-  type RawSourceData,
+  type RawSourceData, type TokenUsage,
 } from './research/types'
 import type { OpeningResult } from './research/write-opening'
 import { assignFollowupArm } from '@/lib/composition/followup-assignment'
@@ -86,6 +86,22 @@ export type ResearchCollectResult =
       trigger_written: boolean
       /** Whether the snapshotted messaging document is still the active approved one. */
       doc_superseded: boolean
+      /**
+       * Every writer, floor and judge token this prospect spent, all attempts included.
+       *
+       * The synthesis half is NOT here: it was billed on the Batch API hours earlier and is
+       * recorded on synthesis_batch_entries.usage. These are the calls this job made.
+       */
+      opening_usage: TokenUsage
+      /**
+       * The follow-up call's tokens, INCLUDING its fact-check calls. Null when no follow-up
+       * call was made, which is the template arm and every path where Email 1 lost.
+       *
+       * THIS IS THE LINE THAT HAD NO MEASUREMENT OF ANY KIND. It was computed on every
+       * generated prospect since 2026-09-21 and dropped here, so the cost of the arm the
+       * A/B comparison turns on could only ever be guessed at.
+       */
+      followup_usage: TokenUsage | null
     }
   /**
    * The prospect became unmailable during the wait. The synthesis is already paid for so
@@ -426,6 +442,8 @@ export async function runProspectResearchCollect({
       qualification_status: synthesis.qualification_status,
       trigger_written: opening.written_won,
       doc_superseded: docSuperseded,
+      opening_usage: opening.usage,
+      followup_usage: opening.followup_usage,
     }
 
   } catch (err) {

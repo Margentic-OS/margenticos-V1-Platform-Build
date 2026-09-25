@@ -896,6 +896,14 @@ export async function runProspectResearchAgentV2({
         output_tokens: rawData.web_search.output_tokens,
         model:         rawData.web_search.model,
       },
+      // The follow-up and fact-check tokens, carried rather than dropped.
+      //
+      // NULL ON THIS PATH TODAY, and that is a fact about the path and not a gap: this
+      // caller does not pass writeFollowupEmails, because the two extra calls would push
+      // the 'research' job type past its worst-case budget. produceOpening therefore
+      // returns null. Wired anyway so the figure appears the moment the flag does, instead
+      // of the flag being switched on and the cost going quiet again.
+      followup_usage:        opening.followup_usage,
     }
 
   } catch (err) {

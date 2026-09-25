@@ -401,3 +401,51 @@ describe('phase 2 collects a truncated entry and retries it once', () => {
     expect(synthesisFromMessage.mock.calls[0][0]).toBe(truncatedMessage)
   })
 })
+
+// ─── THE JOIN BETWEEN THE AGENT AND THE EXECUTOR ─────────────────────────────
+//
+// ADDED BECAUSE A MUTATION SURVIVED. Replacing `followup_usage: opening.followup_usage`
+// with `null` in this agent broke nothing: the executor's tests feed it a fixture, so they
+// prove the executor writes what it is given and say nothing about whether the agent gives
+// it anything. A test at each end of a handoff proves both ends and not the handoff.
+describe('phase 2 reports what its model calls cost, so the executor can persist them', () => {
+  it('passes the follow-up and fact-check tokens through from produceOpening', async () => {
+    produceOpening.mockResolvedValue({
+      opening: 'An opening.', question: 'A question?', bridge: null, observation: 'x',
+      written_won: true, retry_used: false, retries_used: 0, strong_material: true,
+      judge_reasoning: 'ok',
+      usage: {
+        input_tokens: 3016, output_tokens: 6610,
+        cache_creation_input_tokens: 3018, cache_read_input_tokens: 21421, calls: 5,
+      },
+      email2: { prose: 'p2', body: 'b2', discarded: null, failures: [] },
+      email3: { prose: 'p3', body: 'b3', discarded: null, failures: [] },
+      // Follow-up attempts PLUS the fact-check calls they triggered: write-followups.ts
+      // adds the fact-check usage into this same accumulator.
+      followup_usage: {
+        input_tokens: 2400, output_tokens: 310,
+        cache_creation_input_tokens: 1800, cache_read_input_tokens: 4300, calls: 3,
+      },
+      followup_attempts: [], followup_email1_fingerprint: 'fp',
+    })
+
+    const { result } = await runCollect()
+
+    expect(result.outcome).toBe('stored')
+    if (result.outcome !== 'stored') throw new Error('unreachable')
+    expect(result.followup_usage).toMatchObject({ input_tokens: 2400, output_tokens: 310, calls: 3 })
+    // And Email 1's own calls, which this path recorded nowhere at all before.
+    expect(result.opening_usage).toMatchObject({ input_tokens: 3016, calls: 5 })
+  })
+
+  it('reports null follow-up usage when no follow-up call was made', async () => {
+    // The default fixture is the template arm: written_won true, no follow-up call.
+    const { result } = await runCollect()
+    expect(result.outcome).toBe('stored')
+    if (result.outcome !== 'stored') throw new Error('unreachable')
+    expect(result.followup_usage).toBeNull()
+    // The control: the opening usage IS reported on the same run, so the null above is
+    // about the follow-up line and not about a result that carries no usage at all.
+    expect(result.opening_usage).toMatchObject({ calls: 3 })
+  })
+})

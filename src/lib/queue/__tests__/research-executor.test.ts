@@ -43,6 +43,15 @@ const okResult = (over: Record<string, unknown> = {}) => ({
     cache_creation_input_tokens: 0, cache_read_input_tokens: 9000, calls: 4,
   },
   web_search_count: 2,
+  // The Haiku half of the search bill, added 2026-09-25. Same rule as token_usage above:
+  // describeSpend reads it, so omitting it does not fail quietly, it replaces the whole
+  // spend detail with an error note. Leaving it out of this fixture failed three tests,
+  // which is the designed behaviour working.
+  web_search_usage: { input_tokens: 9487, output_tokens: 368, model: 'claude-haiku-4-5-20251001' },
+  // Null is the NORMAL value on this job type: the inline path does not pass
+  // writeFollowupEmails, because the two extra calls would push 'research' past its
+  // worst-case budget. A test below overrides it to prove the keys land when it is present.
+  followup_usage: null,
   ...over,
 })
 
@@ -112,7 +121,65 @@ describe('researchHandler — the spend stamp', () => {
       // Calls, not prospects: writer 1-3, floor and judge 0-3 each, plus synthesis.
       anthropic_calls: 4,
       web_search_count: 2,
+      // The Haiku tokens the searches cost. The fee alone was 57% of a lookup on
+      // 2026-08-25 and these tokens were the other 43%, invisible until now.
+      web_search_input_tokens: 9487,
+      web_search_output_tokens: 368,
+      web_search_model: 'claude-haiku-4-5-20251001',
     })
+  })
+
+  // ── THE FOLLOW-UP AND FACT-CHECK LINE ─────────────────────────────────────
+  //
+  // Computed on every generated prospect since 2026-09-21 and dropped by both production
+  // callers, so the arm the A/B comparison turns on had no cost measurement of any kind.
+
+  it('records the follow-up and fact-check tokens as their OWN keys, not summed in', async () => {
+    researchImpl = async () => okResult({
+      followup_usage: {
+        input_tokens: 2400, output_tokens: 310,
+        cache_creation_input_tokens: 1800, cache_read_input_tokens: 4300,
+        // Follow-up attempts PLUS the fact-check calls they triggered: write-followups.ts
+        // adds the fact-check usage into the same accumulator on purpose.
+        calls: 3,
+      },
+    })
+    const job = makeJob({ job_type: 'research', state: 'claimed', claimed_by: 'w1',
+                          organisation_id: ORG, prospect_id: 'p1' })
+    const fake = createFakeQueue([job])
+
+    await executeJob(fake.client, job, 'w1', researchHandler())
+
+    const detail = fake.get(job.id)!.spend_detail as Record<string, unknown>
+    expect(detail).toMatchObject({
+      followup_input_tokens: 2400,
+      followup_output_tokens: 310,
+      followup_cache_creation_input_tokens: 1800,
+      followup_cache_read_input_tokens: 4300,
+      followup_calls: 3,
+    })
+    // NOT FOLDED INTO THE EMAIL 1 TOTALS. The generated and template arms differ by exactly
+    // this, and a blended figure cannot say which half moved.
+    expect(detail.input_tokens).toBe(1200)
+    expect(detail.anthropic_calls).toBe(4)
+  })
+
+  it('writes NO follow-up keys when no follow-up call was made', async () => {
+    // Absence is meaningful: no keys means nothing was paid for, which is a different
+    // statement from zeroes, and zeroes would read as a call that cost nothing.
+    researchImpl = async () => okResult({ followup_usage: null })
+    const job = makeJob({ job_type: 'research', state: 'claimed', claimed_by: 'w1',
+                          organisation_id: ORG, prospect_id: 'p1' })
+    const fake = createFakeQueue([job])
+
+    await executeJob(fake.client, job, 'w1', researchHandler())
+
+    const detail = fake.get(job.id)!.spend_detail as Record<string, unknown>
+    expect(detail).not.toHaveProperty('followup_input_tokens')
+    expect(detail).not.toHaveProperty('followup_calls')
+    // The control: the rest of the stamp is still there, so the assertion above is about
+    // the follow-up keys and not about a detail that failed to be written at all.
+    expect(detail.input_tokens).toBe(1200)
   })
 
   it('records which sources ran, so a cheap stored-findings run is distinguishable', async () => {

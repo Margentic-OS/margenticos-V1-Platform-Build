@@ -97,6 +97,35 @@ export function researchHandler(): JobHandler {
         cache_read_input_tokens:     research.token_usage.cache_read_input_tokens,
         anthropic_calls:             research.token_usage.calls,
 
+        // THE FOLLOW-UP AND FACT-CHECK LINE, which had no measurement of any kind before
+        // 2026-09-25. Kept as its own keys rather than summed into the four above: the
+        // generated and template arms differ by exactly this, and a single blended total
+        // cannot answer which half moved.
+        //
+        // Null on this job type today, because the inline path does not pass
+        // writeFollowupEmails: the two extra calls would push 'research' past its
+        // worst-case budget. Written when present so switching the flag on does not also
+        // need a change here to make the cost visible.
+        ...(research.followup_usage
+          ? {
+              followup_input_tokens:                research.followup_usage.input_tokens,
+              followup_output_tokens:               research.followup_usage.output_tokens,
+              followup_cache_creation_input_tokens: research.followup_usage.cache_creation_input_tokens,
+              followup_cache_read_input_tokens:     research.followup_usage.cache_read_input_tokens,
+              // Follow-up calls PLUS fact-check calls. write-followups.ts adds the
+              // fact-check usage into the same accumulator, so one call here is one
+              // follow-up attempt and the checks it triggered.
+              followup_calls:                       research.followup_usage.calls,
+            }
+          : {}),
+
+        // The Haiku half of the web-search bill, which webSearch() has returned since
+        // 2026-08-25 and every call site discarded. Separate from the Sonnet counts above
+        // because the two models are 3x apart.
+        web_search_input_tokens:     research.web_search_usage.input_tokens,
+        web_search_output_tokens:    research.web_search_usage.output_tokens,
+        web_search_model:            research.web_search_usage.model,
+
         // Billable Anthropic web searches, capped at WEB_SEARCH_MAX_USES per query and two
         // queries per prospect. Zero on a stored-findings reuse, which calls nothing.
         web_search_count:            research.web_search_count,

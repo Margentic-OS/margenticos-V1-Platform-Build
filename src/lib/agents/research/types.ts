@@ -633,6 +633,19 @@ export interface ResearchResult {
    * Zero on a stored-findings reuse, like web_search_count.
    */
   web_search_usage: WebSearchUsage
+  /**
+   * The follow-up call's tokens, INCLUDING the fact-check calls it makes.
+   *
+   * Null when no follow-up call happened: the prospect was in the template arm, or Email 1
+   * lost to the template, in which case produceOpening short-circuits before paying for it.
+   *
+   * SEPARATE FROM token_usage, NOT FOLDED IN. Folding would hide which half moved, and the
+   * whole point of the generated-versus-template arms is that they differ by exactly this.
+   * Until 2026-09-25 this was computed on every generated prospect and then dropped by both
+   * production callers, so the one line with no measurement of any kind was the one the
+   * comparison turns on.
+   */
+  followup_usage: TokenUsage | null
 }
 
 /** What the web-search calls cost, in the only two units the provider bills them in. */
