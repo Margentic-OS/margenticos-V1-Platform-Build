@@ -58,7 +58,11 @@ const THEIR_TIME: RegExp[] = [
   /\bwhile\s+you(?:'re| are)?\s+\w*\s*(deliver|delivering|in delivery|billing|heads down)\b/i,
   /\bwhen\s+(delivery|client work|the work)\s+(gets|is)\s+busy\b/i,
   // "takes the hours", "eats into your", "absorbs your"
-  /\b(takes?|eats? into|absorbs?|swallows?|consumes?)\s+(the\s+)?(hours|time|weeks)\b/i,
+  // A DETERMINER IS REQUIRED. "takes the hours" names specific hours and is a claim about
+  // them; "takes time" is the idiom for "is slow" and says nothing about anybody's diary.
+  // Measured 2026-09-25: "that kind of hire takes time to ramp" was rejected as a capacity
+  // claim, and it is about the hire ramping.
+  /\b(takes?|eats? into|absorbs?|swallows?|consumes?)\s+(the|your|their)\s+(hours|time|weeks?|day|days)\b/i,
   // "first weeks run on your time"
   /\brun\s+on\s+your\s+\w+\b/i,
   // "that is a long time to carry", "carrying both"
@@ -240,13 +244,46 @@ const SECOND_PERSON_READER = /\byou(?:[\u2019']re|r|rs|rself)?\b/i
 const READER_NOT_DOING_IT =
   /\b(no|never|without|do(?:es)?n[\u2019']t|do not|does not|stop|stops|stopped)\b/i
 
+/**
+ * SOMETHING ARRIVING IN THE READER'S DIARY IS A DELIVERY PROMISE.
+ *
+ * "A meeting lands in your diary", "booked calls land on your calendar", "it arrives in your
+ * inbox". The capacity noun is the DESTINATION of something the sender provides, not a claim
+ * about how the reader's hours are spent. Measured 2026-09-25: three of the capacity gate's
+ * four false positives on the 44 audited pairs were exactly this shape.
+ *
+ * "Your calendar is already full" is the opposite and still blocks: there the noun is the
+ * SUBJECT and the sentence asserts its state.
+ */
+const DELIVERED_INTO =
+  /\b(land|lands|landed|arriv\w+|appear\w*|show\w*\s+up|go|goes|went|drop\w*|book\w*)\b[^.!?]{0,30}\b(in|on|into|onto|straight\s+into)\s+your\s+(calendar|diary|inbox|schedule|week)\b/i
+
+/**
+ * True when the capacity claim in this sentence is the SENDER describing its own work.
+ *
+ * ─── JUDGED ON THE WHOLE SENTENCE. Changed 2026-09-25. ──────────────────────
+ *
+ * This read only the text BEFORE the match, on the reasoning that a clause's subject sits
+ * ahead of it. That is true of the subject and false of everything else, and it cost four of
+ * the seven capacity rejections in the audited run. The clearest case:
+ *
+ *   "Booked calls land on your calendar without you touching the prospecting side."
+ *
+ * The match is `your calendar`. The `without you touching` that exempts it sits AFTER, so the
+ * exemption never saw it and a sender promise was rejected as a claim about the reader's
+ * hours. A negation anywhere in the sentence is about that sentence.
+ *
+ * THE RISK THIS ACCEPTS, stated rather than discovered later: a mixed sentence that both
+ * asserts the reader's capacity and mentions the sender ("Your week is full, so we run the
+ * outreach") is now exempt. That is the looser direction, and it is the right way to be
+ * wrong here: a false positive throws away a researched email, and the three real
+ * reader-capacity claims in the audit carry no first person at all, so none of them moves.
+ */
 export function isSenderSide(sentence: string, matched: string): boolean {
-  const at = sentence.indexOf(matched)
-  const before = at > 0 ? sentence.slice(0, at) : ''
-  if (FIRST_PERSON.test(before)) return true
-  // Judged on the MATCHED SPAN, not the whole sentence: a negation elsewhere in a long
-  // sentence says nothing about the claim this pattern found.
-  return READER_NOT_DOING_IT.test(matched)
+  if (FIRST_PERSON.test(sentence)) return true
+  if (READER_NOT_DOING_IT.test(sentence)) return true
+  if (DELIVERED_INTO.test(sentence)) return true
+  return false
 }
 
 /**

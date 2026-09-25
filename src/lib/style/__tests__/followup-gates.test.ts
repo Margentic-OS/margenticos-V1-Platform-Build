@@ -120,6 +120,28 @@ describe('capacity and audience on follow-ups', () => {
     }
   })
 
+  it('NEVER blocks a delivery promise, whatever the word order', () => {
+    // FROM THE AUDIT of 2026-09-25: four of the seven capacity rejections across 44 pairs
+    // were the SENDER describing delivery, and the exemption missed all four because it read
+    // only the text BEFORE the match. In the first of these the "without you touching" that
+    // exempts it sits AFTER the matched "your calendar".
+    for (const line of [
+      'Booked calls land on your calendar without you touching the prospecting side.',
+      'A meeting lands in your diary, and you take it from there.',
+      'When a prospect is ready to talk, it lands in your calendar.',
+    ]) {
+      const f = run(`You took the second unit on in March.\n\n${line}\n\nWorth a look?`)
+      expect(f.filter(x => x.includes('assumes something about the reader')), line).toEqual([])
+    }
+  })
+
+  it('does not read an idiom as a claim about the reader\u2019s hours', () => {
+    // "takes time to ramp" is the idiom for "is slow", about the HIRE. "takes the hours"
+    // names specific hours and still blocks, asserted below.
+    const f = run('You posted for a project manager on 17 August.\n\nThat kind of hire takes time to ramp.\n\nWorth a look?')
+    expect(f.filter(x => x.includes('assumes something about the reader'))).toEqual([])
+  })
+
   it('and STILL blocks the same activity asserted rather than removed', () => {
     // The grammar is what tells them apart. Without this the exemption would swallow the
     // claim it is carved out of: a negated activity is the sender removing it, the same
