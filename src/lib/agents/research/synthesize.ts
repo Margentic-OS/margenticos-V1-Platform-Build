@@ -9,6 +9,7 @@ import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
 import type { MessageCreateParamsNonStreaming, Message } from '@anthropic-ai/sdk/resources/messages'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { candidateCap, candidateCapInstruction, synthesisModelOverride } from './cost-arms'
 import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
@@ -1595,11 +1596,20 @@ export function buildSynthesisParams(
   // Per-client only. The per-prospect signal moved to the user message so this string is
   // byte-identical across a batch and can therefore be cached. See buildSignalBlock.
   const systemPrompt = buildSynthesisPrompt(clientCtx)
+  // ARM A appends to the USER message, after the retry instruction, for the reason ADR-059
+  // gives for that instruction's placement: the system block carries the cache breakpoint and
+  // must stay byte-identical across a batch, or every prospect pays a fresh cache write and
+  // the arm's saving is confounded with a cache effect. Off by default: cap is null.
+  const cap = candidateCap()
   const userMessage = buildSynthesisUserMessage(prospect, rawData, detectedSignal)
     + (constrainReasoning ? CONSTRAINED_REASONING_INSTRUCTION : '')
+    + (cap !== null ? candidateCapInstruction(cap) : '')
 
   return {
-    model: SYNTHESIS_MODEL,
+    // ARM B. Null keeps ADR-013's model, so the default bytes are unchanged. The override is
+    // restricted to models USD_PER_MTOK can price, because an unpriced model writes a ledger
+    // row this experiment cannot read back.
+    model: synthesisModelOverride() ?? SYNTHESIS_MODEL,
     // 24000, and neither earlier ceiling was theoretical. Three of twelve prospects in the
     // 2026-08-19 batch hit exactly 8000 output tokens; three of 39 calls hit exactly 16000 on
     // 2026-09-11, once the judge began reading each fit dimension with a quotation. The JSON is

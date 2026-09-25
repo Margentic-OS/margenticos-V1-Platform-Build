@@ -55,6 +55,7 @@
 
 import { webSearch } from '@/lib/agents/tools/webSearch'
 import { logger } from '@/lib/logger'
+import { briefWebSearch } from '../cost-arms'
 import type { ProspectContext, WebSearchSourceResult } from '../types'
 
 /**
@@ -144,7 +145,10 @@ async function fetchWebSearchOnce(prospect: ProspectContext): Promise<WebSearchS
     // agents keep the default of 3, because they run once per client and richer search is
     // worth paying for there. This runs on every prospect in every batch, which is where
     // the volume is.
-    const result = await webSearch(query, { maxUses: 1 })
+    // ARM C. brief mode has existed since 2026-09-09 and this caller, which is where the
+    // volume is, has never used it. Measured in the tuner over 40 paired lookups: billable
+    // searches 1.48 -> 1.00, input tokens unchanged. Off by default.
+    const result = await webSearch(query, { maxUses: 1, brief: briefWebSearch() })
 
     // A query that came back `limited` produced no substantive findings. Treating it
     // as content is what let the model's own preamble ("I'll search for information
