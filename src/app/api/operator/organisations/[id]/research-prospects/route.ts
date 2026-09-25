@@ -47,12 +47,9 @@ import { cookies } from 'next/headers'
 import * as Sentry from '@sentry/nextjs'
 import type { Database } from '@/types/database'
 import { runResearchBatchForOrg, type ResearchScope } from '@/lib/operator/research-batch-entry'
-import { isQueueEnabled } from '@/lib/queue/flags'
+import { resolveResearchRouting } from '@/lib/operator/research-path'
 import { enqueueResearchForOrganisation } from '@/lib/queue/enqueue/research'
-import {
-  HALF_ENABLED_BATCH_PATH_REFUSAL,
-  describeQueuedResearch,
-} from '@/lib/operator/research-verdict'
+import { describeQueuedResearch } from '@/lib/operator/research-verdict'
 import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
 
@@ -124,33 +121,28 @@ export async function POST(
     // of every source.
     const useStoredFindings = body.use_stored_findings === false ? false : true
 
-    // ── WHICH PATH, DECIDED HERE AT ENQUEUE AND NOWHERE ELSE ─────────────────
+    // ── WHICH PATH, DECIDED IN ONE SHARED PLACE ──────────────────────────────
     //
-    // Read at ENQUEUE, never at claim. A prospect that entered the batch path must finish
-    // down the batch path: flipping a flag mid-batch would otherwise strand it between
-    // phase 1 and phase 2 with its sources bought and no job able to finish it.
+    // Moved to resolveResearchRouting on 2026-09-25, unchanged in behaviour, so the CLI can
+    // make the SAME decision instead of always running inline. The flags had the batch path
+    // switched on for eleven days while every CLI run paid full price, because this logic
+    // lived here and the CLI never saw it.
     //
-    // The two flags cannot both be true. system_flags_research_path_exclusive is a unique
-    // index that permits at most one of queue_research and queue_research_sources to be
-    // enabled, which is also what keeps Apify actor concurrency inside its measured
-    // ceiling of 25.
-    const batched = await isQueueEnabled(supabase, 'research_sources')
-    const queued = batched || await isQueueEnabled(supabase, 'research')
+    // freshPolicy 'refuse' is this route's answer and the reason the parameter exists: the
+    // CLI passes 'inline', because --fresh is the documented escape hatch.
+    const routing = await resolveResearchRouting(supabase, {
+      useStoredFindings,
+      freshPolicy: 'refuse',
+    })
 
-    // ── REFUSE A HALF-ENABLED BATCH PATH ─────────────────────────────────────
-    //
-    // Phase 1 buys sources and leaves the prospect waiting for a batch. With collection
-    // disabled, that batch is submitted, billed, and never read: money spent on work
-    // nothing will finish. Refusing here is the difference between an operator seeing a
-    // sentence and an operator seeing an invoice.
-    if (batched) {
-      const collectEnabled = await isQueueEnabled(supabase, 'research_collect')
-      if (!collectEnabled) {
-        // The string lives in research-verdict.ts so the dashboard can show this refusal
-        // BEFORE the click rather than only after it. One copy, two readers.
-        return NextResponse.json({ error: HALF_ENABLED_BATCH_PATH_REFUSAL }, { status: 409 })
-      }
+    if (routing.kind === 'refuse') {
+      // Both refusal strings live outside this file so the dashboard can show them BEFORE
+      // the click rather than only after it. One copy, two readers.
+      return NextResponse.json({ error: routing.reason }, { status: routing.status })
     }
+
+    const batched = routing.kind === 'queue' && routing.batched
+    const queued = routing.kind === 'queue'
 
     logger.info('research-prospects: operator triggered', {
       operator_id: user.id,
@@ -161,18 +153,11 @@ export async function POST(
     })
 
     // ── QUEUED PATH ─────────────────────────────────────────────────────────
-    if (queued) {
-      // Refused, not silently downgraded. See the header.
-      if (!useStoredFindings) {
-        return NextResponse.json({
-          error:
-            'Refused: use_stored_findings=false cannot be honoured while research runs through ' +
-            'the queue, because a queued job carries no per-job options and always uses the safe ' +
-            'default. Re-fetching every source is a paid operation and must not happen by ' +
-            'accident. Run it from the CLI, which stays on the inline path.',
-        }, { status: 400 })
-      }
-
+    //
+    // The use_stored_findings=false refusal that used to sit here is now
+    // FRESH_FETCH_NOT_QUEUEABLE, returned by resolveResearchRouting above with its 400.
+    // Refused, not silently downgraded. See the header.
+    if (routing.kind === 'queue') {
       const enqueued = await enqueueResearchForOrganisation(
         supabase,
         organisationId,
@@ -181,7 +166,7 @@ export async function POST(
         undefined,
         // The SAME guards either way. Only the final insert differs, so a prospect is
         // eligible under one definition no matter which path is live.
-        batched ? 'research_sources' : 'research',
+        routing.jobType,
       )
 
       if (!enqueued.ok) {

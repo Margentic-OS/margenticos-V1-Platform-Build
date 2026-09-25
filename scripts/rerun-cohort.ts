@@ -105,9 +105,20 @@ async function main() {
   for (const [i, batch] of chunks.entries()) {
     console.log(`  --- chunk ${i + 1}/${chunks.length}: ${batch.length} prospects ---`)
     const started = Date.now()
+    // ── THIS SCRIPT STAYS INLINE, AND IT IS THE NAMED EXCEPTION ──────────────
+    //
+    // It is explicit re-research: scope 'researched', allow_overwrite_trigger true, and an
+    // explicit id list per chunk. Two independent reasons it cannot be queued — a queued job
+    // carries no per-job options so it can neither overwrite finished copy nor honour
+    // --fresh, and enqueueResearchForOrganisation selects by SCOPE, so an id list has no
+    // enqueue path at all.
+    //
+    // SO SYNTHESIS HERE PAYS FULL PRICE, about 2x the batch rate, and that is a property of
+    // the tool rather than an oversight. Said here because the alternative is somebody
+    // reading the routing added to run-research.ts and assuming this file inherited it.
     const result = await runResearchBatchForOrg({
-    // This is the CLI. Recorded per prospect so CLI spend is separable from product spend.
-    research_path: 'cli',
+      // This is the CLI. Recorded per prospect so CLI spend is separable from product spend.
+      research_path: 'cli',
       supabase,
       organisation_id: org,
       scope: 'researched',

@@ -27,7 +27,7 @@ import type { Database } from '@/types/database'
 import { createTestServiceClient, requireTestDatabaseCredentials } from '@/test-utils/test-database'
 import { deleteTestOrganisations } from '@/test-utils/delete-test-organisations'
 import { storeResearchResult } from '@/lib/agents/prospect-research-agent-v2'
-import { RESEARCH_PATHS, type ResearchPath } from '@/lib/agents/research/types'
+import { RESEARCH_USAGE_PATHS, type ResearchUsagePath } from '@/lib/agents/research/types'
 import type { OpeningResult } from '@/lib/agents/research/write-opening'
 
 const STAMP = Date.now()
@@ -95,7 +95,7 @@ let prospectId: string
 
 /** Stores one result through the production write site and hands back its ledger row. */
 async function storeAndReadBack(
-  path: ResearchPath,
+  path: ResearchUsagePath,
   opts: { synthesisBatched: boolean; opening?: OpeningResult } = { synthesisBatched: false },
 ) {
   const resultId = await storeResearchResult(
@@ -148,7 +148,7 @@ afterAll(async () => {
 describe('every path records what it spent', () => {
   // The CLI, the operator route, the queue's full_run executor and the Batch API's collect
   // phase. Four cases because the question is per path.
-  it.each<[ResearchPath, boolean]>([
+  it.each<[ResearchUsagePath, boolean]>([
     ['cli', false],
     ['inline', false],
     ['queue', false],
@@ -169,7 +169,7 @@ describe('every path records what it spent', () => {
     const seen = new Set((data ?? []).map(r => (r as { path: string }).path))
     // Derived from the exported union rather than a second hand-written list, so a new path
     // makes this fail until it is exercised above.
-    for (const p of RESEARCH_PATHS) expect(seen.has(p)).toBe(true)
+    for (const p of RESEARCH_USAGE_PATHS) expect(seen.has(p)).toBe(true)
   })
 })
 

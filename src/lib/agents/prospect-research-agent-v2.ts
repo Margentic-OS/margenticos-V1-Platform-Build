@@ -48,7 +48,7 @@ import type {
   QualificationStatus,
   SynthesisConfidence,
   TokenUsage,
-  ResearchPath,
+  ResearchUsagePath,
   ResearchUsageMeta,
   SelectionBasis,
 } from './research/types'

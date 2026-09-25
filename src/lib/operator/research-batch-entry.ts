@@ -12,7 +12,7 @@
 // separate build, tracked in BACKLOG.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ResearchPath } from '@/lib/agents/research/types'
+import type { ResearchUsagePath } from '@/lib/agents/research/types'
 import {
   runProspectResearchAgentV2Batch,
   STORED_FINDINGS_MAX_AGE_DAYS,
@@ -78,9 +78,9 @@ export interface ResearchBatchEntryInput {
   runtime_budget_seconds?: number
   /**
    * Which caller this is, recorded per prospect on research_usage. Defaults to 'inline',
-   * which is what the operator HTTP route is. See ResearchPath for the full mapping.
+   * which is what the operator HTTP route is. See ResearchUsagePath for the full mapping.
    */
-  research_path?: ResearchPath
+  research_path?: ResearchUsagePath
   /** Service-role client. Supplied by the caller so the route and the CLI share one client. */
   supabase: SupabaseClient
   organisation_id: string

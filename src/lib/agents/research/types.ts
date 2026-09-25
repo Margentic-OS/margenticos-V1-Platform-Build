@@ -649,8 +649,13 @@ export interface ResearchResult {
 }
 
 /**
- * Which caller produced a research run. Recorded on research_usage so "every path is
+ * Which caller produced a research run. Recorded on research_usage.path, so "every path is
  * persisting its usage" is a QUERY rather than an audit of three call sites.
+ *
+ * NAMED FOR ITS TABLE, because operator/research-verdict.ts also exports a `ResearchPath`
+ * and it means something else: 'inline' | 'queue:single-job' | 'queue:batch', which is WHICH
+ * ROUTE IS LIVE. This one is WHO CALLED. Two exported types with one name and two meanings
+ * is how a reader ends up confident and wrong, so this one carries its table's name.
  *
  * ═══ THIS LIST AND THE SQL CHECK ARE TWO LISTS THAT MUST AGREE ═══
  *
@@ -668,8 +673,8 @@ export interface ResearchResult {
  *   'queue'    the research_sources / research full_run executor
  *   'collect'  phase 2 of the Batch API split, whose synthesis was billed at the batch rate
  */
-export const RESEARCH_PATHS = ['cli', 'inline', 'queue', 'collect'] as const
-export type ResearchPath = typeof RESEARCH_PATHS[number]
+export const RESEARCH_USAGE_PATHS = ['cli', 'inline', 'queue', 'collect'] as const
+export type ResearchUsagePath = typeof RESEARCH_USAGE_PATHS[number]
 
 /**
  * What a research run needs to record about itself that its token counts do not say.
@@ -679,7 +684,7 @@ export type ResearchPath = typeof RESEARCH_PATHS[number]
  * token counts mean two different bills. Without this the ledger cannot be priced.
  */
 export interface ResearchUsageMeta {
-  path: ResearchPath
+  path: ResearchUsagePath
   synthesisBatched: boolean
 }
 
@@ -707,7 +712,7 @@ export interface ResearchInput {
    * and the queue override it because they are the two callers a cost question asks about
    * separately.
    */
-  research_path?: ResearchPath
+  research_path?: ResearchUsagePath
   /**
    * Skip source gathering and reuse the findings already stored for this prospect.
    *
@@ -741,7 +746,7 @@ export interface ResearchBatchInput {
   confirm_before_run?: boolean  // default true; set false for programmatic/test use under 10 prospects
   concurrency?: number          // max simultaneous prospect calls; default 5 (Apollo/Brave rate limit ceiling)
   /** See ResearchInput.research_path. Applies to every prospect in the batch. */
-  research_path?: ResearchPath
+  research_path?: ResearchUsagePath
 }
 
 export interface ResearchBatchFailure {

@@ -29,6 +29,8 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
+import { resolveResearchRouting } from '@/lib/operator/research-path'
+import { enqueueResearchForOrganisation } from '@/lib/queue/enqueue/research'
 import {
   runResearchBatchForOrg,
   RESEARCH_MAX_PROSPECTS,
@@ -112,6 +114,65 @@ async function main() {
   }
   console.log('  Calls the Anthropic API. Costs real money.')
   console.log('')
+
+  // ── WHICH PATH, THE SAME DECISION THE DASHBOARD MAKES ─────────────────────
+  //
+  // Until 2026-09-25 this script always ran INLINE, whatever the queue flags said, because
+  // the routing lived in the HTTP route and nothing here read it. queue_research_sources had
+  // been true since 2026-09-14, so the Batch API path — which bills synthesis at 50% — was
+  // switched on for eleven days while all 300 CLI-driven runs of 2026-09-23 to 25 paid full
+  // price. Synthesis is 90.6% of a prospect's Anthropic cost, so that is about $0.10 each.
+  //
+  // freshPolicy 'inline' is the ONE difference from the route, and it is what --fresh is
+  // for: a queued job carries no per-job options and always reuses stored findings, so a
+  // fresh fetch cannot be queued. The route refuses it and points here. This is here.
+  const routing = await resolveResearchRouting(supabase, {
+    useStoredFindings,
+    freshPolicy: 'inline',
+  })
+
+  if (routing.kind === 'refuse') {
+    console.error('')
+    console.error(`  REFUSED: ${routing.reason}`)
+    console.error('')
+    process.exit(1)
+  }
+
+  // Explicit ids cannot be enqueued: enqueueResearchForOrganisation selects by SCOPE, and
+  // there is no ids-based enqueue. Said out loud rather than silently downgraded, because
+  // the whole point of this change is that the expensive path is never taken by accident.
+  if (routing.kind === 'queue' && prospectIds) {
+    console.log('  PATH         : INLINE. --ids cannot be enqueued (enqueue selects by scope).')
+    console.log('                 Synthesis pays FULL price. Use --scope to get the batch discount.')
+  }
+
+  if (routing.kind === 'queue' && !prospectIds) {
+    const enqueued = await enqueueResearchForOrganisation(
+      supabase, orgId, scope, 'cli:run-research', undefined, routing.jobType,
+    )
+    if (!enqueued.ok) {
+      console.error('')
+      console.error(`  REFUSED: ${enqueued.error}`)
+      console.error('')
+      process.exit(1)
+    }
+    console.log('')
+    console.log(`  PATH         : QUEUE${routing.batched ? ' (Batch API, synthesis at 50%)' : ' (single job, standard price)'}`)
+    console.log(`  Job type     : ${routing.jobType}`)
+    console.log(`  Selected     : ${enqueued.selected}`)
+    console.log(`  Queued       : ${enqueued.created}`)
+    console.log(`  Already queued: ${enqueued.alreadyQueued}`)
+    console.log('')
+    console.log('  The queue worker processes these. Nothing was researched by this process,')
+    console.log('  and nothing has been billed yet.')
+    console.log('')
+    return
+  }
+
+  if (routing.kind === 'inline') {
+    console.log(`  PATH         : INLINE (${routing.reason === 'explicit_fresh' ? '--fresh, cannot be queued' : 'queue flags off'})`)
+    console.log('                 Synthesis pays FULL price, about 2x the batch rate.')
+  }
 
   const result = await runResearchBatchForOrg({
     // This is the CLI. Recorded per prospect so CLI spend is separable from product spend.

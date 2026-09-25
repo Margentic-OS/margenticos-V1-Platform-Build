@@ -137,6 +137,11 @@ export async function runProspectResearchSources({
           prospect_id,
           client_id,
           use_stored_findings: true,
+          // Recorded as 'queue' because that is what called it. This IS phase 1 of the batch
+          // path, taking its documented shortcut for a reuse run, and defaulting to 'inline'
+          // would file queue work as inline work in the ledger and make "which path costs
+          // what" unanswerable for exactly the cheap case.
+          research_path: 'queue',
         })
         await agentRun.complete(
           `Stored findings reused, no batch needed. Qualification: ${result.qualification_status}.`,
