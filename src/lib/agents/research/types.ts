@@ -543,6 +543,23 @@ export interface WebSearchSourceResult {
   providers: readonly ('anthropic_native' | 'brave' | 'none')[]
   /** Total BILLABLE searches across both queries. The cost unit. */
   search_count: number
+  /**
+   * THE OTHER HALF OF THE BILL, and it is the larger half.
+   *
+   * Each query is a full Haiku request carrying the server-side web_search tool, and the
+   * page text the tool injects is charged as INPUT. Measured 2026-08-25: the fee was 57%
+   * of a lookup and the tokens 43%, and the tokens were the part nobody was looking at.
+   *
+   * webSearch() has returned these on every call since then. This source read searchCount
+   * off the same object and dropped them, so the research path carried exactly the blind
+   * spot docs/tuner-cost.md was written about, in the one place the volume is.
+   *
+   * Stored into prospect_research_results.raw_web_search, which is jsonb, so no migration.
+   */
+  input_tokens: number
+  output_tokens: number
+  /** Which model was billed. Named so a figure can never be read against the wrong rate. */
+  model: string | null
   /** Total hits returned across both queries. The quality unit. */
   result_count: number
 }
@@ -609,6 +626,26 @@ export interface ResearchResult {
   token_usage: TokenUsage
   /** Billable web searches this prospect ran. Zero on a stored-findings reuse. */
   web_search_count: number
+  /**
+   * The Haiku tokens those searches cost. SEPARATE FROM token_usage, which is Sonnet: a
+   * blended token count cannot be priced, because the two models are 3x apart.
+   *
+   * Zero on a stored-findings reuse, like web_search_count.
+   */
+  web_search_usage: WebSearchUsage
+}
+
+/** What the web-search calls cost, in the only two units the provider bills them in. */
+export interface WebSearchUsage {
+  input_tokens: number
+  output_tokens: number
+  model: string | null
+}
+
+export const ZERO_WEB_SEARCH_USAGE: WebSearchUsage = {
+  input_tokens: 0,
+  output_tokens: 0,
+  model: null,
 }
 
 export interface ResearchInput {

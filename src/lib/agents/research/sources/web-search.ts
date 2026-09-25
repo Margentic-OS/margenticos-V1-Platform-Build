@@ -92,6 +92,9 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
         // unrecoverable from here. Zero is a floor on what was billed, not a claim that
         // nothing was: the same caveat the single-attempt path already carried, doubled.
         search_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        model: null,
         result_count: 0,
       }
     }
@@ -115,6 +118,11 @@ async function fetchWebSearchOnce(prospect: ProspectContext): Promise<WebSearchS
       providers: [],
       search_count: 0,
       result_count: 0,
+      // Zero for the same reason search_count is zero here: the throw loses the response,
+      // so this is a FLOOR on what was billed and not a statement that nothing was.
+      input_tokens: 0,
+      output_tokens: 0,
+      model: null,
     }
   }
 
@@ -184,6 +192,11 @@ async function fetchWebSearchOnce(prospect: ProspectContext): Promise<WebSearchS
       providers,
       search_count: searchCount,
       result_count: resultCount,
+      // Recorded on the same terms as search_count: whether or not the content was usable,
+      // because a query that ran and returned nothing still billed for the page it read.
+      input_tokens: result.inputTokens,
+      output_tokens: result.outputTokens,
+      model: result.model,
     }
   } catch (err) {
     logger.warn('research/web-search: failed', { error: String(err) })
@@ -199,6 +212,11 @@ async function fetchWebSearchOnce(prospect: ProspectContext): Promise<WebSearchS
       providers: [],
       search_count: 0,
       result_count: 0,
+      // Zero for the same reason search_count is zero here: the throw loses the response,
+      // so this is a FLOOR on what was billed and not a statement that nothing was.
+      input_tokens: 0,
+      output_tokens: 0,
+      model: null,
     }
   }
 }

@@ -267,3 +267,105 @@ export const COST_WEB_SEARCH_HIGH = 0.059
 //
 // If the bridge is ever re-enabled, move this back into the live total in the same commit.
 export const HAIKU_PERSONALIZATION_USD_DEAD_BRIDGE_DISABLED = 0.003
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PRICING RETURNED USAGE, so a running total is a measurement and not a guess
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Added 2026-09-25. Everything above this line is a per-prospect AVERAGE, useful for the
+// estimate printed before a run starts and wrong for the figure printed during one. The
+// batch progress log used to multiply a prospect count by 0.020, which was the midpoint of
+// a range this file already records as "roughly 8x low, because they priced ONE call rather
+// than four", and it carried no web search at all. So the number an operator watched while
+// spending was 7 to 9 times under.
+//
+// Every Anthropic response carries its own usage. Priced here, a running total is exact for
+// every prospect that returned one.
+//
+// THE CACHE MULTIPLIERS ARE THE POINT. This pipeline reads about six times more cached
+// input than fresh input, and a cache read bills at a tenth of the input rate. A price
+// table without them is wrong by more than the thing it is measuring.
+
+/** Dollars per million tokens, per model, with the two cache rates Anthropic derives. */
+export const USD_PER_MTOK: Record<string, {
+  input: number; output: number; cacheWrite: number; cacheRead: number
+}> = {
+  // 5-minute cache write is 1.25x input, a cache read is 0.1x input.
+  'claude-sonnet-4-6':          { input:  3.00, output: 15.00, cacheWrite:  3.75, cacheRead: 0.30 },
+  'claude-opus-4-6':            { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
+  'claude-haiku-4-5-20251001':  { input:  1.00, output:  5.00, cacheWrite:  1.25, cacheRead: 0.10 },
+}
+
+/**
+ * The model the research pipeline's Sonnet calls run on, per ADR-013: synthesis, writer,
+ * floor judge, judge, follow-ups and the fact-check.
+ *
+ * A CONSTANT RATHER THAN A READ-BACK, because TokenUsage does not carry a model and adding
+ * one would mean threading it through every addTokenUsage call site. If a stage moves off
+ * Sonnet, this and ADR-013 change in the same commit, which is already the standing rule.
+ */
+export const RESEARCH_SONNET_MODEL = 'claude-sonnet-4-6'
+
+/**
+ * AN UNKNOWN MODEL IS PRICED AT THE MOST EXPENSIVE PUBLISHED RATE, NEVER AT ZERO.
+ *
+ * Same rule as src/lib/tuner/pricing.ts, and for the same reason: a total that silently
+ * stops counting when a model is renamed is not a total, and a renamed model is exactly
+ * the moment nobody is watching. Overstating is visible; understating is not.
+ */
+function rateFor(model: string | null): { input: number; output: number; cacheWrite: number; cacheRead: number } {
+  const known = model ? USD_PER_MTOK[model] : undefined
+  if (known) return known
+  return Object.values(USD_PER_MTOK).reduce((a, b) => (b.input > a.input ? b : a))
+}
+
+/** What one set of returned token counts cost, in dollars. */
+export function usdForTokens(
+  usage: {
+    input_tokens: number
+    output_tokens: number
+    cache_creation_input_tokens?: number
+    cache_read_input_tokens?: number
+  },
+  model: string | null,
+): number {
+  const r = rateFor(model)
+  return (
+      usage.input_tokens                        * r.input
+    + usage.output_tokens                       * r.output
+    + (usage.cache_creation_input_tokens ?? 0)  * r.cacheWrite
+    + (usage.cache_read_input_tokens ?? 0)      * r.cacheRead
+  ) / 1_000_000
+}
+
+/**
+ * What ONE prospect actually cost, from what the run has in hand.
+ *
+ * MEASURED where the provider told us, CEILING where it did not:
+ *
+ *   Sonnet tokens        returned usage, exact
+ *   web search tokens    returned usage, exact
+ *   web search fees      returned billable count x the console-confirmed $0.01
+ *   Apify                COST_APIFY, a ceiling. Apify reports a run's cost through its own
+ *                        API and nothing here reads it back, so the ceiling stands in. It
+ *                        over-states: measured mean on 2026-09-24 was $0.00726 against the
+ *                        $0.01005 ceiling, because a prospect with fewer than MAX_POSTS
+ *                        posts bills for fewer.
+ *
+ * Deliberately NOT included: Apollo enrichment, which is a credit against a prepaid annual
+ * allowance rather than a dollar this run spends, and email verification, which happens in
+ * a different sweep entirely.
+ */
+export function prospectCostUsd(args: {
+  sonnet: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
+  webSearch: { input_tokens: number; output_tokens: number; model: string | null }
+  webSearchCount: number
+  apifyRan: boolean
+}): number {
+  return (
+      usdForTokens(args.sonnet, RESEARCH_SONNET_MODEL)
+    + usdForTokens({ ...args.webSearch }, args.webSearch.model)
+    + args.webSearchCount * COST_WEB_SEARCH_PER_SEARCH
+    + (args.apifyRan ? COST_APIFY : 0)
+  )
+}

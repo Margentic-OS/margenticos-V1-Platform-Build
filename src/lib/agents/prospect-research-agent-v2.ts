@@ -193,7 +193,22 @@ export async function storeResearchResult(
       raw_linkedin:         stripNulls(rawData.linkedin.available ? rawData.linkedin : { error: rawData.linkedin.error }),
       raw_apollo:           stripNulls(rawData.apollo.available   ? rawData.apollo   : { error: rawData.apollo.error }),
       raw_website:          stripNulls(rawData.website.available  ? rawData.website  : { error: rawData.website.error }),
-      raw_web_search:       stripNulls(rawData.web_search.available ? rawData.web_search : { error: rawData.web_search.error }),
+      // THE COST FIELDS SURVIVE AN UNUSABLE RESULT. They used to be dropped with the rest
+      // of the object whenever `available` was false, so a query that ran, billed, and came
+      // back with nothing usable stored no search_count and no tokens. web-search.ts calls
+      // that "the majority case on the native path", and it was the case the column could
+      // not see: 120 of 154 rows on 2026-09-24 carried a count against 185 queries fired.
+      raw_web_search:       stripNulls(rawData.web_search.available
+        ? rawData.web_search
+        : {
+            error:         rawData.web_search.error,
+            providers:     rawData.web_search.providers,
+            search_count:  rawData.web_search.search_count,
+            result_count:  rawData.web_search.result_count,
+            input_tokens:  rawData.web_search.input_tokens,
+            output_tokens: rawData.web_search.output_tokens,
+            model:         rawData.web_search.model,
+          }),
       sources_attempted,
       sources_successful,
       relevance_reason: synthesis.relevance_reason,
@@ -669,6 +684,9 @@ export async function runProspectResearchAgentV2({
             available: false, person_search: null, company_search: null, combined: null,
             error: SOURCE_SKIPPED_REUSE,
             providers: [], search_count: 0, result_count: 0,
+            // Zero on the same terms as search_count above: a fact about a reuse run, not
+            // a floor on an unknown.
+            input_tokens: 0, output_tokens: 0, model: null,
           },
         }
       : null
@@ -871,6 +889,13 @@ export async function runProspectResearchAgentV2({
       // This is the number the cost model was guessing at.
       token_usage:           addTokenUsage(synthesis.usage, opening.usage),
       web_search_count:      rawData.web_search.search_count,
+      // The Haiku half of the search bill, kept separate from the Sonnet total above
+      // because the two models are 3x apart and a blended token count cannot be priced.
+      web_search_usage: {
+        input_tokens:  rawData.web_search.input_tokens,
+        output_tokens: rawData.web_search.output_tokens,
+        model:         rawData.web_search.model,
+      },
     }
 
   } catch (err) {
@@ -883,6 +908,7 @@ export async function runProspectResearchAgentV2({
 // ─── Cost estimate ────────────────────────────────────────────────────────────
 
 import {
+  prospectCostUsd,
   COST_ANTHROPIC_LOW,
   COST_ANTHROPIC_HIGH,
   COST_APIFY,
@@ -1050,15 +1076,27 @@ export async function runProspectResearchAgentV2Batch({
     })
   }
 
-  // Rough cost constants — used for progress log estimate only.
-  // Research makes FOUR Sonnet calls per prospect: synthesis, writer, floor judge, judge.
-  // A retry re-runs the writer, so a retried prospect is five or six. The 0.020 figure is
-  // the measured blended cost of that set, not of one call.
+  // ─── WHAT THE RUN HAS SPENT, FROM RETURNED USAGE ────────────────────────────
   //
-  // No Haiku term: composition makes zero model calls while BRIDGE_ENABLED is false.
-  const costPerProspect =
-    (process.env.APIFY_API_KEY ? COST_APIFY : 0) + // Apify LinkedIn
-    0.020                                          // Anthropic Sonnet, four calls
+  // THIS USED TO BE `processed x (COST_APIFY + 0.020)`, and that number was wrong in two
+  // ways at once. 0.020 was the midpoint of a range this repo already records as "roughly
+  // 8x low, because they priced ONE call rather than four", and there was no web search
+  // term at all, though web search alone costs more per prospect than the whole figure it
+  // printed. Measured against today's runs it understated by 7.4x to 9.5x. A spend figure
+  // that low is worse than none: it is watched, and it reassures.
+  //
+  // Now every prospect that returns is priced from the token counts the API itself
+  // returned, plus its own billable search count, plus the Apify ceiling.
+  //
+  // A FAILED PROSPECT RETURNS NOTHING AND STILL SPENT SOMETHING. It is counted separately
+  // rather than as zero: on 2026-09-24, 81 prospects failed at a mean of 22.4s each, every
+  // one of them past the point where its sources were being fetched. Reading $0.00 for that
+  // is the same class of lie as the old constant, so the log names the unpriced count and
+  // says the total is a floor whenever there is one.
+  let measuredUsd = 0
+  let pricedProspects = 0
+  let unpricedFailures = 0
+  const apifyEnabled = !!process.env.APIFY_API_KEY
 
   const batchStart = Date.now()
   const limit      = pLimit(concurrency)
@@ -1132,6 +1170,17 @@ export async function runProspectResearchAgentV2Batch({
           summary.source_failures[f.source] = (summary.source_failures[f.source] ?? 0) + 1
         }
         summary.completed++
+
+        // PRICED FROM WHAT THE PROVIDER RETURNED, not from an average. `apifyRan` reads the
+        // prospect's own source list rather than the env var, so a stored-findings reuse —
+        // which fetches nothing and calls no actor — is not charged for one.
+        measuredUsd += prospectCostUsd({
+          sonnet:         result.token_usage,
+          webSearch:      result.web_search_usage,
+          webSearchCount: result.web_search_count,
+          apifyRan:       apifyEnabled && (result.sources_attempted ?? []).includes('linkedin'),
+        })
+        pricedProspects++
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
 
@@ -1158,6 +1207,9 @@ export async function runProspectResearchAgentV2Batch({
         }
         summary.failed++
         failures.push({ prospect_id, error: errorMsg })
+        // Counted, never priced. Whatever this prospect spent before throwing is not
+        // recoverable from here, and calling it zero is what made a failing run look free.
+        unpricedFailures++
       }
 
       processed++
@@ -1165,13 +1217,26 @@ export async function runProspectResearchAgentV2Batch({
       const avgSec  = elapsed / processed
       const remaining = idsToProcess.length - processed
       const etaMin  = remaining > 0 ? Math.ceil((remaining * avgSec) / 60) : 0
-      const spent   = (processed * costPerProspect).toFixed(2)
 
       logger.info('prospect-research-v2 batch: progress', {
         progress: `${processed}/${idsToProcess.length}`,
         completed: summary.completed,
         failed: summary.failed,
-        spent_usd: `$${spent}`,
+        // Named for what it is. A bare spent_usd invites being read as the whole bill, and
+        // it is not: Apollo credits and email verification are not this run's dollars, and
+        // a failed prospect's share is unknowable from here.
+        spent_usd_measured: `$${measuredUsd.toFixed(2)}`,
+        // Present ONLY when it is non-zero, so its absence means the total is complete
+        // rather than merely unremarked.
+        ...(unpricedFailures > 0
+          ? {
+              unpriced_failures: unpricedFailures,
+              spent_usd_note: `floor: ${unpricedFailures} failed prospect(s) spent an unrecorded amount before throwing`,
+            }
+          : {}),
+        usd_per_prospect: pricedProspects > 0
+          ? `$${(measuredUsd / pricedProspects).toFixed(4)}`
+          : '$0',
         eta_min: etaMin,
       })
     })
