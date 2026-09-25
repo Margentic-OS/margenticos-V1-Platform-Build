@@ -393,10 +393,25 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
 
   let feedback: string | null = null
 
+  // ── WHAT HAS ALREADY BEEN ACCEPTED, CARRIED ACROSS ATTEMPTS ──────────────────
+  //
+  // An email that passed every gate is kept. The retry asks only for the one that failed,
+  // and the accepted one is never rewritten: asking the model to produce it again risks a
+  // worse version of copy that was already good, and costs output tokens for nothing.
+  let kept2: FollowupOutcome | null = null
+  let kept3: FollowupOutcome | null = null
+
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    const need2 = kept2 === null
+    const need3 = kept3 === null
+    const askFor = need2 && need3
+      ? 'Write the middle of email 2 and the middle of email 3. Return ONLY the two labelled blocks.'
+      : need2
+        ? 'Only EMAIL2 is being rewritten. Email 3 has been accepted as written and is not shown. Return ONLY the EMAIL2 block.'
+        : 'Only EMAIL3 is being rewritten. Email 2 has been accepted as written and is not shown. Return ONLY the EMAIL3 block.'
     const user = feedback
-      ? `${baseUser}\n\n## Your previous attempt was rejected\n\n${feedback}\n\nWrite a different version that answers every point above. Return ONLY the two labelled blocks.`
-      : `${baseUser}\n\nWrite the middle of email 2 and the middle of email 3. Return ONLY the two labelled blocks.`
+      ? `${baseUser}\n\n## Your previous attempt was rejected\n\n${feedback}\n\nWrite a different version that answers every point above. ${askFor}`
+      : `${baseUser}\n\n${askFor}`
 
     let text: string
     try {
@@ -424,8 +439,11 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
 
     const parsed = parseFollowupOutput(text)
     const scrub = (t: string) => (t ? scrubAITells(t, `research/followups/${params.prospectId}`) : '')
-    const prose2 = scrub(parsed.email2)
-    const prose3 = scrub(parsed.email3)
+    // AN ACCEPTED EMAIL'S OWN PROSE IS REUSED, not whatever the model returned for it. On a
+    // single-email retry the other block is absent, and reading the absence as new copy
+    // would discard the accepted version and then fail it for being empty.
+    const prose2 = kept2?.prose ?? scrub(parsed.email2)
+    const prose3 = kept3?.prose ?? scrub(parsed.email3)
 
     const outcome = gate(prose2, prose3, params)
 
@@ -449,33 +467,46 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
       usage = addTokenUsage(usage, factCheck.usage)
     }
 
+    // ── THE FACT-CHECK'S FAILURES, ATTRIBUTED TO AN EMAIL ──────────────────────
+    //
+    // Most of them name one: "email 2 states ...". Those belong to that email alone, which
+    // is what lets the other survive. The ones that do not name one, the shortfall rule and
+    // the arrangement rule, are about the pair as a whole and fail both, because there is
+    // nothing in them that says which half is wrong.
+    const fcAll = factCheck?.failures ?? []
+    const fc2 = fcAll.filter(f => /\bemail 2\b/.test(f))
+    const fc3 = fcAll.filter(f => /\bemail 3\b/.test(f))
+    const fcBoth = fcAll.filter(f => !/\bemail [23]\b/.test(f))
+
+    const fail2 = [...outcome.email2.failures, ...fc2, ...fcBoth]
+    const fail3 = [...outcome.email3.failures, ...fc3, ...fcBoth]
+
     attempts.push({
       attempt: i,
       email2: prose2,
       email3: prose3,
-      failures2: outcome.email2.failures,
-      failures3: outcome.email3.failures,
+      failures2: fail2,
+      failures3: fail3,
       fact_check: factCheck ? { claims: factCheck.claims, failures: factCheck.failures } : null,
     })
 
-    if (outcome.email2.prose !== null && factCheck !== null && factCheck.failures.length === 0) {
-      return { ...outcome, usage, retries_used: i, attempts }
+    // AN EMAIL THAT PASSED EVERYTHING IS BANKED and never asked for again.
+    if (kept2 === null && outcome.email2.prose !== null && fail2.length === 0) kept2 = outcome.email2
+    if (kept3 === null && outcome.email3.prose !== null && fail3.length === 0) kept3 = outcome.email3
+
+    if (kept2 !== null && kept3 !== null) {
+      return { email2: kept2, email3: kept3, usage, retries_used: i, attempts }
     }
 
     feedback = [
-      'You wrote, as email 2:',
-      prose2 || '(nothing)',
-      '',
-      'and as email 3:',
-      prose3 || '(nothing)',
-      '',
+      ...(kept2 === null ? ['You wrote, as email 2:', prose2 || '(nothing)', ''] : []),
+      ...(kept3 === null ? ['You wrote, as email 3:', prose3 || '(nothing)', ''] : []),
       'Rejected for:',
+      // ONLY THE FAILURES OF THE EMAIL BEING REWRITTEN. Quoting the other one's faults would
+      // ask the model to fix copy it is not being shown and cannot change.
       ...[...new Set([
-        ...outcome.email2.failures,
-        ...outcome.email3.failures,
-        // THE FACT-CHECK'S FAILURES ARE QUOTED BACK LIKE ANY OTHER, naming the sentence
-        // rather than the rule, so the rewrite has something specific to change.
-        ...(factCheck?.failures ?? []),
+        ...(kept2 === null ? fail2 : []),
+        ...(kept3 === null ? fail3 : []),
       ])].map(f => `- ${f}`),
     ].join('\n')
   }
@@ -487,19 +518,25 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
   // reason, which is the same shape as every other check in this codebase that reported a
   // verdict without the evidence behind it.
   const lastAttempt = attempts[attempts.length - 1]
-  logger.warn('research/write-followups: every attempt rejected, template follow-ups will ship', {
+  // ATTEMPTS ARE EXHAUSTED, BUT AN ACCEPTED EMAIL STILL SHIPS. Reaching here means at least
+  // one email never passed; it does not mean neither did. Before 2026-09-25 this returned
+  // both as null, which is where most of the 31 discarded-sibling cases actually died: the
+  // gate had accepted one, the loop ran out of attempts on the other, and the accepted one
+  // was thrown away at the exit rather than by any rule.
+  const last = attempts[attempts.length - 1]
+  logger.warn('research/write-followups: attempts exhausted, template ships for what failed', {
     prospect_id: params.prospectId,
     attempts: attempts.length,
+    email2_shipped: kept2 !== null,
+    email3_shipped: kept3 !== null,
     reasons: [
-      ...(lastAttempt?.failures2 ?? []),
-      ...(lastAttempt?.failures3 ?? []),
-      ...(lastAttempt?.fact_check?.failures ?? []),
+      ...(kept2 === null ? (lastAttempt?.failures2 ?? []) : []),
+      ...(kept3 === null ? (lastAttempt?.failures3 ?? []) : []),
     ],
   })
-  const last = attempts[attempts.length - 1]
   return {
-    email2: { prose: null, body: null, discarded: last?.email2 || null, failures: last?.failures2 ?? [] },
-    email3: { prose: null, body: null, discarded: last?.email3 || null, failures: last?.failures3 ?? [] },
+    email2: kept2 ?? { prose: null, body: null, discarded: last?.email2 || null, failures: last?.failures2 ?? [] },
+    email3: kept3 ?? { prose: null, body: null, discarded: last?.email3 || null, failures: last?.failures3 ?? [] },
     usage,
     retries_used: MAX_ATTEMPTS - 1,
     attempts,
@@ -566,23 +603,40 @@ function gate(
     minWords: EMAIL_WORD_LIMITS.email3MinWords, maxWords: EMAIL_WORD_LIMITS.email3MaxWords,
   })
 
-  // The pair gates fail BOTH, because there is no principled way to say which of the two is
-  // the wrong one, and shipping one generated follow-up beside one template follow-up
-  // breaks the thread: the survivor's callback points at copy the other no longer sets up.
+  // ── A PAIR FAILURE IS EMAIL 3'S. Changed 2026-09-25. ─────────────────────────
+  //
+  // This used to fail BOTH, on the reasoning that there is no principled way to say which of
+  // the two is wrong. There is one, and it is the rule Email 1 already uses for the same
+  // fault: FIRST WRITER WINS. The remaining pair gate is a sentence repeated across the two,
+  // and a repeat is the LATER email restating the earlier one, so email 3 owns it.
+  //
+  // What this buys is the whole point of the change: email 2 is no longer discarded for
+  // something email 3 did.
   const pair = checkFollowupPairGates(prose2, prose3, words2, words3)
-  const all2 = [...f2, ...pair]
+  const all2 = f2
   const all3 = [...f3, ...pair]
 
-  if (all2.length > 0 || all3.length > 0) {
-    return {
-      email2: { prose: null, body: null, discarded: prose2, failures: all2 },
-      email3: { prose: null, body: null, discarded: prose3, failures: all3 },
-    }
-  }
-
+  // ── EACH EMAIL IS ACCEPTED ON ITS OWN ────────────────────────────────────────
+  //
+  // Measured on the 44 pairs that fell back on 2026-09-25: 31 of them, SEVENTY PERCENT, lost
+  // a passing email because its sibling failed. 21 discarded a clean email 2 for an email 3
+  // fault and 10 the reverse. That copy existed, passed every gate it was subject to, and
+  // was thrown away.
+  //
+  // THE THREAD OBJECTION, which the comment this replaces raised and which is real: the
+  // survivor's callback could point at copy the other no longer sets up. It does not apply
+  // here. Each follow-up's callback points at EMAIL 1, not at its sibling: the callback gate
+  // a few lines up requires the opening to address the reader or name their company, and
+  // composeFollowupBody puts each one into its own template frame. A personalised email 2
+  // beside a template email 3 is the same shape the sequence already ships whenever the
+  // whole pair falls back, one position along.
   return {
-    email2: { prose: prose2, body: body2, discarded: null, failures: [] },
-    email3: { prose: prose3, body: body3, discarded: null, failures: [] },
+    email2: all2.length > 0
+      ? { prose: null, body: null, discarded: prose2, failures: all2 }
+      : { prose: prose2, body: body2, discarded: null, failures: [] },
+    email3: all3.length > 0
+      ? { prose: null, body: null, discarded: prose3, failures: all3 }
+      : { prose: prose3, body: body3, discarded: null, failures: [] },
   }
 }
 

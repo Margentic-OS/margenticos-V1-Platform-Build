@@ -246,14 +246,24 @@ async function main() {
     })
     usd += usdForUsage(result.usage)
 
-    if (result.email2.prose === null) {
-      console.log(`  follow-ups rejected: ${result.email2.failures.join('; ').slice(0, 160)}`)
+    // ── EACH EMAIL IS STORED ON ITS OWN. Changed 2026-09-25. ────────────────────
+    //
+    // This skipped the prospect entirely when email 2 was null, so a passing email 3 was
+    // never written and the log said "follow-ups rejected" without saying which. Each column
+    // now takes whatever passed; a null column means the template ships for that position,
+    // which is what null already meant.
+    if (result.email2.prose === null && result.email3.prose === null) {
+      const why = [...result.email2.failures, ...result.email3.failures]
+      console.log(`  BOTH rejected: ${why.join('; ').slice(0, 170)}`)
       skipped++
       continue
     }
 
     const fingerprint = fingerprintEmail1(email1ForFingerprint)
-    console.log(`  email2 ${result.email2.prose.split(/\s+/).length}w  email3 ${result.email3.prose!.split(/\s+/).length}w  fp ${fingerprint.slice(0, 12)}`)
+    const w = (t: string | null) => (t ? `${t.split(/\s+/).length}w` : 'TEMPLATE')
+    console.log(`  email2 ${w(result.email2.prose)}  email3 ${w(result.email3.prose)}  fp ${fingerprint.slice(0, 12)}`)
+    if (result.email2.prose === null) console.log(`     email 2 fell back: ${result.email2.failures.join('; ').slice(0, 150)}`)
+    if (result.email3.prose === null) console.log(`     email 3 fell back: ${result.email3.failures.join('; ').slice(0, 150)}`)
 
     if (!commit) { written++; continue }
 

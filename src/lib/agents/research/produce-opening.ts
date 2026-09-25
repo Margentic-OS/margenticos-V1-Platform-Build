@@ -475,6 +475,11 @@ export async function produceOpening({
     // Hashed from the SAME string the writer was given, above. Null when nothing shipped,
     // so a fingerprint never outlives the copy it describes.
     followup_email1_fingerprint:
-      followups.email2.prose !== null ? fingerprintEmail1(email1BodyForFingerprint) : null,
+      // EITHER email shipping means a personalised follow-up exists that was written against
+      // this Email 1, so the fingerprint is owed. Keyed on email 2 alone, a prospect whose
+      // email 3 shipped and whose email 2 did not would carry personalised copy with no
+      // record of the Email 1 it was written for.
+      followups.email2.prose !== null || followups.email3.prose !== null
+        ? fingerprintEmail1(email1BodyForFingerprint) : null,
   }
 }
