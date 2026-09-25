@@ -64,7 +64,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildFollowupsFor } from '@/lib/agents/research/produce-opening'
 import { writeFollowups } from '@/lib/agents/research/write-followups'
 import { buildFindingsBlock, buildFindingsEvidence } from '@/lib/agents/research/write-opening'
-import { loadStoredFindings } from '@/lib/agents/prospect-research-agent-v2'
+import { loadStoredFindings, stripNulls } from '@/lib/agents/prospect-research-agent-v2'
 import { writerInputForStored, usdForUsage } from './export-writer-run'
 import { loadClientContext } from '@/lib/agents/research/synthesize'
 import { resolveBuyer } from '@/lib/agents/research/resolve-buyer'
@@ -245,6 +245,30 @@ async function main() {
       prospectId: id,
     })
     usd += usdForUsage(result.usage)
+
+    // ═══ EVERY ATTEMPT, REJECTED PROSE INCLUDED, BEFORE ANYTHING CAN RETURN EARLY ═══
+    //
+    // `prospect_research_results.followup_attempts` was added on 2026-09-25 and the agent
+    // writes it when IT creates the row. This script never creates one: it reuses stored
+    // findings, so nothing here wrote the column and the whole feature missed the one path
+    // that produced the 44 fallbacks it was built for. Measured the same day: 350 research
+    // rows since 2026-09-23, none carrying attempts.
+    //
+    // WRITTEN BEFORE THE BOTH-REJECTED RETURN BELOW, deliberately. That branch is exactly
+    // the case worth reading back, and storing attempts only on the success path would
+    // reproduce the gap one level in: the audit could classify what shipped and had to mark
+    // six gate hits UNSURE precisely because the rejected prose was gone.
+    //
+    // A FAILURE HERE IS LOGGED, NEVER FATAL. This is diagnostics about the run; losing it
+    // must not cost the copy the run just paid for.
+    if (commit) {
+      const { error: attemptsError } = await supabase
+        .from('prospect_research_results')
+        .update({ followup_attempts: stripNulls(result.attempts) })
+        .eq('id', stored.result_id)
+        .eq('organisation_id', orgId)
+      if (attemptsError) console.log(`  attempts not recorded: ${attemptsError.message}`)
+    }
 
     // ── EACH EMAIL IS STORED ON ITS OWN. Changed 2026-09-25. ────────────────────
     //

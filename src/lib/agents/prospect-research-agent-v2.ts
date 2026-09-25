@@ -129,7 +129,7 @@ export function buildSourceTracking(rawData: RawSourceData): {
  * Structure is preserved exactly: only string VALUES and KEYS change, and only by losing a
  * character Postgres could never have stored.
  */
-function stripNulls<T>(value: T): T {
+export function stripNulls<T>(value: T): T {
   if (typeof value === 'string') return value.replace(/\u0000/g, '') as unknown as T
   if (Array.isArray(value)) return value.map(stripNulls) as unknown as T
   if (value && typeof value === 'object') {
