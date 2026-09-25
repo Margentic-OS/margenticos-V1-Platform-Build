@@ -68,16 +68,16 @@ describe('promising to reach an audience they already have', () => {
 // ─── 2026-09-25: two real sentences from the 104 that every gate passed ──────────────────
 
 describe('a possessive that is the company name, and a positively-stated audience', () => {
-  it('CATCHES a company-name possessive: "already in Covalent’s orbit"', () => {
+  it('CATCHES a company-name possessive: "already in Northgate’s orbit"', () => {
     const hits = findAudienceContactClaims(
-      "Your LinkedIn feed is running entirely toward people already in Covalent's orbit.",
+      "Your LinkedIn feed is running entirely toward people already in Northgate's orbit.",
     )
     expect(hits).toHaveLength(1)
     expect(hits[0].matched).toContain('orbit')
   })
 
   it('CATCHES a positively-stated audience: "whoever already follows you"', () => {
-    const hits = findAudienceContactClaims("AGI's post reaches whoever already follows you.")
+    const hits = findAudienceContactClaims("Vantor's post reaches whoever already follows you.")
     expect(hits).toHaveLength(1)
     expect(hits[0].matched).toContain('already follows')
   })
@@ -96,7 +96,7 @@ describe('a possessive that is the company name, and a positively-stated audienc
   })
 
   it('ALLOWS an ordinary sentence naming a company possessive without an audience noun', () => {
-    expect(findAudienceContactClaims("Covalent's report landed in March.")).toEqual([])
+    expect(findAudienceContactClaims("Northgate's report landed in March.")).toEqual([])
   })
 
   it('ALLOWS a relative clause with no affirmative adverb', () => {

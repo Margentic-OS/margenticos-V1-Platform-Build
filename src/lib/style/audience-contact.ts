@@ -49,7 +49,7 @@ const THEIR_CONTENT =
 /**
  * ASSERTING WHO IS, OR IS NOT, IN THE READER'S OWN AUDIENCE. Added 2026-09-24.
  *
- * Measured: an Email 1 shipped "People who would switch to AGI based on that argument are
+ * Measured: an Email 1 shipped "People who would switch to Vantor based on that argument are
  * not in your LinkedIn feed yet." Nobody outside their account can see who is in their feed,
  * and the claim is checkable by the one person who can. It is the third face of the same
  * fault: the first promises to contact the audience they have, the second asserts who has
@@ -70,7 +70,7 @@ const THEIR_AUDIENCE_MEMBERSHIP =
  * THE POSSESSIVE CAN BE THE COMPANY'S OWN NAME, not just "your". Added 2026-09-25.
  *
  * Measured on the 104: "Your LinkedIn feed is running entirely toward people already in
- * Covalent's orbit" passed every gate. It is the same unknowable claim about the composition
+ * Northgate's orbit" passed every gate. It is the same unknowable claim about the composition
  * of their audience, written with the firm's name where the earlier examples used "your", and
  * the pattern above only accepted "your" or "their". Hence the `[A-Z]...'s` alternative, which
  * is why that regex is no longer case-insensitive: the capital is what distinguishes a name
@@ -78,7 +78,7 @@ const THEIR_AUDIENCE_MEMBERSHIP =
  *
  * ASSERTING WHO ALREADY CONSUMES THEIR CONTENT, stated positively.
  *
- * Measured on the same run: "AGI's post reaches whoever already follows you". The existing
+ * Measured on the same run: "Vantor's post reaches whoever already follows you". The existing
  * unreached-audience rule only matched NEGATED clauses ("who never read that post"), so the
  * positive form went straight through while saying the same unknowable thing from the other
  * side: who is already in their audience.
