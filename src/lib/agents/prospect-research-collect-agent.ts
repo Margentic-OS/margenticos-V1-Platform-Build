@@ -320,7 +320,15 @@ export async function runProspectResearchCollect({
       // available to a later reuse run and the spend stays visible. What is skipped is
       // the three-plus Anthropic calls that would produce copy nobody can send.
       const noOpening = EMPTY_OPENING
-      const resultId = await storeResearchResult(ctx, entry.raw_sources, synthesis, agentRun.run_id, noOpening, synthesizedAt)
+      const resultId = await storeResearchResult(
+        ctx, entry.raw_sources, synthesis, agentRun.run_id, noOpening,
+        // synthesisBatched TRUE on both of this file's call sites: phase 1 submitted the
+        // synthesis to the Anthropic Batch API and it was billed at 50% of standard hours
+        // before this ran. Recording it as standard would overstate ~90% of the prospect's
+        // Anthropic cost by a factor of two.
+        { path: 'collect', synthesisBatched: true },
+        synthesizedAt,
+      )
       await updateProspect(ctx, synthesis, resultId, noOpening, synthesizedAt)
       await markEntryCollected(supabase, entry.id, false)
       await reportBatchRepetition(supabase, entry.batch_id)
@@ -396,7 +404,9 @@ export async function runProspectResearchCollect({
 
     // ── One complete row, written once, exactly as the inline path writes it ──
     const resultId = await storeResearchResult(
-      ctx, entry.raw_sources, synthesis, agentRun.run_id, opening, synthesizedAt,
+      ctx, entry.raw_sources, synthesis, agentRun.run_id, opening,
+      { path: 'collect', synthesisBatched: true },
+      synthesizedAt,
     )
     await updateProspect(ctx, synthesis, resultId, opening, synthesizedAt, {
       // Non-null only where the follow-ups actually survived their gates. produceOpening

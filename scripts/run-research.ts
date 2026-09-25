@@ -114,6 +114,8 @@ async function main() {
   console.log('')
 
   const result = await runResearchBatchForOrg({
+    // This is the CLI. Recorded per prospect so CLI spend is separable from product spend.
+    research_path: 'cli',
     supabase,
     organisation_id: orgId,
     scope,

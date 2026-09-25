@@ -648,6 +648,41 @@ export interface ResearchResult {
   followup_usage: TokenUsage | null
 }
 
+/**
+ * Which caller produced a research run. Recorded on research_usage so "every path is
+ * persisting its usage" is a QUERY rather than an audit of three call sites.
+ *
+ * ═══ THIS LIST AND THE SQL CHECK ARE TWO LISTS THAT MUST AGREE ═══
+ *
+ * research_usage.path carries CHECK (path IN ('cli','inline','queue','collect')). Adding a
+ * value here and not there makes every insert on the new path fail with 23514; adding it
+ * there and not here is a value TypeScript will not let a caller pass. Neither can be
+ * derived from the other across the process boundary, so a test reads the CHECK out of the
+ * migration and compares it to this union. See research-usage-path.test.ts.
+ */
+/**
+ * THE MAPPING, written down once so nobody has to guess which value a caller is:
+ *
+ *   'cli'      scripts/run-research.ts and scripts/rerun-cohort.ts
+ *   'inline'   the operator HTTP route, which runs the agent in its own process
+ *   'queue'    the research_sources / research full_run executor
+ *   'collect'  phase 2 of the Batch API split, whose synthesis was billed at the batch rate
+ */
+export const RESEARCH_PATHS = ['cli', 'inline', 'queue', 'collect'] as const
+export type ResearchPath = typeof RESEARCH_PATHS[number]
+
+/**
+ * What a research run needs to record about itself that its token counts do not say.
+ *
+ * synthesisBatched IS NOT COSMETIC. Synthesis is about 90% of a prospect's Anthropic cost
+ * (measured 2026-09-25 over 105 prospects) and the Batch API bills it at half, so the same
+ * token counts mean two different bills. Without this the ledger cannot be priced.
+ */
+export interface ResearchUsageMeta {
+  path: ResearchPath
+  synthesisBatched: boolean
+}
+
 /** What the web-search calls cost, in the only two units the provider bills them in. */
 export interface WebSearchUsage {
   input_tokens: number
@@ -664,6 +699,15 @@ export const ZERO_WEB_SEARCH_USAGE: WebSearchUsage = {
 export interface ResearchInput {
   prospect_id: string
   client_id: string
+  /**
+   * Which caller this is, for the research_usage ledger. Defaults to 'inline'.
+   *
+   * OPTIONAL WITH A HONEST DEFAULT. 'inline' is literally what this agent is, so a caller
+   * that does not say is recorded as what it actually did rather than as unknown. The CLI
+   * and the queue override it because they are the two callers a cost question asks about
+   * separately.
+   */
+  research_path?: ResearchPath
   /**
    * Skip source gathering and reuse the findings already stored for this prospect.
    *
@@ -696,6 +740,8 @@ export interface ResearchBatchInput {
   skip_existing?: boolean
   confirm_before_run?: boolean  // default true; set false for programmatic/test use under 10 prospects
   concurrency?: number          // max simultaneous prospect calls; default 5 (Apollo/Brave rate limit ceiling)
+  /** See ResearchInput.research_path. Applies to every prospect in the batch. */
+  research_path?: ResearchPath
 }
 
 export interface ResearchBatchFailure {

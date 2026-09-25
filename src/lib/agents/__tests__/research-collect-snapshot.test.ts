@@ -244,7 +244,12 @@ describe('phase 2 writes against the SNAPSHOT, never a fresh read', () => {
     // as classifiedAt, so a collection-time stamp would make a verdict reached yesterday
     // look freshly confirmed today.
     await runCollect()
-    expect(storeResearchResult.mock.calls[0][5]).toBe('2026-08-26T09:00:00Z')
+    // Index 6, not 5: usageMeta was inserted ahead of synthesizedAt on 2026-09-25. The
+    // positional read is what made this shift visible, so it is asserted by NAME as well,
+    // which a later insertion cannot silently move.
+    const storeArgs = storeResearchResult.mock.calls[0]
+    expect(storeArgs[5]).toMatchObject({ path: 'collect', synthesisBatched: true })
+    expect(storeArgs[6]).toBe('2026-08-26T09:00:00Z')
     expect(updateProspect.mock.calls[0][4]).toBe('2026-08-26T09:00:00Z')
   })
 })

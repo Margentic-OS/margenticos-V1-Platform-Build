@@ -106,6 +106,8 @@ async function main() {
     console.log(`  --- chunk ${i + 1}/${chunks.length}: ${batch.length} prospects ---`)
     const started = Date.now()
     const result = await runResearchBatchForOrg({
+    // This is the CLI. Recorded per prospect so CLI spend is separable from product spend.
+    research_path: 'cli',
       supabase,
       organisation_id: org,
       scope: 'researched',

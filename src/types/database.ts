@@ -2021,6 +2021,84 @@ export type Database = {
           },
         ]
       }
+      research_usage: {
+        Row: {
+          created_at: string
+          followups: Json | null
+          id: string
+          opening: Json
+          organisation_id: string
+          path: string
+          prospect_id: string
+          research_result_id: string
+          synthesis: Json
+          synthesis_batched: boolean
+          web_search: Json
+        }
+        Insert: {
+          created_at?: string
+          followups?: Json | null
+          id?: string
+          opening: Json
+          organisation_id: string
+          path: string
+          prospect_id: string
+          research_result_id: string
+          synthesis: Json
+          synthesis_batched?: boolean
+          web_search: Json
+        }
+        Update: {
+          created_at?: string
+          followups?: Json | null
+          id?: string
+          opening?: Json
+          organisation_id?: string
+          path?: string
+          prospect_id?: string
+          research_result_id?: string
+          synthesis?: Json
+          synthesis_batched?: boolean
+          web_search?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "research_usage_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "research_usage_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "research_usage_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "client_prospects_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "research_usage_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "research_usage_research_result_id_fkey"
+            columns: ["research_result_id"]
+            isOneToOne: true
+            referencedRelation: "prospect_research_results"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reply_drafts: {
         Row: {
           ai_draft_body: string | null

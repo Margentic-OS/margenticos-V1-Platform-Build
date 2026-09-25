@@ -30,6 +30,7 @@ import { assessSourceIntegrity, ResearchIncompleteError } from './research/sourc
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { suppressProspectAtProvider } from '@/lib/suppression/provider-suppression'
 import type { OpeningResult } from './research/write-opening'
+import type { OpeningWithFollowups } from './research/produce-opening'
 import type {
   ProspectContext,
   RawSourceData,
@@ -47,6 +48,8 @@ import type {
   QualificationStatus,
   SynthesisConfidence,
   TokenUsage,
+  ResearchPath,
+  ResearchUsageMeta,
   SelectionBasis,
 } from './research/types'
 import { ZERO_TOKEN_USAGE, addTokenUsage, unknownFitChecks } from './research/types'
@@ -148,12 +151,24 @@ export async function storeResearchResult(
   synthesis: Awaited<ReturnType<typeof synthesizeResearch>>,
   runId: string | null,
   /**
-   * The opening, plus the follow-up attempts when the caller produced them. Widened on
-   * 2026-09-25: produceOpening returns OpeningWithFollowups and this signature only ever
-   * declared OpeningResult, so `followup_attempts` was present at runtime, invisible to the
-   * compiler, and never stored.
+   * The opening, plus the follow-ups when the caller produced them.
+   *
+   * ONE UNION RATHER THAN OpeningResult & { followup_attempts?: unknown }. Both sides of the
+   * 2026-09-25 rebase widened this parameter for the same reason — produceOpening returns
+   * the wider type and this signature only declared the narrower one, so the follow-up
+   * fields were present at runtime, invisible to the compiler, and never stored. The union
+   * names the actual type instead of loosening one field to `unknown`, so the follow-up
+   * usage and the attempts are both typed rather than both asserted.
    */
-  opening: OpeningResult & { followup_attempts?: unknown },
+  opening: OpeningResult | OpeningWithFollowups,
+  /**
+   * Which caller this is, and whether its synthesis was billed at the batch rate.
+   *
+   * REQUIRED, not defaulted. A default would mean a new caller silently records itself as
+   * whatever the default happens to be, and the whole point of storing `path` is that a
+   * path which is not recording shows up as a missing value rather than as a wrong one.
+   */
+  usageMeta: ResearchUsageMeta,
   /**
    * When synthesis actually happened. NULL means now, which is right for an inline run
    * where the call just returned.
@@ -235,7 +250,10 @@ export async function storeResearchResult(
       //
       // The audit of 2026-09-25 could not classify six gate hits because this prose was
       // discarded, while Email 1's equivalent had been stored since the day before.
-      ...(opening.followup_attempts !== undefined
+      // NARROWED WITH `in`, not asserted. The union is honest about the inline path having no
+      // follow-up fields at all, so the compiler asks for the check rather than taking a cast
+      // that would silently read undefined if the wider type ever changed shape.
+      ...('followup_attempts' in opening && opening.followup_attempts !== undefined
         ? { followup_attempts: stripNulls(opening.followup_attempts) }
         : {}),
       // Omitted entirely when null so the column's own DEFAULT now() applies. Passing
@@ -249,7 +267,81 @@ export async function storeResearchResult(
     throw new Error(`Failed to store research result: ${error?.message ?? 'no id returned'}`)
   }
 
+  await recordResearchUsage(data.id as string, prospect, rawData, synthesis, opening, usageMeta)
+
   return data.id as string
+}
+
+/**
+ * What this run's model calls cost, into the service-only ledger.
+ *
+ * ═══ ONE PLACE, SO NO PATH CAN FORGET ════════════════════════════════════════
+ *
+ * Every caller reaches storeResearchResult: the CLI through runResearchBatchForOrg, the
+ * inline agent directly, and the queue through both of its executors. Recording here rather
+ * than at each call site is what makes "on every path" structural instead of a promise.
+ *
+ * ═══ IT DOES NOT THROW, AND THAT IS A DELIBERATE TRADE ═══════════════════════
+ *
+ * The research verdict is the expensive thing: about $0.22 of model calls, already spent by
+ * the time this runs. Losing it because a cost ledger row failed would strand that spend and
+ * throw away the verdict it bought, which is a worse outcome than a gap in the ledger.
+ *
+ * SO THE GAP HAS TO BE FINDABLE, because a swallowed failure that nobody can see is the
+ * shape this whole ledger exists to fix. Two things make it visible: the error is logged with
+ * the research_result_id, so the row can be reconstructed from prospects.trigger_data; and
+ * the gap is a one-line query, which belongs in a monitor and is flagged for one:
+ *
+ *   SELECT count(*) FROM prospect_research_results r
+ *    LEFT JOIN research_usage u ON u.research_result_id = r.id
+ *    WHERE u.id IS NULL AND r.created_at > '<when this shipped>';
+ */
+async function recordResearchUsage(
+  researchResultId: string,
+  prospect: ProspectContext,
+  rawData: RawSourceData,
+  synthesis: Awaited<ReturnType<typeof synthesizeResearch>>,
+  // OpeningWithFollowups, not OpeningResult: the follow-up usage lives on the wider type
+  // produceOpening returns, because OpeningResult belongs to the Email 1 writer and that
+  // file is deliberately untouched. Accepting the narrower type and reading followup_usage
+  // off it with a cast is what would make this line silently record null forever.
+  opening: OpeningResult | OpeningWithFollowups,
+  usageMeta: ResearchUsageMeta,
+): Promise<void> {
+  const supabase = getServiceClient()
+
+  const { error } = await supabase.from('research_usage').insert({
+    research_result_id: researchResultId,
+    organisation_id:    prospect.organisation_id,
+    prospect_id:        prospect.id,
+    path:               usageMeta.path,
+    // Zero-valued rather than absent on a stored-findings reuse, which synthesises nothing.
+    // A zero here is a FACT about the run; the column is NOT NULL for that reason.
+    synthesis:          synthesis.usage ?? ZERO_TOKEN_USAGE,
+    // Writer, floor judge and judge across every attempt, discarded ones included. One
+    // accumulator upstream, so it arrives as one object and cannot be split here.
+    opening:            opening.usage ?? ZERO_TOKEN_USAGE,
+    // NULL when no follow-up call was paid for. Distinct from a zeroed object, which would
+    // say a call happened and cost nothing.
+    followups:          ('followup_usage' in opening ? opening.followup_usage : null) ?? null,
+    web_search: {
+      input_tokens:  rawData.web_search.input_tokens,
+      output_tokens: rawData.web_search.output_tokens,
+      model:         rawData.web_search.model,
+      // The billable unit: one web_search_tool_result block is one charged search.
+      search_count:  rawData.web_search.search_count,
+    },
+    synthesis_batched:  usageMeta.synthesisBatched,
+  })
+
+  if (error) {
+    logger.error('research-usage: FAILED TO RECORD what this run cost', {
+      research_result_id: researchResultId,
+      prospect_id: prospect.id,
+      path: usageMeta.path,
+      error: error.message,
+    })
+  }
 }
 
 /** EXPORTED for phase 2 of the batch path. See storeResearchResult above. */
@@ -632,6 +724,7 @@ export async function runProspectResearchAgentV2({
   prospect_id,
   client_id,
   use_stored_findings = true,
+  research_path = 'inline',
   frameRegistry,
   uniqueness,
 }: ResearchInput & {
@@ -838,7 +931,13 @@ export async function runProspectResearchAgentV2({
     }
 
     // Store research result.
-    const resultId = await storeResearchResult(ctx, rawData, synthesis, agentRun.run_id, opening)
+    const resultId = await storeResearchResult(
+      ctx, rawData, synthesis, agentRun.run_id, opening,
+      // The inline agent synthesises with a direct call, so NO batch discount applies. The
+      // CLI and the queue's full_run executor both arrive here, and both are inline in this
+      // sense; `path` is overridden by the caller that knows better.
+      { path: research_path, synthesisBatched: false },
+    )
 
     // Update prospect row.
     // On a reuse run the classification came from the source row, so its timestamp goes
@@ -1000,6 +1099,7 @@ export async function runProspectResearchAgentV2Batch({
   confirm_before_run = true,
   concurrency = 5,
   use_stored_findings = true,
+  research_path = 'inline',
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
   const failures: ResearchBatchFailure[] = []
   const frame_collisions: ResearchFrameCollision[] = []
@@ -1124,7 +1224,7 @@ export async function runProspectResearchAgentV2Batch({
       }
       try {
         const result = await runProspectResearchAgentV2({
-          prospect_id, client_id, frameRegistry, uniqueness, use_stored_findings,
+          prospect_id, client_id, frameRegistry, uniqueness, use_stored_findings, research_path,
         })
         if (result.bridge_text && result.question_text) {
           shipped.push({

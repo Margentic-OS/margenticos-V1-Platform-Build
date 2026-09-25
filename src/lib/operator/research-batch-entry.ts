@@ -12,6 +12,7 @@
 // separate build, tracked in BACKLOG.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ResearchPath } from '@/lib/agents/research/types'
 import {
   runProspectResearchAgentV2Batch,
   STORED_FINDINGS_MAX_AGE_DAYS,
@@ -75,6 +76,11 @@ export interface ResearchBatchEntryInput {
    * widens the time estimate only.
    */
   runtime_budget_seconds?: number
+  /**
+   * Which caller this is, recorded per prospect on research_usage. Defaults to 'inline',
+   * which is what the operator HTTP route is. See ResearchPath for the full mapping.
+   */
+  research_path?: ResearchPath
   /** Service-role client. Supplied by the caller so the route and the CLI share one client. */
   supabase: SupabaseClient
   organisation_id: string
@@ -144,6 +150,10 @@ export async function runResearchBatchForOrg({
   allow_overwrite_trigger = false,
   runtime_budget_seconds = RUNTIME_BUDGET_SECONDS,
   concurrency = 5,
+  // Defaults to 'inline', which is what the operator HTTP route is: the agent runs in that
+  // route's own process. The two CLI scripts override it, because "what did the CLI spend"
+  // is a question asked separately from "what did the product spend".
+  research_path = 'inline',
 }: ResearchBatchEntryInput): Promise<ResearchBatchEntryResult> {
   // ── Organisation must exist and be active ──────────────────────────────────
   const { data: org, error: orgError } = await supabase
@@ -286,6 +296,7 @@ export async function runResearchBatchForOrg({
       // The selection above already decided what to run. skip_existing would re-apply that
       // decision with different logic and silently drop the whole 'researched' scope.
       skip_existing: false,
+      research_path,
       // NEVER true here. At 10 or more prospects the batch prints a cost estimate and then
       // opens a readline on stdin. On a serverless surface stdin never answers and the
       // request hangs until the platform kills it.

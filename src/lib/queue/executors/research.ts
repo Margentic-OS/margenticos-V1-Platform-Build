@@ -66,6 +66,9 @@ export function researchHandler(): JobHandler {
           // job row rather than from any ambient state.
           client_id: job.organisation_id,
           use_stored_findings: true,
+          // Recorded on research_usage, so "is the queue persisting its usage" is a query
+          // rather than a reading of this file.
+          research_path: 'queue',
         }),
       research => ({
         research_result_id: research.research_result_id,
