@@ -265,3 +265,38 @@ describe('follow-up positions are decided independently', () => {
     expect(c.followups.positions[2].fell_back_reason).toBe('email1_changed')
   })
 })
+
+// ─── 2026-09-25: symbols must not reach the prospect ─────────────────────────────────────
+
+describe('trademark symbols are stripped from what ships', () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key'
+  })
+  afterEach(() => {
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
+    vi.clearAllMocks()
+  })
+
+  /**
+   * THE REAL GUARANTEE, asserted on the composed artifact rather than on the helper. A unit
+   * test of stripSymbols proves the function works; only this proves it is CALLED, and on
+   * the subject as well as the body.
+   */
+  it('removes a symbol from the body and from the subject line', async () => {
+    const c = await compose({ personalisation_trigger: 'You published a guide to Reach Equity™ in March.' })
+    const e1 = bodyAt(c, 1)
+    expect(e1).toContain('Reach Equity')
+    expect(e1).not.toContain('™')
+    for (const e of c.emails) {
+      expect(e.body).not.toMatch(/[™®©℠]/)
+      expect(e.subject_line ?? '').not.toMatch(/[™®©℠]/)
+    }
+  })
+
+  it('CONTROL: copy without a symbol is unchanged, so the strip is not rewriting everything', async () => {
+    const c = await compose({ personalisation_trigger: 'You published a guide in March.' })
+    expect(bodyAt(c, 1)).toContain('You published a guide in March.')
+  })
+})

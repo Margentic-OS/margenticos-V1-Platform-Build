@@ -26,6 +26,7 @@ import {
   followupsMatchEmail1,
 } from './followup-assignment'
 import { composeFollowupBody } from '@/lib/agents/research/followup-frame'
+import { stripSymbols } from '@/lib/style/strip-symbols'
 import { findStandaloneOpeningFaults } from '@/lib/style/standalone-opening'
 import { generateBridge, countWords } from './personalization'
 import { OPT_OUT_FOOTER } from './opt-out-footer'
@@ -499,7 +500,22 @@ export async function composeSequence({
     prospect_id: prospect.id,
     client_id,
   })
-  const emailsWithFooter = appendOptOutFooter(applied.emails)
+  // ═══ TRADEMARK SYMBOLS OFF EVERYTHING THAT SHIPS ═══
+  //
+  // AFTER the footer and after substitution, so this is the last point at which the text
+  // exists in the form the prospect receives it and there is exactly one place to look. They
+  // arrive from two directions and a scrub upstream of either would miss the other: the
+  // FINDINGS, when the research quotes a framework the prospect trademarked, and the COMPANY
+  // NAME, stored with the symbol attached. Measured on the 104: four prospects carried one,
+  // three of them inside the generated Email 1 and its subject.
+  //
+  // Bodies AND subjects. The subject is where it is least excusable and easiest to forget:
+  // it is the first thing seen and the shortest piece of text in the email.
+  const emailsWithFooter = appendOptOutFooter(applied.emails).map(e => ({
+    ...e,
+    body: stripSymbols(e.body),
+    subject_line: e.subject_line === null ? null : stripSymbols(e.subject_line),
+  }))
 
   // THE OUTCOME, not the intent, and per position. A frame that could not be read is its
   // own reason: the copy existed and cleared every gate, and the template it had to be
