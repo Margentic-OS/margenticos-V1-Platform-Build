@@ -26,6 +26,44 @@ export function writerInputFromSynthesis(
     // like. Required here would have meant every test fixture growing a field to say nothing.
     selectionReason: synthesis.selection_reason ?? null,
     prospectReason: synthesis.prospect_reason ?? null,
-    supportingCandidateId: synthesis.supporting_candidate_id ?? null,
+    supportingCandidateId: supportingIfSameTrigger(synthesis),
   }
+}
+
+/**
+ * A SUPPORTING EVENT SURVIVES ONLY IF IT IS AN INSTANCE OF THE SAME TRIGGER AS THE MAIN ONE.
+ *
+ * The writer is told a supporting event "points at the same reason" and may name both in one
+ * sentence. That is only true when the two events are instances of the same thing. Synthesis
+ * checks that the supporting candidate is real, different and eligible (synthesize.ts), but
+ * never that it is ABOUT the same reason, so a second unrelated fact was reaching the writer
+ * with an instruction saying it belonged to the first. Measured on the 104 cohort on
+ * 2026-09-25: 25 prospects carried a supporting event and 16 of them had no shared trigger.
+ *
+ * `!= null` ON BOTH SIDES, and it is the whole rule. A null matched_trigger means "matched
+ * none of this client's triggers", which is a legitimate, common state and NOT a rejection.
+ * Two candidates that each matched nothing have not matched each other, so `null === null`
+ * must not read as agreement. Using `!==` against undefined would do exactly that, because a
+ * row written before 2026-09-23 has the key absent rather than null.
+ *
+ * HERE AND NOT IN synthesize.ts, deliberately. The stored id is a frozen verdict (ADR-034):
+ * a reuse run loads supporting_candidate_id straight off the row and never re-derives it, so
+ * a fix at derivation time would change nothing for any prospect already researched. This
+ * module is the single mapping every caller goes through, including the reuse path, which is
+ * what makes one edit sufficient.
+ */
+function supportingIfSameTrigger(
+  synthesis: Pick<SynthesisOutput, 'candidates' | 'selected_candidate_id'> &
+    Partial<Pick<SynthesisOutput, 'supporting_candidate_id'>>,
+): string | null {
+  const supportingId = synthesis.supporting_candidate_id ?? null
+  if (supportingId === null) return null
+
+  const triggerOf = (id: string | null) =>
+    id === null ? null : synthesis.candidates.find(c => c.id === id)?.matched_trigger ?? null
+
+  const main = triggerOf(synthesis.selected_candidate_id ?? null)
+  const supporting = triggerOf(supportingId)
+
+  return main != null && supporting != null && main === supporting ? supportingId : null
 }
