@@ -1,19 +1,22 @@
-// The two behaviours step 3 turns on, mutation-proved at the composition boundary.
+// THE PIECES follow-up substitution is built from, each tested on its own.
 //
-//   1. A fingerprint mismatch ships the TEMPLATE follow-ups and records mode 'template'.
-//   2. The ASSIGNED arm is recorded even when the received mode differs from it.
+// WHAT THIS FILE NO LONGER DOES, and why that is the point. It used to hold a local
+// decide() that RESTATED composeSequence's fallback ladder, pair gate included, and
+// asserted against its own copy. Its header claimed the opposite in these very words:
+// "TESTED AGAINST THE REAL DECISION LOGIC, not a restatement of it ... anything
+// reimplemented here would pass while the real code did something else, which is the shape
+// of a fake that cannot fail." It was itself that fake, and it proved the point on
+// 2026-09-25: composition changed emails 2 and 3 from a pair verdict to a per-position one,
+// and every test here stayed green while production behaviour inverted. Worse, the
+// restatement then asserted the OLD rule, so the suite was actively vouching for behaviour
+// the code no longer had.
 //
-// The second is the one a naive implementation gets wrong, and it is worth saying why it
-// matters rather than only that it is required. If only the outcome were recorded, every
-// prospect whose generated follow-ups were rejected would be counted in the template
-// group. Those prospects are not a random sample of it: they are exactly the ones whose
-// research produced copy that could not clear a gate. The template group would fill with
-// weaker research and look worse for a reason that has nothing to do with follow-ups, and
-// the comparison would report the opposite of the truth.
+// So the ladder is gone from here and is tested where it actually lives, by driving the
+// real composeSequence: see followup-seam.test.ts. What is left is what this file can
+// honestly own — the pure helpers, called directly.
 //
-// TESTED AGAINST THE REAL DECISION LOGIC, not a restatement of it. The branch under test
-// is the one composeSequence runs; anything reimplemented here would pass while the real
-// code did something else, which is the shape of a fake that cannot fail.
+// The lesson is cheap to restate and was expensive to learn: a comment claiming a test is
+// not a restatement is not evidence. Only calling the real function is.
 //
 // RULE ZERO. Every fixture is invented and industry-neutral.
 
@@ -54,46 +57,7 @@ const GENERATED_PROSE2 =
   'You took the second unit on in March. We build the list and run the sending. ' +
   'Qualified conversations reach your diary. Worth a look?'
 
-/**
- * The decision composeSequence makes, extracted so the test drives the SAME predicate the
- * composer does rather than a copy of it. Every input here is a real column or a real
- * derived value.
- */
-type FellBack = 'not_assigned' | 'none_stored' | 'email1_changed' | null
-function decide(input: {
-  triggerSource: 'research' | 'none'
-  prospectId: string
-  storedEmail2: string | null
-  storedEmail3: string | null
-  storedFingerprint: string | null
-  composedEmail1: string
-}): { arm: 'template' | 'generated'; mode: 'template' | 'generated'; fellBack: FellBack } {
-  const arm = assignFollowupArm(input.prospectId)
-  const fellBack: FellBack =
-    input.triggerSource !== 'research' || arm !== 'generated' ? 'not_assigned'
-    : !input.storedEmail2 || !input.storedEmail3 ? 'none_stored'
-    : !followupsMatchEmail1(input.storedFingerprint, input.composedEmail1) ? 'email1_changed'
-    : null
-  return { arm, mode: fellBack === null ? 'generated' : 'template', fellBack }
-}
-
-const base = {
-  triggerSource: 'research' as const,
-  prospectId: 'aa12c353-7441-47c7-88eb-d54f4e8d070f',
-  storedEmail2: GENERATED_PROSE2,
-  storedEmail3: 'Your second unit changes what a quiet month costs. Worth fifteen minutes?',
-  storedFingerprint: fingerprintEmail1(EMAIL1_AS_SENT),
-  composedEmail1: EMAIL1_AS_SENT,
-}
-
-describe('generated follow-ups ship only when everything still lines up', () => {
-  it('ships them when the arm, the copy and the fingerprint all agree', () => {
-    const d = decide(base)
-    expect(d.arm).toBe('generated')
-    expect(d.mode).toBe('generated')
-    expect(d.fellBack).toBeNull()
-  })
-
+describe('the generated middle goes into the template frame, and only the middle', () => {
   it('substitutes the generated middle while keeping the template frame', () => {
     const body = composeFollowupBody(TEMPLATE_EMAIL2, GENERATED_PROSE2)
     expect(body).toContain('You took the second unit on in March.')
@@ -116,76 +80,19 @@ describe('generated follow-ups ship only when everything still lines up', () => 
   })
 })
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MUTATION 1: the fingerprint mismatch
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('MUTATION: a changed Email 1 ships template follow-ups and records template', () => {
-  // The live hazard: another session re-runs Email 1 to fix copy faults while these
-  // follow-ups are already stored against the old one.
-  const rewritten = EMAIL1_AS_SENT.replace('second unit in March', 'third unit in June')
-
-  it('falls back, names why, and records the RECEIVED mode as template', () => {
-    const d = decide({ ...base, composedEmail1: rewritten })
-    expect(d.fellBack).toBe('email1_changed')
-    expect(d.mode).toBe('template')
+describe('the two helpers the decision is built from', () => {
+  it('the arm is a property of the prospect id, so it is stable across calls', () => {
+    const id = 'aa12c353-7441-47c7-88eb-d54f4e8d070f'
+    expect(assignFollowupArm(id)).toBe(assignFollowupArm(id))
   })
 
-  it('and the ASSIGNED arm is still generated, which is the whole point', () => {
-    const d = decide({ ...base, composedEmail1: rewritten })
-    expect(d.arm).toBe('generated')
-    expect(d.mode).toBe('template')
-    // Arm and mode DISAGREE here. A single column could not express this, and the
-    // comparison would silently count this prospect in the wrong group.
-    expect(d.arm).not.toBe(d.mode)
+  it('the fingerprint changes when Email 1 changes, and matches when it does not', () => {
+    const fp = fingerprintEmail1(EMAIL1_AS_SENT)
+    expect(followupsMatchEmail1(fp, EMAIL1_AS_SENT)).toBe(true)
+    expect(followupsMatchEmail1(fp, EMAIL1_AS_SENT.replace('March', 'June'))).toBe(false)
   })
 
-  it('falls back on every other incomplete state too', () => {
-    expect(decide({ ...base, storedFingerprint: null }).fellBack).toBe('email1_changed')
-    expect(decide({ ...base, storedEmail2: null }).fellBack).toBe('none_stored')
-    expect(decide({ ...base, storedEmail3: null }).fellBack).toBe('none_stored')
-    expect(decide({ ...base, triggerSource: 'none' }).fellBack).toBe('not_assigned')
-  })
-
-  it('THE CONTROL: the predicate can still return null, so the refusals mean something', () => {
-    // Without this every assertion above would pass against a decide() that always fell
-    // back, which would disable the feature rather than guard it.
-    expect(decide(base).fellBack).toBeNull()
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// MUTATION 2: the assigned arm survives a differing outcome
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('MUTATION: the assigned arm is recorded even when the outcome differs', () => {
-  it('records arm generated with mode template on every fallback reason', () => {
-    const fallbacks = [
-      ['email1_changed', { ...base, composedEmail1: EMAIL1_AS_SENT.replace('March', 'June') }],
-      ['none_stored', { ...base, storedEmail2: null }],
-    ] as const
-
-    for (const [label, input] of fallbacks) {
-      const d = decide(input)
-      expect(d.fellBack, label).toBe(label)
-      expect(d.arm, label).toBe('generated')
-      expect(d.mode, label).toBe('template')
-    }
-  })
-
-  it('a prospect that never had a personalised Email 1 records arm without mode confusion', () => {
-    // trigger.source 'none' means the template Email 1 ships. The arm is still whatever
-    // the hash says, because the arm is a property of the prospect and not of the outcome,
-    // and the mode correctly says template.
-    const d = decide({ ...base, triggerSource: 'none' })
-    expect(d.mode).toBe('template')
-    expect(d.fellBack).toBe('not_assigned')
-    expect(['template', 'generated']).toContain(d.arm)
-  })
-
-  it('THE CONTROL: arm and mode CAN agree, so the disagreements above are real', () => {
-    const d = decide(base)
-    expect(d.arm).toBe('generated')
-    expect(d.mode).toBe('generated')
+  it('FAILS CLOSED: a missing stored fingerprint never counts as a match', () => {
+    expect(followupsMatchEmail1(null, EMAIL1_AS_SENT)).toBe(false)
   })
 })

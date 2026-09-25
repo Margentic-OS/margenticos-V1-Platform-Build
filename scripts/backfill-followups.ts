@@ -120,12 +120,16 @@ function env(name: string): string {
 async function loadCohort(supabase: SupabaseClient, orgId: string, limit: number | null, ids: string[] | null) {
   let q = supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, first_name, last_name, company_name, country, role, job_title, email, linkedin_url, website_url, personalisation_trigger, personalisation_question, personalisation_subject, company_headcount, company_industry, apollo_enrichment_data, current_research_result_id')
+    .select('id, organisation_id, segment_id, variant_id, first_name, last_name, company_name, country, role, job_title, email, linkedin_url, website_url, personalisation_trigger, personalisation_question, personalisation_subject, company_headcount, company_industry, apollo_enrichment_data, current_research_result_id, followup_email2, followup_email3, followup_email1_fingerprint')
     .eq('organisation_id', orgId)
     .not('personalisation_trigger', 'is', null)
     .not('current_research_result_id', 'is', null)
     .eq('outbound_upload_status', 'pending')
-    .is('followup_email2', null)
+    // EITHER POSITION, not just email 2. Composition substitutes each independently as of
+    // 2026-09-25, so a prospect holding only one of the two still has a real gap in the
+    // other. Selecting on email 2 alone left prospects permanently unreachable: their
+    // email 2 was stored so they never matched again, and their email 3 was never written.
+    .or('followup_email2.is.null,followup_email3.is.null')
     .or('suppressed.is.null,suppressed.eq.false')
     .order('id')
   if (ids && ids.length > 0) q = q.in('id', ids)
@@ -284,22 +288,51 @@ async function main() {
     }
 
     const fingerprint = fingerprintEmail1(email1ForFingerprint)
-    const w = (t: string | null) => (t ? `${t.split(/\s+/).length}w` : 'TEMPLATE')
-    console.log(`  email2 ${w(result.email2.prose)}  email3 ${w(result.email3.prose)}  fp ${fingerprint.slice(0, 12)}`)
+    // THREE OUTCOMES PER POSITION NOW, not two. 'kept' is the one that did not exist before
+    // the write became non-destructive, and printing it as TEMPLATE would report a prospect
+    // who HAS personalised copy as one who does not.
+    const w = (written: string | null, already: string | null) =>
+      written ? `${written.split(/\s+/).length}w` : already ? 'kept' : 'TEMPLATE'
+    console.log(`  email2 ${w(result.email2.prose, (p.followup_email2 ?? null) as string | null)}` +
+      `  email3 ${w(result.email3.prose, (p.followup_email3 ?? null) as string | null)}` +
+      `  fp ${fingerprint.slice(0, 12)}`)
     if (result.email2.prose === null) console.log(`     email 2 fell back: ${result.email2.failures.join('; ').slice(0, 150)}`)
     if (result.email3.prose === null) console.log(`     email 3 fell back: ${result.email3.failures.join('; ').slice(0, 150)}`)
 
     if (!commit) { written++; continue }
 
-    // THREE COLUMNS. Never the personalisation columns: those are the Email 1 another
-    // session is fixing, and leaving them untouched is this script's core promise.
+    // THREE COLUMNS AT MOST. Never the personalisation columns: those are the Email 1
+    // another session is fixing, and leaving them untouched is this script's core promise.
+    //
+    // A COLUMN THAT ALREADY HOLDS COPY IS NOT OVERWRITTEN. Before 2026-09-25 this wrote
+    // result.email2.prose and result.email3.prose unconditionally, so a run that filled a
+    // missing email 3 and had its email 2 rejected would NULL an email 2 that had already
+    // passed every gate. Now that the cohort selects on EITHER column being null, that stopped
+    // being a corner case and became the common path.
+    //
+    // UNLESS EMAIL 1 HAS MOVED UNDERNEATH IT, which is the subtle half. The fingerprint is
+    // one column covering both positions. Preserving an old email 2 while stamping a freshly
+    // computed fingerprint would declare stale copy current, and composition would then ship
+    // a follow-up whose callback refers to an Email 1 the prospect never received. So when
+    // the stored fingerprint disagrees with this run's, nothing is preserved: whatever this
+    // run produced is what the prospect gets, including a null that sends the template.
+    const storedFingerprint = (p.followup_email1_fingerprint ?? null) as string | null
+    const email1Moved = storedFingerprint !== null && storedFingerprint !== fingerprint
+
+    const update: Record<string, unknown> = { followup_email1_fingerprint: fingerprint }
+    for (const [column, written, already] of [
+      ['followup_email2', result.email2.prose, p.followup_email2 ?? null],
+      ['followup_email3', result.email3.prose, p.followup_email3 ?? null],
+    ] as const) {
+      if (written !== null) update[column] = written
+      else if (already === null || email1Moved) update[column] = null
+      // else: this position already holds copy written against the same Email 1. Keep it.
+    }
+    if (email1Moved) console.log('  Email 1 moved since the stored copy was written, so nothing is preserved')
+
     const { error } = await supabase
       .from('prospects')
-      .update({
-        followup_email2: result.email2.prose,
-        followup_email3: result.email3.prose,
-        followup_email1_fingerprint: fingerprint,
-      })
+      .update(update)
       .eq('id', id)
       .eq('organisation_id', orgId)
       // NOT-YET-UPLOADED RE-CHECKED AT THE WRITE, not only at the read. The model calls

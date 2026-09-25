@@ -38,13 +38,22 @@ export async function recordSentSequence(
 ): Promise<void> {
   const { followups } = composed
 
+  // THE SCALAR IS AN EXPOSURE FLAG, and only that. Positions became independent on
+  // 2026-09-25, so {2 generated, 3 template} is a real outcome and no single value
+  // describes it. 'generated' here means "at least one position shipped generated"; which
+  // position did what lives in followup_modes beside it. sent_sequences.followup_mode is
+  // NOT NULL with a CHECK, which is why the column stays rather than being replaced.
+  const anyGenerated = Object.values(followups.positions).some(p => p.mode === 'generated')
+  const mode: 'template' | 'generated' = anyGenerated ? 'generated' : 'template'
+
   const { error: insertError } = await supabase.from('sent_sequences').insert({
     organisation_id: organisationId,
     prospect_id: prospectId,
     variant_id: composed.variant_id,
     messaging_doc_id: composed.messaging_doc_id,
     followup_arm: followups.arm,
-    followup_mode: followups.mode,
+    followup_mode: mode,
+    followup_modes: followups.positions,
     // The bodies exactly as handed over: footer appended, merge tag NOT resolved, because
     // that is the form composition produces and the form a later reader can re-render.
     // Resolving it here would bake one prospect's name into a record of the copy.
@@ -65,7 +74,7 @@ export async function recordSentSequence(
 
   const { error: updateError } = await supabase
     .from('prospects')
-    .update({ followup_arm: followups.arm, followup_mode: followups.mode })
+    .update({ followup_arm: followups.arm, followup_mode: mode, followup_modes: followups.positions })
     .eq('id', prospectId)
     .eq('organisation_id', organisationId)
 

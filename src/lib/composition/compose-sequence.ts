@@ -56,13 +56,49 @@ export interface ComposedEmail {
  * counting only the outcome would move exactly those prospects into the template group,
  * which is not a random sample of it.
  */
+/**
+ * Why a generated follow-up did not ship IN ONE POSITION. Null when it did.
+ *
+ * Three of these are facts about different things, and that is why the verdict is per
+ * position rather than per sequence:
+ *   not_assigned      about the PROSPECT   — no research trigger, or the template arm
+ *   none_stored       about the POSITION   — no generated copy stored for this email
+ *   email1_changed    about EMAIL 1        — its callback is stale, so neither can ship
+ *   unreadable_frame  about the TEMPLATE   — no substitutable middle in this position
+ */
+export type FollowupFallbackReason =
+  | 'not_assigned'
+  | 'none_stored'
+  | 'email1_changed'
+  | 'unreadable_frame'
+
+export interface FollowupPositionOutcome {
+  mode: 'template' | 'generated'
+  fell_back_reason: FollowupFallbackReason | null
+}
+
+/**
+ * BOTH THE ASSIGNMENT AND THE OUTCOME. `arm` is what this prospect was assigned and is the
+ * comparison group; the per-position `mode` is what it actually received. They differ
+ * whenever generated follow-ups were rejected by their gates or their Email 1 moved
+ * underneath them, and counting only the outcome would move exactly those prospects into
+ * the template group, which is not a random sample of it.
+ *
+ * PER POSITION, NOT PER SEQUENCE. Changed 2026-09-25. Emails 2 and 3 used to ship generated
+ * together or not at all: one missing column sent BOTH as template. The writer had already
+ * moved to accepting each email on its own merits (186452c), so the two sides disagreed and
+ * 24 prospects held stored copy that could never reach anyone. Neither side was wrong alone
+ * and no test crossed the seam. See followup-seam.test.ts, which does.
+ */
 export interface FollowupRecord {
   arm: 'template' | 'generated'
-  mode: 'template' | 'generated'
-  /** Why the generated follow-ups did not ship, when they did not. Null when they did. */
-  fell_back_reason: 'not_assigned' | 'none_stored' | 'email1_changed' | null
   /** The fingerprint that was checked, or the one recomputed when none was stored. */
   email1_fingerprint: string
+  /**
+   * Keyed by sequence_position. Only follow-up positions appear: Email 1 is personalised
+   * by a different mechanism and the breakup has no generated form.
+   */
+  positions: Record<number, FollowupPositionOutcome>
 }
 
 export interface ComposedSequence {
@@ -412,13 +448,33 @@ export async function composeSequence({
   const email1Body = withFooter.find(e => e.sequence_position === 1)?.body ?? ''
   const email1Fingerprint = fingerprintEmail1(email1Body)
 
-  const fellBackReason: FollowupRecord['fell_back_reason'] =
-    trigger.source !== 'research' || arm !== 'generated' ? 'not_assigned'
-    : !prospect.followup_email2 || !prospect.followup_email3 ? 'none_stored'
-    : !followupsMatchEmail1(prospect.followup_email1_fingerprint, email1Body) ? 'email1_changed'
+  // The stored copy, BY POSITION. One entry per follow-up the writer can generate; Email 1
+  // is personalised by a different mechanism and the breakup has no generated form.
+  const storedProse: Record<number, string | null> = {
+    2: prospect.followup_email2 ?? null,
+    3: prospect.followup_email3 ?? null,
+  }
+
+  // Evaluated once because they are facts about the prospect and about Email 1, not about
+  // either follow-up position.
+  const notAssigned = trigger.source !== 'research' || arm !== 'generated'
+  const email1Changed = !followupsMatchEmail1(prospect.followup_email1_fingerprint, email1Body)
+
+  /**
+   * ONE POSITION'S VERDICT, in the SAME PRECEDENCE the pair gate used.
+   *
+   * The order carries meaning and is not arbitrary. A prospect with no stored copy at all
+   * also has no stored fingerprint, and followupsMatchEmail1 fails closed on a null
+   * fingerprint, so checking Email 1 first would report every un-generated prospect as
+   * 'email1_changed' and make a routine absence look like the staleness guard firing.
+   */
+  const reasonFor = (position: number): FollowupFallbackReason | null =>
+    notAssigned ? 'not_assigned'
+    : !storedProse[position] ? 'none_stored'
+    : email1Changed ? 'email1_changed'
     : null
 
-  if (fellBackReason === 'email1_changed') {
+  if (!notAssigned && email1Changed && (storedProse[2] || storedProse[3])) {
     // LOGGED AT WARN, because this is the guard doing its job on real copy and the
     // operator should be able to see how often it fires. A silent discard would make a
     // feature that never ships look identical to one that ships correctly.
@@ -431,19 +487,36 @@ export async function composeSequence({
     })
   }
 
+  // Only the positions that cleared their own verdict are offered for substitution. A
+  // position whose reason is non-null passes null and keeps its approved template body.
+  const proseToApply: Record<number, string | null> = {
+    2: reasonFor(2) === null ? storedProse[2] : null,
+    3: reasonFor(3) === null ? storedProse[3] : null,
+  }
+
   // Substituted into the PRE-FOOTER bodies, then footered once at the end. See above.
-  const emailsWithFooter = appendOptOutFooter(
-    fellBackReason === null
-      ? applyGeneratedFollowups(composedEmails, prospect.followup_email2!, prospect.followup_email3!)
-      : composedEmails,
-  )
+  const applied = applyGeneratedFollowups(composedEmails, proseToApply, {
+    prospect_id: prospect.id,
+    client_id,
+  })
+  const emailsWithFooter = appendOptOutFooter(applied.emails)
+
+  // THE OUTCOME, not the intent, and per position. A frame that could not be read is its
+  // own reason: the copy existed and cleared every gate, and the template it had to be
+  // substituted into is what stopped it. Folding that into 'none_stored' would send
+  // whoever investigates to look for missing copy that is in fact present.
+  const positions: Record<number, FollowupPositionOutcome> = {}
+  for (const position of [2, 3]) {
+    const reason = applied.unreadable.includes(position)
+      ? 'unreadable_frame'
+      : reasonFor(position)
+    positions[position] = { mode: reason === null ? 'generated' : 'template', fell_back_reason: reason }
+  }
 
   const followups: FollowupRecord = {
     arm,
-    // THE OUTCOME, not the intent. 'generated' only where the copy actually shipped.
-    mode: fellBackReason === null ? 'generated' : 'template',
-    fell_back_reason: fellBackReason,
     email1_fingerprint: email1Fingerprint,
+    positions,
   }
 
   // Step 5b. One question per composed Email 1. REPORT ONLY.
@@ -496,29 +569,37 @@ export async function composeSequence({
  */
 function applyGeneratedFollowups(
   emails: ComposedEmail[],
-  prose2: string,
-  prose3: string,
-): ComposedEmail[] {
-  return emails.map(email => {
-    const prose = email.sequence_position === 2 ? prose2
-                : email.sequence_position === 3 ? prose3
-                : null
-    if (prose === null) return email
+  /** Keyed by sequence_position. Null means this position ships its approved template. */
+  prose: Record<number, string | null>,
+  who: { prospect_id: string; client_id: string },
+): { emails: ComposedEmail[]; unreadable: number[] } {
+  const unreadable: number[] = []
 
-      // The body here has NO footer yet: this runs before the final append, so the last
+  const out = emails.map(email => {
+    const written = prose[email.sequence_position] ?? null
+    if (written === null) return email
+
+    // The body here has NO footer yet: this runs before the final append, so the last
     // paragraph really is the sign-off block and the frame reads correctly.
-    const body = composeFollowupBody(email.body, prose)
+    const body = composeFollowupBody(email.body, written)
     // A template whose frame cannot be read keeps its approved copy. Failing closed here
     // matters as much as it does in the gate: there is no partial substitution that leaves
     // a sendable email.
     if (body === null) {
+      // CARRIES THE PROSPECT. It used to log sequence_position alone, which made the one
+      // per-email fallback composition can produce impossible to attribute to anybody: the
+      // sequence-level record still said 'generated' and the only other trace named no row.
       logger.warn('compose-sequence: template follow-up has no readable frame, approved copy kept', {
+        ...who,
         sequence_position: email.sequence_position,
       })
+      unreadable.push(email.sequence_position)
       return email
     }
     return { ...email, body, word_count: countWords(body) }
   })
+
+  return { emails: out, unreadable }
 }
 
 // Replaces Email 1's CTA paragraph with a written question.
