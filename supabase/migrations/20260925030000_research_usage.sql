@@ -1,4 +1,4 @@
--- Status: PENDING
+-- Status: APPLIED (verified live 2026-09-25, both production hjpvnvjryxdjcfdsfhzy and test tidqheqjzvwmrrrebzir)
 -- research_usage: what every model call a research run made actually cost, per prospect.
 --
 -- ═══ WHY A TABLE AT ALL, WHEN THE NUMBERS WERE ALREADY BEING COMPUTED ════════
