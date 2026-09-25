@@ -117,7 +117,32 @@ describe('writeFollowups folds the fact-check usage into the usage it returns', 
     expect(source).toMatch(/usage\s*=\s*addTokenUsage\(\s*usage\s*,\s*factCheck\.usage\s*\)/)
   })
 
-  it('returns that same accumulator', () => {
-    expect(source).toMatch(/return\s*\{\s*\.\.\.outcome,\s*usage,/)
+  // ── THIS ASSERTION HAS ALREADY EARNED ITS KEEP ONCE ────────────────────────
+  //
+  // It was written against `return { ...outcome, usage, ... }` and went RED on the
+  // 2026-09-25 rebase onto 028f5a6, where "followups: the unit of work is the email, not the
+  // pair" restructured the success return to name each field. The fold itself survived
+  // untouched, which is exactly the distinction worth detecting: the shape moved, the
+  // accumulator did not.
+  //
+  // So it now matches on the ACCUMULATOR BEING RETURNED rather than on one arrangement of
+  // the object, which is the property that matters and the one a future restructure should
+  // be free to rearrange.
+  it('returns that same accumulator from the success path', () => {
+    // `usage` as a shorthand property inside a returned object literal. Not `usage:
+    // something`, which would be a different value wearing the name.
+    expect(source).toMatch(/return \{[^}]*\busage\b\s*[,}][^}]*\}/)
+  })
+
+  it('returns it from the fallback path too, where every attempt was rejected', () => {
+    // The template ships and the calls were still billed. A fallback that dropped the usage
+    // would report the most expensive prospects as the cheapest.
+    //
+    // COUNTED, NOT SLICED. The first version of this took everything after the LAST
+    // `return {` in the file, which lands in a later helper rather than in writeFollowups,
+    // so it failed on correct code. writeFollowups has exactly two returns that carry the
+    // accumulator, the success path and the fallback, and both must keep it.
+    const returnsWithUsage = source.match(/return \{[\s\S]{0,400}?\busage\b\s*[,}]/g) ?? []
+    expect(returnsWithUsage.length).toBeGreaterThanOrEqual(2)
   })
 })
