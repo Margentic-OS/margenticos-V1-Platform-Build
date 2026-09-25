@@ -64,7 +64,32 @@ const THEIR_CONTENT =
  * sentence names one of THEIR audience surfaces.
  */
 const THEIR_AUDIENCE_MEMBERSHIP =
-  /\b(in|on|among|inside|part of|outside)\s+(your|their)\s+([a-z][\w-]*\s+){0,2}(feed|network|followers?|following|audience|subscribers?|readers?|list|circle|orbit|contacts)\b/i
+  /\b([Ii]n|[Oo]n|[Aa]mong|[Ii]nside|[Pp]art of|[Oo]utside)\s+([Yy]our|[Tt]heir|[A-Z][\w&.-]*(?:[’']s))\s+([A-Za-z][\w-]*\s+){0,2}([Ff]eed|[Nn]etwork|[Ff]ollowers?|[Ff]ollowing|[Aa]udience|[Ss]ubscribers?|[Rr]eaders?|[Ll]ist|[Cc]ircle|[Oo]rbit|[Cc]ontacts)\b/
+
+/**
+ * THE POSSESSIVE CAN BE THE COMPANY'S OWN NAME, not just "your". Added 2026-09-25.
+ *
+ * Measured on the 104: "Your LinkedIn feed is running entirely toward people already in
+ * Covalent's orbit" passed every gate. It is the same unknowable claim about the composition
+ * of their audience, written with the firm's name where the earlier examples used "your", and
+ * the pattern above only accepted "your" or "their". Hence the `[A-Z]...'s` alternative, which
+ * is why that regex is no longer case-insensitive: the capital is what distinguishes a name
+ * from an ordinary word.
+ *
+ * ASSERTING WHO ALREADY CONSUMES THEIR CONTENT, stated positively.
+ *
+ * Measured on the same run: "AGI's post reaches whoever already follows you". The existing
+ * unreached-audience rule only matched NEGATED clauses ("who never read that post"), so the
+ * positive form went straight through while saying the same unknowable thing from the other
+ * side: who is already in their audience.
+ *
+ * "ALREADY" OR "STILL" IS REQUIRED, and it is what keeps sender-side reach allowed. "We reach
+ * people who have not heard of you" describes who the SENDER contacts and asserts nothing
+ * about the reader's audience. The affirmative adverb is what turns a sentence into a claim
+ * that an audience exists and has a known composition.
+ */
+const ALREADY_IN_AUDIENCE =
+  /\b(who|whoever|anyone who|those who|people who|everyone who|buyers who)\s+(already|still)\s+(follow|follows|read|reads|see|sees|watch|watches|subscribe|subscribes|get|gets|receive|receives|know|knows)\b/i
 
 export interface AudienceContactHit {
   /** The matched audience phrase, for the log line and the report. */
@@ -96,6 +121,11 @@ export function findAudienceContactClaims(text: string): AudienceContactHit[] {
     const membership = sentence.match(THEIR_AUDIENCE_MEMBERSHIP)
     if (membership) {
       hits.push({ matched: membership[0], sentence: sentence.trim() })
+      continue
+    }
+    const already = sentence.match(ALREADY_IN_AUDIENCE)
+    if (already) {
+      hits.push({ matched: already[0], sentence: sentence.trim() })
     }
   }
   return hits

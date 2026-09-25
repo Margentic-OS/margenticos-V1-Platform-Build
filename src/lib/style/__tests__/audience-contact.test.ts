@@ -64,3 +64,42 @@ describe('promising to reach an audience they already have', () => {
     expect(findAudienceContactClaims('You opened a second site in March.')).toEqual([])
   })
 })
+
+// ─── 2026-09-25: two real sentences from the 104 that every gate passed ──────────────────
+
+describe('a possessive that is the company name, and a positively-stated audience', () => {
+  it('CATCHES a company-name possessive: "already in Covalent’s orbit"', () => {
+    const hits = findAudienceContactClaims(
+      "Your LinkedIn feed is running entirely toward people already in Covalent's orbit.",
+    )
+    expect(hits).toHaveLength(1)
+    expect(hits[0].matched).toContain('orbit')
+  })
+
+  it('CATCHES a positively-stated audience: "whoever already follows you"', () => {
+    const hits = findAudienceContactClaims("AGI's post reaches whoever already follows you.")
+    expect(hits).toHaveLength(1)
+    expect(hits[0].matched).toContain('already follows')
+  })
+
+  // ─── SENDER-SIDE REACH STAYS ALLOWED. Without these the gate could be rejecting every
+  //     description of the service itself, which is the one thing the copy must be free to say.
+
+  it('ALLOWS sender-side reach: people who have not heard of them', () => {
+    expect(findAudienceContactClaims('We reach buyers who have not heard of you yet.')).toEqual([])
+  })
+
+  it('ALLOWS sender-side reach: putting them in front of new buyers', () => {
+    expect(
+      findAudienceContactClaims('We get the argument in front of buyers who have never come across the firm.'),
+    ).toEqual([])
+  })
+
+  it('ALLOWS an ordinary sentence naming a company possessive without an audience noun', () => {
+    expect(findAudienceContactClaims("Covalent's report landed in March.")).toEqual([])
+  })
+
+  it('ALLOWS a relative clause with no affirmative adverb', () => {
+    expect(findAudienceContactClaims('We contact people who run operations teams.')).toEqual([])
+  })
+})
