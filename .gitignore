@@ -93,6 +93,13 @@ dogfood-prospects-batch-1.csv
 # artifacts, and prospect-identifying content that has no business in the repository.
 .writer-export/
 
+# Cost-arm run outputs. THE REPO IS PUBLIC, and a reading file carries real prospect names,
+# real company names and the actual email copy that would be sent. Committing one is the
+# mistake 6355f4d had to undo. The COHORT FILE is the exception and is deliberately allowed:
+# it is UUIDs only, and the measurement is not auditable without it.
+.cost-arms/*
+!.cost-arms/cohort-*.txt
+
 # Throwaway analysis harnesses for the 2026-09-21 copy audit. They import @/lib/style/*
 # so they must sit at the repo root to resolve, but they are not project code and must not
 # ship. Two of them reached a commit via `git add -A` before this line existed.
