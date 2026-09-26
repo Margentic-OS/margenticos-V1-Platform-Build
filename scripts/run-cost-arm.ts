@@ -5,7 +5,19 @@
  * ═══ WHAT THIS IS FOR ════════════════════════════════════════════════════════
  *
  * Synthesis is 90.6% of a prospect's Anthropic cost, measured over 105 prospects on
- * 2026-09-24. Three arms aim at it, or at the next line down:
+ * 2026-09-24.
+ *
+ * ═══ THE THREE ARMS THIS RAN ON 2026-09-26, AND WHAT BECAME OF THEM ══════════
+ *
+ *   ARM_CANDIDATE_CAP=4        REJECTED. 27% more expensive: the cap worked and the model
+ *                              narrated the discarding, so output rose.
+ *   ARM_SYNTHESIS_MODEL=haiku  REJECTED. 77% cheaper and unusable: 18 of 34 prospects produced
+ *                              zero candidates and the personalised rate halved.
+ *   ARM_BRIEF_WEB_SEARCH=true  ADOPTED, and now unconditional rather than a flag. Searches
+ *                              2.25 -> 1.00 with no detectable quality cost.
+ *
+ * All three switches are deleted. What follows is the harness, kept because it is reusable:
+ *
  *
  *   ARM_CANDIDATE_CAP=4        write out fewer candidates (84.6% of candidate output
  *                              describes candidates that are not selected)
@@ -47,7 +59,6 @@ import { writerInputFromSynthesis } from '@/lib/agents/research/writer-input'
 import { produceOpening, resolveVariantId, loadClientName } from '@/lib/agents/research/produce-opening'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
-import { activeArms } from '@/lib/agents/research/cost-arms'
 import { usdForTokens, RESEARCH_SONNET_MODEL } from '@/lib/agents/research/cost-constants'
 import type { TokenUsage } from '@/lib/agents/research/types'
 
@@ -110,23 +121,17 @@ async function main() {
   const ids = fs.readFileSync(idsFile, 'utf8').split('\n').map(l => l.trim()).filter(Boolean)
   if (ids.length === 0) usage(`${idsFile} contains no prospect ids.`)
 
-  const arms = activeArms()
-
-  // ── REFUSE TO RUN AN ARM WITH NO ARM SET ──────────────────────────────────
+  // ── EVERY ARM_* VARIABLE THIS SCRIPT ONCE READ IS GONE ────────────────────
   //
-  // Running the control means deliberately setting no variable, so an empty set is legitimate
-  // ONLY when the label says so. Without this, a forgotten env var produces a full-price run
-  // labelled as a saving, which is the one result that would be believed and wrong.
-  const isControl = /control/i.test(armLabel)
-  if (Object.keys(arms).length === 0 && !isControl) {
-    usage(
-      `--arm is "${armLabel}" but no ARM_* variable is set. Either set one, or name the arm ` +
-      '"control" to declare that running unchanged is the intent.',
-    )
-  }
-  if (Object.keys(arms).length > 0 && isControl) {
-    usage(`--arm is "${armLabel}" but ${Object.keys(arms).join(', ')} is set. A control changes nothing.`)
-  }
+  // The 2026-09-26 experiment had three switches. Two were rejected and deleted; the third,
+  // brief web search, was adopted and is now unconditional in sources/web-search.ts. So there
+  // is nothing to inspect and nothing to report as "arm settings".
+  //
+  // The HARNESS survives because it is the reusable part: a read-only replay of a fixed cohort
+  // from raw sources already on file, with a dollar ceiling, writing a ledger row and a reading
+  // file and touching no production data. A future arm adds its own switch and passes its own
+  // --arm label; it does not need this script rewritten.
+  const arms: Record<string, string> = {}
 
   const read = readOnlyClient(url, key)
   // A SEPARATE, ORDINARY CLIENT, used for exactly one table. The proxy above throws on every
@@ -139,7 +144,7 @@ async function main() {
   console.log(`  Organisation : ${orgId}`)
   console.log(`  Prospects    : ${ids.length} (fixed set from ${idsFile})`)
   console.log(`  Arm label    : ${armLabel}`)
-  console.log(`  Arm settings : ${Object.keys(arms).length ? JSON.stringify(arms) : 'NONE (control)'}`)
+  console.log('  Switches     : none. Brief web search is unconditional since 2026-09-26.')
   console.log(`  Spend ceiling: $${ceiling.toFixed(2)}, checked before each prospect`)
   console.log('  Writes NO research result and NO prospect column. Ledger row only.')
   console.log('')

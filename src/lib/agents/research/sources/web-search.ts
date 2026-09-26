@@ -55,7 +55,6 @@
 
 import { webSearch } from '@/lib/agents/tools/webSearch'
 import { logger } from '@/lib/logger'
-import { briefWebSearch } from '../cost-arms'
 import type { ProspectContext, WebSearchSourceResult } from '../types'
 
 /**
@@ -145,10 +144,28 @@ async function fetchWebSearchOnce(prospect: ProspectContext): Promise<WebSearchS
     // agents keep the default of 3, because they run once per client and richer search is
     // worth paying for there. This runs on every prospect in every batch, which is where
     // the volume is.
-    // ARM C. brief mode has existed since 2026-09-09 and this caller, which is where the
-    // volume is, has never used it. Measured in the tuner over 40 paired lookups: billable
-    // searches 1.48 -> 1.00, input tokens unchanged. Off by default.
-    const result = await webSearch(query, { maxUses: 1, brief: briefWebSearch() })
+    // ── BRIEF MODE, UNCONDITIONAL SINCE 2026-09-26 ────────────────────────────
+    //
+    // Adopted from the arm C measurement of 2026-09-26: 40 prospects, each compared against
+    // its OWN stored search count from when brief was off.
+    //
+    //   billable searches   2.25 -> 1.00      a 56% cut, 30 of 40 prospects down
+    //   input tokens        unchanged at 10,192
+    //   personalised rate   75.0% against the control's 62.5%
+    //
+    // THE SAVING IS FEES ONLY, and that is not a disappointment, it is the mechanism. Nothing
+    // shrinks the page text the provider injects; brief mode cuts how many search blocks
+    // arrive. So 1.25 fewer searches x $0.01 = about $0.0125 a prospect.
+    //
+    // NO QUALITY COST WAS DETECTABLE. The higher personalised rate is favourable variance, not
+    // evidence that reading less helps: brief mode supplies strictly less information. The
+    // defensible claim is that the cut cost nothing measurable at n=40, which is also the
+    // limit of what 40 paired prospects can show.
+    //
+    // NOT A FLAG. It was one for exactly one day. A setting left switchable after it is adopted
+    // is a setting somebody turns off while debugging and forgets, and the 2.83-search world it
+    // would silently restore is the one this measurement exists to leave.
+    const result = await webSearch(query, { maxUses: 1, brief: true })
 
     // A query that came back `limited` produced no substantive findings. Treating it
     // as content is what let the model's own preamble ("I'll search for information

@@ -195,7 +195,31 @@ export const WEB_SEARCH_QUERIES_PER_PROSPECT = 1
  *
  * It is an AVERAGE, like every other figure in this file. Treat it as one.
  */
-export const WEB_SEARCH_SEARCHES_PER_PROSPECT = 2.83
+/**
+ * ═══ 1.00 SINCE 2026-09-26, AND IT IS NOW A HARD BOUND RATHER THAN AN AVERAGE ═══
+ *
+ * Brief web search became unconditional on 2026-09-26 (sources/web-search.ts). Measured over
+ * the 40 prospects of that day's arm C: mean 1.000, min 1, max 1. Not one prospect ran a
+ * second search.
+ *
+ * READ THE HISTORY BELOW BEFORE TRUSTING THAT SENTENCE, because this constant has claimed to
+ * be a hard bound once before and was wrong. It read 1 in September on the reasoning that the
+ * caller passes { maxUses: 1 }, and the provider simply exceeded the cap and billed for it:
+ * the real figure was 2.83 over 73 prospects. What is different now is that the number comes
+ * from counting billable searches on 40 runs rather than from reading a parameter, and the
+ * mechanism is a prompt that asks one question rather than a cap the provider may ignore.
+ *
+ * Still: RE-TAKE IT rather than trust this line. The query is unchanged and now has a better
+ * source than raw_web_search, because research_usage records the count as a first-class field:
+ *
+ *   SELECT count(*), avg((web_search->>'search_count')::numeric),
+ *          min((web_search->>'search_count')::int), max((web_search->>'search_count')::int)
+ *     FROM research_usage WHERE created_at >= '<a recent date>';
+ */
+export const WEB_SEARCH_SEARCHES_PER_PROSPECT = 1.00
+
+/** The measured average under the one-query shape with brief OFF, over 73 prospects. */
+export const WEB_SEARCH_SEARCHES_PER_PROSPECT_BRIEF_OFF = 2.83
 /** The measured average under the OLD 2-query shape, before the cap was introduced at all. */
 /** The measured average under the OLD 2-query shape. Kept as the baseline to beat. */
 export const WEB_SEARCH_SEARCHES_PER_PROSPECT_OLD_MEASURED = 4.15
@@ -224,7 +248,23 @@ export const WEB_SEARCH_SEARCHES_PER_PROSPECT_OLD_MEASURED = 4.15
  * day to Haiku and dividing by the prospects researched that day, exactly as the $0.042
  * was settled.
  */
-export const COST_WEB_SEARCH_HAIKU_TOKENS = 0.025
+/**
+ * ═══ MEASURED 2026-09-26, AND THE ESTIMATE IT REPLACES WAS ABOUT 2x HIGH ═══
+ *
+ * $0.01053 a prospect: mean 10,029 input and 100 output Haiku tokens over 40 prospects, range
+ * $0.00882 to $0.01215. This was the last ESTIMATE in this file, bounded $0.021 to $0.029 on
+ * the reasoning that the old $0.042 would scale down by somewhere between requests and
+ * searches. Both bounds were too high, and the low one by a factor of two.
+ *
+ * Why the estimate missed: it assumed the injected page text scaled with the number of
+ * searches. It does not scale the way that reasoning assumed, which is the same lesson the
+ * tuner recorded from the other direction when cutting searches 1.48 -> 1.00 left input tokens
+ * at 9,637 -> 9,619, essentially unchanged.
+ *
+ * So the page arrives at roughly one page's worth per CALL, and the search count moves the FEE.
+ * That is why brief mode's saving is fees only, and why no parameter makes a search cheaper.
+ */
+export const COST_WEB_SEARCH_HAIKU_TOKENS = 0.0105
 
 /**
  * Total web search cost per prospect: search fees PLUS the Haiku tokens that buy them.
@@ -238,18 +278,29 @@ export const COST_WEB_SEARCH_HAIKU_TOKENS = 0.025
  * does not honour the cap. Old shape MEASURED $0.084, so the 2026-08-25 reduction bought
  * roughly 37%, not the 63% this constant used to claim.
  */
-export const COST_WEB_SEARCH_TOTAL = 0.053
+export const COST_WEB_SEARCH_TOTAL = 0.0205
+/** Before the 2026-08-25 one-query reduction. MEASURED from the console that day. */
 export const COST_WEB_SEARCH_TOTAL_OLD_MEASURED = 0.084
+/** With one query but brief OFF: 2.83 searches x $0.01 plus the same token line. MEASURED. */
+export const COST_WEB_SEARCH_TOTAL_BRIEF_OFF = 0.039
 
 // The range is WIDER than this file previously claimed. The old comment said "the cap
 // makes the search count exact rather than a distribution" — the cap does nothing of the
 // sort. Measured range is 1 to 3 searches per prospect over 73 prospects, so the count is
 // a distribution and the band has to carry it as well as the Haiku token spread.
 //
-//   low  : 1 search  x $0.01 + $0.021 tokens = $0.031
-//   high : 3 searches x $0.01 + $0.029 tokens = $0.059
-export const COST_WEB_SEARCH_LOW  = 0.031
-export const COST_WEB_SEARCH_HIGH = 0.059
+// NARROW NOW, AND FOR A REAL REASON RATHER THAN A HOPEFUL ONE. The count no longer varies:
+// 40 of 40 prospects ran exactly one search on 2026-09-26. So the only spread left is the page
+// the provider injects, measured $0.00882 to $0.01215 of Haiku tokens.
+//
+//   low  : 1 search x $0.01 + $0.0088 tokens = $0.0188
+//   high : 1 search x $0.01 + $0.0122 tokens = $0.0222
+//
+// If a figure outside this band appears, the first thing to check is whether brief mode is
+// still reaching the request, because a silent reversion puts the count back to 2.83 and
+// nothing else would say so. brief-web-search-default.test.ts is what guards that.
+export const COST_WEB_SEARCH_LOW  = 0.0188
+export const COST_WEB_SEARCH_HIGH = 0.0222
 
 // DEAD. NOT A LIVE COST. Composition makes ZERO model calls.
 //

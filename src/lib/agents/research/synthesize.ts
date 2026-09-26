@@ -9,7 +9,6 @@ import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
 import type { MessageCreateParamsNonStreaming, Message } from '@anthropic-ai/sdk/resources/messages'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
-import { candidateCap, candidateCapInstruction, synthesisModelOverride } from './cost-arms'
 import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
@@ -1596,20 +1595,27 @@ export function buildSynthesisParams(
   // Per-client only. The per-prospect signal moved to the user message so this string is
   // byte-identical across a batch and can therefore be cached. See buildSignalBlock.
   const systemPrompt = buildSynthesisPrompt(clientCtx)
-  // ARM A appends to the USER message, after the retry instruction, for the reason ADR-059
-  // gives for that instruction's placement: the system block carries the cache breakpoint and
-  // must stay byte-identical across a batch, or every prospect pays a fresh cache write and
-  // the arm's saving is confounded with a cache effect. Off by default: cap is null.
-  const cap = candidateCap()
+  // ── TWO COST ARMS WERE TRIED HERE ON 2026-09-26 AND BOTH ARE GONE ──────────
+  //
+  // Recorded because the next person to look at this call will have the same two ideas, and
+  // both were measured on 40 paired prospects rather than argued about:
+  //
+  //   CAPPING THE CANDIDATE LIST at 4 made synthesis 27% MORE expensive. The cap worked (mean
+  //   candidates 4.97 -> 3.88) and output rose 12,370 -> 15,656 tokens, because the model
+  //   honours "write out only the strongest 4" by narrating the discarding. The 84.6% of
+  //   output spent on candidates that lose is not recoverable by asking for fewer.
+  //
+  //   SWITCHING SYNTHESIS TO HAIKU was 77% cheaper and unusable. 18 of 34 prospects produced
+  //   ZERO usable candidates against the control's 4, so the writer never ran and they fell to
+  //   the template; the personalised rate halved, 62.5% -> 37.5%, and 4 of 40 answers failed
+  //   JSON parsing outright. Haiku cannot hold this call's output contract.
+  //
+  // Neither switch survives, so neither is left in the code to be rediscovered as an option.
   const userMessage = buildSynthesisUserMessage(prospect, rawData, detectedSignal)
     + (constrainReasoning ? CONSTRAINED_REASONING_INSTRUCTION : '')
-    + (cap !== null ? candidateCapInstruction(cap) : '')
 
   return {
-    // ARM B. Null keeps ADR-013's model, so the default bytes are unchanged. The override is
-    // restricted to models USD_PER_MTOK can price, because an unpriced model writes a ledger
-    // row this experiment cannot read back.
-    model: synthesisModelOverride() ?? SYNTHESIS_MODEL,
+    model: SYNTHESIS_MODEL,
     // 24000, and neither earlier ceiling was theoretical. Three of twelve prospects in the
     // 2026-08-19 batch hit exactly 8000 output tokens; three of 39 calls hit exactly 16000 on
     // 2026-09-11, once the judge began reading each fit dimension with a quotation. The JSON is
