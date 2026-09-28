@@ -603,6 +603,26 @@ export async function loadStoredFindings(
   supabase: ReturnType<typeof getServiceClient>,
   prospect_id: string,
   client_id: string,
+  /**
+   * PIN TO ONE RESULT ROW, which is how a follow-up ends up reading the same findings its
+   * Email 1 was written from.
+   *
+   * WHY THIS PARAMETER EXISTS. Email 1 is written by the research run, from the row that run
+   * just produced: `current_research_result_id` and `personalisation_trigger` are written in
+   * the same object literal, so that column IS the Email 1 corpus. Follow-ups are written
+   * later by the backfill, which called this function with no pin and got whichever row the
+   * scoring below ranked highest. Measured 2026-09-27 across the 104: those were DIFFERENT
+   * rows for 57 of them.
+   *
+   * The consequence is not academic. A follow-up argued from facts Email 1 never mentioned,
+   * and an audit that judged Email 1 against the follow-up corpus reported 18 fabrications
+   * that were not fabrications at all.
+   *
+   * A MISSING OR FOREIGN PIN FALLS BACK TO THE SCORING, rather than returning nothing: a
+   * prospect whose column was never set still deserves the best row available, and a pin that
+   * does not belong to this prospect is a caller bug that must not become a data leak.
+   */
+  pinnedResultId?: string | null,
 ): Promise<StoredFindings | null> {
   const cutoff = new Date(
     Date.now() - STORED_FINDINGS_MAX_AGE_DAYS * 24 * 60 * 60 * 1000,
@@ -636,7 +656,21 @@ export async function loadStoredFindings(
 
   if (!data || data.length === 0) return null
 
-  const scored = data
+  // THE PIN, APPLIED BEFORE THE SCORING. Filtered from the same query result rather than
+  // fetched separately, so the pinned row is subject to the same organisation filter and the
+  // same age window every other row goes through. A pin naming a row outside them is ignored.
+  const pinned = pinnedResultId
+    ? data.filter(row => (row.id as string) === pinnedResultId)
+    : null
+  if (pinnedResultId && (!pinned || pinned.length === 0)) {
+    logger.warn('prospect-research-v2: pinned research row not usable, falling back to the scored pick', {
+      prospect_id, client_id, pinned_result_id: pinnedResultId,
+    })
+  }
+  // `data` is const, so the pin narrows a local rather than reassigning the query result.
+  const rows = pinned && pinned.length > 0 ? pinned : data
+
+  const scored = rows
     .map(row => ({
       result_id: row.id as string,
       candidates: (row.candidates ?? []) as ObservationCandidate[],

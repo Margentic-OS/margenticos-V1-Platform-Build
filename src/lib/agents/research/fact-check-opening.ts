@@ -47,6 +47,7 @@ import {
   countFindingLines,
   findReaderArrangements,
   covers,
+  isOfferVoice,
   type CheckedClaim,
   type FactCheckResult,
 } from './fact-check-followups'
@@ -67,6 +68,9 @@ const FACT_CHECK_MODEL = 'claude-sonnet-4-6'
 function sentencesAboutThem(text: string, companyName: string | null): string[] {
   const forms = companyNameForms(companyName).map(f => f.toLowerCase())
   return splitIntoSentences(text).filter(s => {
+    // The offer in the reader's terms is not a claim about them. Same rule the follow-up
+    // checker applies, imported rather than restated so the two cannot drift.
+    if (isOfferVoice(s)) return false
     const low = s.toLowerCase()
     if (/\b(you|your|you're|yours)\b/.test(low)) return true
     return forms.some(f => f.length > 2 && low.includes(f))

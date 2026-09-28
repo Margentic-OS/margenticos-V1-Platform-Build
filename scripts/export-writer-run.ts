@@ -488,7 +488,15 @@ async function runOne(
   // The same selection the agent uses, called rather than reimplemented. Its ordering is
   // deliberately not "most recent" and a local copy of that rule would be one more pair
   // of implementations with nothing keeping them in step.
-  const stored = await loadStoredFindings(supabase as never, prospectId, clientId)
+  // Pinned for the reason the backfill is: this function exists to replay the handover the
+  // writer actually got, and an unpinned read replays a different corpus.
+  const { data: pinRow } = await supabase
+    .from('prospects').select('current_research_result_id')
+    .eq('id', prospectId).eq('organisation_id', clientId).maybeSingle()
+  const stored = await loadStoredFindings(
+    supabase as never, prospectId, clientId,
+    (pinRow?.current_research_result_id ?? null) as string | null,
+  )
   if (!stored || stored.candidates.length === 0) {
     console.log(`  SKIPPED ${prospectId}: no stored findings with candidates. A reuse run has nothing to write from.`)
     return null

@@ -269,3 +269,61 @@ describe('a sentence about them that the verifier never returned', () => {
     expect(f.some(x => x.includes('never returned as a claim'))).toBe(false)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE OFFER IN THE READER'S TERMS IS NOT A CLAIM ABOUT THEM. Added 2026-09-28.
+//
+// The first coverage rule flagged 43 distinct sentences across the 104 cohort and 26 were the
+// "what changes" line written in second person, which Email 1's P3 is REQUIRED to be. Clearing
+// on it would have destroyed good copy and then rejected every rewrite for the same reason,
+// because the rewrite is instructed to write that line.
+//
+// The discriminator is a consequence verb with NO fact marker. "You refreshed the site in early
+// 2026" carries a past-tense verb and a year. "You stop chasing the calendar" carries neither.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('an offer line in second person is exempt; a stated fact is not', () => {
+  const FINDINGS = '1. The firm posted a role in March.\n   source: website'
+  const NOTHING: never[] = []
+
+  const coverageFailures = (prose2: string, prose3: string) =>
+    checkCitations(
+      [{ email: 2, claim: 'the firm posted a role in March', finding: 1, supported: true, why: '' }],
+      FINDINGS, prose2, prose3, 'Higher Impact Consulting Group',
+    ).filter(x => x.includes('never returned'))
+
+  it('PASSES the three offer lines', () => {
+    for (const offer of [
+      'You stop chasing the calendar.',
+      'You stay in delivery while the calendar fills.',
+      'You keep advising while the meetings come in.',
+    ]) {
+      expect(coverageFailures(offer, 'Worth a look?'), offer).toEqual(NOTHING)
+    }
+  })
+
+  it('STILL FAILS a stated fact about their past', () => {
+    const f = coverageFailures('Worth a look?', 'You refreshed the Higher Impact site in early 2026.')
+    expect(f).toHaveLength(1)
+    expect(f[0]).toContain('You refreshed the Higher Impact site')
+  })
+
+  it('STILL FAILS a state claim, because a state is not a consequence of the service', () => {
+    // "needs" is not in the consequence list: it asserts how things stand now.
+    const f = coverageFailures('Your pipeline needs someone holding it between engagements.', 'Worth a look?')
+    expect(f).toHaveLength(1)
+    expect(f[0]).toContain('Your pipeline needs someone')
+  })
+
+  it('LABELS the failure by email, so one fault cannot clear both positions', () => {
+    const only3 = coverageFailures('Worth a look?', 'You refreshed the Higher Impact site in early 2026.')
+    expect(only3[0]).toContain('email 3')
+    expect(only3.some(x => x.includes('email 2'))).toBe(false)
+  })
+
+  it('CONTROL: an offer line carrying a real date is NOT exempt', () => {
+    // The exemption is consequence-verb AND no fact marker. A date makes it an assertion.
+    const f = coverageFailures('You stopped chasing the calendar in March.', 'Worth a look?')
+    expect(f).toHaveLength(1)
+  })
+})

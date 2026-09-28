@@ -238,6 +238,39 @@ export function findReaderArrangements(text: string): string[] {
  * describing the offer asserts nothing about them. What is left is the shape that has to be
  * checked: "You did X", "Your team is Y", "<Firm> published Z".
  */
+/**
+ * THE OFFER, WRITTEN IN THE READER'S TERMS, AND THEREFORE NOT A CLAIM ABOUT THEM.
+ *
+ * "You stop chasing the calendar." "You stay in delivery while the calendar fills." "You keep
+ * advising while the meetings come in." Every one has a second-person subject and asserts
+ * nothing about the reader's present or past: it describes what CHANGES once the service runs.
+ * Email 1's P3 is required to be written exactly this way, in the prospect's terms rather than
+ * the sender's, so a rule that treats the shape as a claim rejects the copy the writer is
+ * instructed to produce.
+ *
+ * MEASURED, 2026-09-28, and this is why the exemption exists rather than being a guess: the
+ * first version of the coverage rule flagged 43 distinct sentences across the 104 and 26 of
+ * them were this shape. Clearing on it would have destroyed good copy and then rejected every
+ * rewrite for the same reason, because the rewrite is instructed to write the same line.
+ *
+ * THE DISCRIMINATOR IS A CONSEQUENCE VERB WITH NO FACT MARKER. A sentence asserting a present
+ * or past fact carries one: a past-tense verb, a date, or a perfect. "You refreshed the site
+ * in early 2026" has two. "You stop chasing the calendar" has neither, and its verb is one of
+ * a closed list of consequence verbs. A state claim like "Your pipeline needs someone holding
+ * it" is NOT exempt, because `needs` is not a consequence of the service starting; it is an
+ * assertion about how things stand now.
+ */
+const CONSEQUENCE_VERB =
+  /^(?:you|your\s+\w+)\s+(?:no longer\s+)?(stop|stops|start|starts|stay|stays|keep|keeps|join|joins|hand|hands|get|gets|see|sees|spend|spends|end|ends|stay out|step back|carry on)\b/i
+
+/** A past-tense verb, a date, a year, or a perfect: the marks of an assertion about what IS or WAS. */
+const FACT_MARKER =
+  /\b(19|20)\d{2}\b|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\b|\b(?:has|have|had)\s+\w+(?:ed|en)\b|\b\w+ed\b/i
+
+export function isOfferVoice(sentence: string): boolean {
+  return CONSEQUENCE_VERB.test(sentence.trim()) && !FACT_MARKER.test(sentence)
+}
+
 function sentencesNamingThem(text: string, companyName: string | null | undefined): string[] {
   const forms = companyNameForms(companyName ?? null).map(f => f.toLowerCase()).filter(f => f.length > 2)
   return splitIntoSentences(text)
@@ -247,6 +280,8 @@ function sentencesNamingThem(text: string, companyName: string | null | undefine
       const low = s.toLowerCase()
       // The sender as subject is the offer, not a claim about them.
       if (/^(we|our|i)\b/.test(low)) return false
+      // The offer in the READER'S terms is still the offer. See isOfferVoice.
+      if (isOfferVoice(s)) return false
       if (/^(you|your)\b/.test(low)) return true
       return forms.some(f => low.startsWith(f) || low.startsWith(`the ${f}`))
     })
@@ -350,12 +385,18 @@ export function checkCitations(
   //
   // ADR-028 again: deciding a sentence is about them is a shape, which is code's job. Saying
   // which finding supports it is the model's.
-  for (const sentence of [prose2, prose3].flatMap(p => sentencesNamingThem(p, companyName))) {
-    if (!claims.some(c => coversOpening(c.claim, sentence))) {
-      failures.push(
-        `states something about them that the fact-check never returned as a claim: ` +
-        `${JSON.stringify(sentence)}. Every sentence about this prospect has to be checked.`,
-      )
+  // LABELLED BY EMAIL, and scanned per email rather than over both at once. Unlabelled
+  // failures are attributed to BOTH positions by every caller that splits them, so one fault
+  // in email 2 cleared email 3 as well. Measured 2026-09-28: 43 distinct coverage faults
+  // reported as 86 instances, every one of them double-counted.
+  for (const [position, prose] of [[2, prose2], [3, prose3]] as const) {
+    for (const sentence of sentencesNamingThem(prose, companyName)) {
+      if (!claims.some(c => coversOpening(c.claim, sentence))) {
+        failures.push(
+          `email ${position} states something about them that the fact-check never returned ` +
+          `as a claim: ${JSON.stringify(sentence)}. Every sentence about this prospect has to be checked.`,
+        )
+      }
     }
   }
 

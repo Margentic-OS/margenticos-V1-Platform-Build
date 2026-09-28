@@ -178,7 +178,17 @@ async function main() {
       console.log('  assigned the template arm, skipping'); skipped++; continue
     }
 
-    const stored = await loadStoredFindings(supabase as never, id, orgId)
+    // ═══ THE SAME RESEARCH ROW EMAIL 1 WAS WRITTEN FROM ═══
+    //
+    // prospects.current_research_result_id is written in the SAME object literal as
+    // personalisation_trigger, so it IS the row Email 1 came from. Without the pin this call
+    // got whichever row loadStoredFindings scored highest, and measured across the 104 on
+    // 2026-09-27 that was a DIFFERENT row for 57 of them: a follow-up arguing from facts its
+    // own Email 1 never mentioned, and an audit that judged Email 1 against the follow-up
+    // corpus and reported 18 fabrications that were not fabrications.
+    const stored = await loadStoredFindings(
+      supabase as never, id, orgId, (p.current_research_result_id ?? null) as string | null,
+    )
     if (!stored) { console.log('  no stored findings, skipping'); skipped++; continue }
 
     // The variant composition WILL assign. Resolved with the same shared function
