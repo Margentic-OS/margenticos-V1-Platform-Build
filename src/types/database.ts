@@ -14,51 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      blocklist_check_snapshot: {
-        Row: {
-          computed_at: string
-          control_failure_count: number
-          control_failures: Json
-          detail: string
-          domains_checked: number
-          id: number
-          incomplete: boolean
-          listed_count: number
-          listings: Json
-          lists_total: number
-          lists_trusted: number
-          refused_count: number
-        }
-        Insert: {
-          computed_at?: string
-          control_failure_count: number
-          control_failures?: Json
-          detail: string
-          domains_checked: number
-          id?: number
-          incomplete?: boolean
-          listed_count: number
-          listings?: Json
-          lists_total: number
-          lists_trusted: number
-          refused_count: number
-        }
-        Update: {
-          computed_at?: string
-          control_failure_count?: number
-          control_failures?: Json
-          detail?: string
-          domains_checked?: number
-          id?: number
-          incomplete?: boolean
-          listed_count?: number
-          listings?: Json
-          lists_total?: number
-          lists_trusted?: number
-          refused_count?: number
-        }
-        Relationships: []
-      }
       agent_runs: {
         Row: {
           agent_name: string
@@ -109,6 +64,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      blocklist_check_snapshot: {
+        Row: {
+          computed_at: string
+          control_failure_count: number
+          control_failures: Json
+          detail: string
+          domains_checked: number
+          id: number
+          incomplete: boolean
+          listed_count: number
+          listings: Json
+          lists_total: number
+          lists_trusted: number
+          refused_count: number
+        }
+        Insert: {
+          computed_at?: string
+          control_failure_count: number
+          control_failures?: Json
+          detail: string
+          domains_checked: number
+          id?: number
+          incomplete?: boolean
+          listed_count: number
+          listings?: Json
+          lists_total: number
+          lists_trusted: number
+          refused_count: number
+        }
+        Update: {
+          computed_at?: string
+          control_failure_count?: number
+          control_failures?: Json
+          detail?: string
+          domains_checked?: number
+          id?: number
+          incomplete?: boolean
+          listed_count?: number
+          listings?: Json
+          lists_total?: number
+          lists_trusted?: number
+          refused_count?: number
+        }
+        Relationships: []
       }
       campaigns: {
         Row: {
@@ -241,6 +241,7 @@ export type Database = {
       }
       cron_schedule_registry: {
         Row: {
+          active: boolean
           declared_by: string
           jobname: string
           notes: string | null
@@ -248,6 +249,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          active?: boolean
           declared_by: string
           jobname: string
           notes?: string | null
@@ -255,6 +257,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          active?: boolean
           declared_by?: string
           jobname?: string
           notes?: string | null
@@ -622,6 +625,54 @@ export type Database = {
           },
         ]
       }
+      faq_seed_runs: {
+        Row: {
+          candidates_created: number | null
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          organisation_id: string
+          started_at: string
+          started_by_user_id: string | null
+          state: string
+        }
+        Insert: {
+          candidates_created?: number | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          organisation_id: string
+          started_at?: string
+          started_by_user_id?: string | null
+          state: string
+        }
+        Update: {
+          candidates_created?: number | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          organisation_id?: string
+          started_at?: string
+          started_by_user_id?: string | null
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faq_seed_runs_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faq_seed_runs_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       faqs: {
         Row: {
           answer: string
@@ -726,6 +777,66 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      intake_buyer_profile: {
+        Row: {
+          buyer_headcount_max: number | null
+          buyer_headcount_min: number | null
+          buyer_job_titles: string[]
+          buyer_seniority_bands: string[]
+          created_at: string
+          disqualifiers: string[]
+          first_contact_role: string
+          organisation_id: string
+          signoff_required: boolean | null
+          signoff_role: string
+          target_countries: string[]
+          updated_at: string
+        }
+        Insert: {
+          buyer_headcount_max?: number | null
+          buyer_headcount_min?: number | null
+          buyer_job_titles?: string[]
+          buyer_seniority_bands?: string[]
+          created_at?: string
+          disqualifiers?: string[]
+          first_contact_role?: string
+          organisation_id: string
+          signoff_required?: boolean | null
+          signoff_role?: string
+          target_countries?: string[]
+          updated_at?: string
+        }
+        Update: {
+          buyer_headcount_max?: number | null
+          buyer_headcount_min?: number | null
+          buyer_job_titles?: string[]
+          buyer_seniority_bands?: string[]
+          created_at?: string
+          disqualifiers?: string[]
+          first_contact_role?: string
+          organisation_id?: string
+          signoff_required?: boolean | null
+          signoff_role?: string
+          target_countries?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intake_buyer_profile_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: true
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intake_buyer_profile_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: true
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       intake_files: {
         Row: {
@@ -1090,106 +1201,106 @@ export type Database = {
       }
       meetings: {
         Row: {
-          billed_at: string | null
-          booked_at: string
-          calendly_event_uuid: string | null
-          calendly_invitee_uuid: string | null
           attendee_email: string | null
           attendee_name: string | null
+          bill_unconfirmed_after: string | null
+          billable_basis: string | null
+          billed_at: string | null
+          booked_at: string
           booking_uid: string | null
-          prospect_match: string | null
+          calendly_event_uuid: string | null
+          calendly_invitee_uuid: string | null
           campaign_id: string | null
+          confirmation_sent_at: string | null
           created_at: string
           held_confirmed_by: string | null
           held_decision_locked: boolean
           id: string
           invitee_phone: string | null
           is_billable: boolean
+          last_reminded_at: string | null
           meeting_date: string | null
           meeting_status: string
           organisation_id: string
+          outcome_requested_at: string | null
           prospect_id: string | null
+          prospect_match: string | null
           qualification: string | null
           qualification_notes: string | null
-          revenue_value: number | null
-          scheduled_start_at: string | null
-          scheduled_end_at: string | null
-          outcome_requested_at: string | null
-          confirmation_sent_at: string | null
-          last_reminded_at: string | null
           reminder_count: number
-          bill_unconfirmed_after: string | null
-          billable_basis: string | null
+          revenue_value: number | null
+          scheduled_end_at: string | null
+          scheduled_start_at: string | null
           source: string
           status: string
           updated_at: string
         }
         Insert: {
-          billed_at?: string | null
-          booked_at?: string
-          calendly_event_uuid?: string | null
-          calendly_invitee_uuid?: string | null
           attendee_email?: string | null
           attendee_name?: string | null
+          bill_unconfirmed_after?: string | null
+          billable_basis?: string | null
+          billed_at?: string | null
+          booked_at?: string
           booking_uid?: string | null
-          prospect_match?: string | null
+          calendly_event_uuid?: string | null
+          calendly_invitee_uuid?: string | null
           campaign_id?: string | null
+          confirmation_sent_at?: string | null
           created_at?: string
           held_confirmed_by?: string | null
           held_decision_locked?: boolean
           id?: string
           invitee_phone?: string | null
           is_billable?: boolean
+          last_reminded_at?: string | null
           meeting_date?: string | null
           meeting_status?: string
           organisation_id: string
+          outcome_requested_at?: string | null
           prospect_id?: string | null
+          prospect_match?: string | null
           qualification?: string | null
           qualification_notes?: string | null
-          revenue_value?: number | null
-          scheduled_start_at?: string | null
-          scheduled_end_at?: string | null
-          outcome_requested_at?: string | null
-          confirmation_sent_at?: string | null
-          last_reminded_at?: string | null
           reminder_count?: number
-          bill_unconfirmed_after?: string | null
-          billable_basis?: string | null
+          revenue_value?: number | null
+          scheduled_end_at?: string | null
+          scheduled_start_at?: string | null
           source?: string
           status?: string
           updated_at?: string
         }
         Update: {
-          billed_at?: string | null
-          booked_at?: string
-          calendly_event_uuid?: string | null
-          calendly_invitee_uuid?: string | null
           attendee_email?: string | null
           attendee_name?: string | null
+          bill_unconfirmed_after?: string | null
+          billable_basis?: string | null
+          billed_at?: string | null
+          booked_at?: string
           booking_uid?: string | null
-          prospect_match?: string | null
+          calendly_event_uuid?: string | null
+          calendly_invitee_uuid?: string | null
           campaign_id?: string | null
+          confirmation_sent_at?: string | null
           created_at?: string
           held_confirmed_by?: string | null
           held_decision_locked?: boolean
           id?: string
           invitee_phone?: string | null
           is_billable?: boolean
+          last_reminded_at?: string | null
           meeting_date?: string | null
           meeting_status?: string
           organisation_id?: string
+          outcome_requested_at?: string | null
           prospect_id?: string | null
+          prospect_match?: string | null
           qualification?: string | null
           qualification_notes?: string | null
-          revenue_value?: number | null
-          scheduled_start_at?: string | null
-          scheduled_end_at?: string | null
-          outcome_requested_at?: string | null
-          confirmation_sent_at?: string | null
-          last_reminded_at?: string | null
           reminder_count?: number
-          bill_unconfirmed_after?: string | null
-          billable_basis?: string | null
+          revenue_value?: number | null
+          scheduled_end_at?: string | null
+          scheduled_start_at?: string | null
           source?: string
           status?: string
           updated_at?: string
@@ -1364,12 +1475,11 @@ export type Database = {
           auto_approve_window_hours: number
           auto_held_window_hours: number
           billing_basis: string
-          calendly_url: string | null
-          calendly_webhook_secret: string | null
           booking_host_ref: string | null
           booking_url: string | null
+          calendly_url: string | null
+          calendly_webhook_secret: string | null
           client_review_enabled: boolean
-          sourcing_revenue_filter_enabled: boolean
           contract_end_date: string | null
           contract_start_date: string | null
           contract_status: string | null
@@ -1393,6 +1503,7 @@ export type Database = {
           reminder_handling: string | null
           setup_status: Json
           slug: string
+          sourcing_revenue_filter_enabled: boolean
           updated_at: string
           warmup_completed_at: string | null
           warmup_started_at: string | null
@@ -1403,12 +1514,11 @@ export type Database = {
           auto_approve_window_hours?: number
           auto_held_window_hours?: number
           billing_basis?: string
-          calendly_url?: string | null
-          calendly_webhook_secret?: string | null
           booking_host_ref?: string | null
           booking_url?: string | null
+          calendly_url?: string | null
+          calendly_webhook_secret?: string | null
           client_review_enabled?: boolean
-          sourcing_revenue_filter_enabled?: boolean
           contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
@@ -1432,6 +1542,7 @@ export type Database = {
           reminder_handling?: string | null
           setup_status?: Json
           slug: string
+          sourcing_revenue_filter_enabled?: boolean
           updated_at?: string
           warmup_completed_at?: string | null
           warmup_started_at?: string | null
@@ -1442,12 +1553,11 @@ export type Database = {
           auto_approve_window_hours?: number
           auto_held_window_hours?: number
           billing_basis?: string
-          calendly_url?: string | null
-          calendly_webhook_secret?: string | null
           booking_host_ref?: string | null
           booking_url?: string | null
+          calendly_url?: string | null
+          calendly_webhook_secret?: string | null
           client_review_enabled?: boolean
-          sourcing_revenue_filter_enabled?: boolean
           contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
@@ -1471,6 +1581,7 @@ export type Database = {
           reminder_handling?: string | null
           setup_status?: Json
           slug?: string
+          sourcing_revenue_filter_enabled?: boolean
           updated_at?: string
           warmup_completed_at?: string | null
           warmup_started_at?: string | null
@@ -1568,11 +1679,14 @@ export type Database = {
         Row: {
           candidates: Json
           created_at: string
+          followup_attempts: Json | null
           has_dateable_signal: boolean
           icp_fit: string
           id: string
           organisation_id: string
           prospect_id: string
+          prospect_reason: string | null
+          prospect_reason_source: string | null
           qualification_reason: string | null
           qualification_status: string
           raw_apollo: Json | null
@@ -1582,24 +1696,31 @@ export type Database = {
           relevance_reason: string | null
           run_id: string | null
           selected_candidate_id: string | null
+          selection_basis: Json | null
+          selection_reason: string | null
           signal_observation: string | null
           signal_relevance: string
           sources_attempted: string[]
           sources_successful: string[]
+          supporting_candidate_id: string | null
           synthesis_confidence: string | null
           synthesis_reasoning: string | null
           synthesized_at: string
           trigger_source: Json | null
           trigger_text: string | null
+          writer_attempts: Json | null
         }
         Insert: {
           candidates?: Json
           created_at?: string
+          followup_attempts?: Json | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
           organisation_id: string
           prospect_id: string
+          prospect_reason?: string | null
+          prospect_reason_source?: string | null
           qualification_reason?: string | null
           qualification_status?: string
           raw_apollo?: Json | null
@@ -1609,24 +1730,31 @@ export type Database = {
           relevance_reason?: string | null
           run_id?: string | null
           selected_candidate_id?: string | null
+          selection_basis?: Json | null
+          selection_reason?: string | null
           signal_observation?: string | null
           signal_relevance?: string
           sources_attempted?: string[]
           sources_successful?: string[]
+          supporting_candidate_id?: string | null
           synthesis_confidence?: string | null
           synthesis_reasoning?: string | null
           synthesized_at?: string
           trigger_source?: Json | null
           trigger_text?: string | null
+          writer_attempts?: Json | null
         }
         Update: {
           candidates?: Json
           created_at?: string
+          followup_attempts?: Json | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
           organisation_id?: string
           prospect_id?: string
+          prospect_reason?: string | null
+          prospect_reason_source?: string | null
           qualification_reason?: string | null
           qualification_status?: string
           raw_apollo?: Json | null
@@ -1636,15 +1764,19 @@ export type Database = {
           relevance_reason?: string | null
           run_id?: string | null
           selected_candidate_id?: string | null
+          selection_basis?: Json | null
+          selection_reason?: string | null
           signal_observation?: string | null
           signal_relevance?: string
           sources_attempted?: string[]
           sources_successful?: string[]
+          supporting_candidate_id?: string | null
           synthesis_confidence?: string | null
           synthesis_reasoning?: string | null
           synthesized_at?: string
           trigger_source?: Json | null
           trigger_text?: string | null
+          writer_attempts?: Json | null
         }
         Relationships: [
           {
@@ -1709,6 +1841,12 @@ export type Database = {
           enrichment_status: string | null
           first_name: string | null
           fit_score: number | null
+          followup_arm: string | null
+          followup_email1_fingerprint: string | null
+          followup_email2: string | null
+          followup_email3: string | null
+          followup_mode: string | null
+          followup_modes: Json | null
           has_dateable_signal: boolean
           icp_fit: string
           id: string
@@ -1749,10 +1887,10 @@ export type Database = {
           second_pass_score: number | null
           second_pass_status: string | null
           second_pass_verified_at: string | null
+          segment_id: string | null
           send_hold_at: string | null
           send_hold_by: string | null
           send_hold_reason: string | null
-          segment_id: string | null
           signal_observation: string | null
           signal_relevance: string
           source_person_key: string | null
@@ -1768,6 +1906,8 @@ export type Database = {
           trigger_data: Json | null
           updated_at: string
           variant_id: string | null
+          variant_reassigned_at: string | null
+          variant_reassigned_from: string | null
           verification_attempt_count: number | null
           verification_locked_at: string | null
           verification_provider: string | null
@@ -1797,6 +1937,12 @@ export type Database = {
           enrichment_status?: string | null
           first_name?: string | null
           fit_score?: number | null
+          followup_arm?: string | null
+          followup_email1_fingerprint?: string | null
+          followup_email2?: string | null
+          followup_email3?: string | null
+          followup_mode?: string | null
+          followup_modes?: Json | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
@@ -1837,10 +1983,10 @@ export type Database = {
           second_pass_score?: number | null
           second_pass_status?: string | null
           second_pass_verified_at?: string | null
+          segment_id?: string | null
           send_hold_at?: string | null
           send_hold_by?: string | null
           send_hold_reason?: string | null
-          segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
           source_person_key?: string | null
@@ -1856,6 +2002,8 @@ export type Database = {
           trigger_data?: Json | null
           updated_at?: string
           variant_id?: string | null
+          variant_reassigned_at?: string | null
+          variant_reassigned_from?: string | null
           verification_attempt_count?: number | null
           verification_locked_at?: string | null
           verification_provider?: string | null
@@ -1885,6 +2033,12 @@ export type Database = {
           enrichment_status?: string | null
           first_name?: string | null
           fit_score?: number | null
+          followup_arm?: string | null
+          followup_email1_fingerprint?: string | null
+          followup_email2?: string | null
+          followup_email3?: string | null
+          followup_mode?: string | null
+          followup_modes?: Json | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
@@ -1925,10 +2079,10 @@ export type Database = {
           second_pass_score?: number | null
           second_pass_status?: string | null
           second_pass_verified_at?: string | null
+          segment_id?: string | null
           send_hold_at?: string | null
           send_hold_by?: string | null
           send_hold_reason?: string | null
-          segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
           source_person_key?: string | null
@@ -1944,6 +2098,8 @@ export type Database = {
           trigger_data?: Json | null
           updated_at?: string
           variant_id?: string | null
+          variant_reassigned_at?: string | null
+          variant_reassigned_from?: string | null
           verification_attempt_count?: number | null
           verification_locked_at?: string | null
           verification_provider?: string | null
@@ -2062,84 +2218,6 @@ export type Database = {
             columns: ["organisation_id"]
             isOneToOne: false
             referencedRelation: "organisations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      research_usage: {
-        Row: {
-          created_at: string
-          followups: Json | null
-          id: string
-          opening: Json
-          organisation_id: string
-          path: string
-          prospect_id: string
-          research_result_id: string
-          synthesis: Json
-          synthesis_batched: boolean
-          web_search: Json
-        }
-        Insert: {
-          created_at?: string
-          followups?: Json | null
-          id?: string
-          opening: Json
-          organisation_id: string
-          path: string
-          prospect_id: string
-          research_result_id: string
-          synthesis: Json
-          synthesis_batched?: boolean
-          web_search: Json
-        }
-        Update: {
-          created_at?: string
-          followups?: Json | null
-          id?: string
-          opening?: Json
-          organisation_id?: string
-          path?: string
-          prospect_id?: string
-          research_result_id?: string
-          synthesis?: Json
-          synthesis_batched?: boolean
-          web_search?: Json
-        }
-        Relationships: [
-          {
-            foreignKeyName: "research_usage_organisation_id_fkey"
-            columns: ["organisation_id"]
-            isOneToOne: false
-            referencedRelation: "client_organisation_view"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "research_usage_organisation_id_fkey"
-            columns: ["organisation_id"]
-            isOneToOne: false
-            referencedRelation: "organisations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "research_usage_prospect_id_fkey"
-            columns: ["prospect_id"]
-            isOneToOne: false
-            referencedRelation: "client_prospects_view"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "research_usage_prospect_id_fkey"
-            columns: ["prospect_id"]
-            isOneToOne: false
-            referencedRelation: "prospects"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "research_usage_research_result_id_fkey"
-            columns: ["research_result_id"]
-            isOneToOne: true
-            referencedRelation: "prospect_research_results"
             referencedColumns: ["id"]
           },
         ]
@@ -2404,6 +2482,87 @@ export type Database = {
         }
         Relationships: []
       }
+      research_usage: {
+        Row: {
+          arm: string | null
+          created_at: string
+          followups: Json | null
+          id: string
+          opening: Json
+          organisation_id: string
+          path: string
+          prospect_id: string
+          research_result_id: string | null
+          synthesis: Json
+          synthesis_batched: boolean
+          web_search: Json
+        }
+        Insert: {
+          arm?: string | null
+          created_at?: string
+          followups?: Json | null
+          id?: string
+          opening: Json
+          organisation_id: string
+          path: string
+          prospect_id: string
+          research_result_id?: string | null
+          synthesis: Json
+          synthesis_batched?: boolean
+          web_search: Json
+        }
+        Update: {
+          arm?: string | null
+          created_at?: string
+          followups?: Json | null
+          id?: string
+          opening?: Json
+          organisation_id?: string
+          path?: string
+          prospect_id?: string
+          research_result_id?: string | null
+          synthesis?: Json
+          synthesis_batched?: boolean
+          web_search?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "research_usage_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "research_usage_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "research_usage_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "client_prospects_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "research_usage_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "research_usage_research_result_id_fkey"
+            columns: ["research_result_id"]
+            isOneToOne: true
+            referencedRelation: "prospect_research_results"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       segments: {
         Row: {
           created_at: string
@@ -2506,6 +2665,77 @@ export type Database = {
         }
         Relationships: []
       }
+      sent_sequences: {
+        Row: {
+          composed_at: string
+          email1_fingerprint: string
+          emails: Json
+          followup_arm: string
+          followup_mode: string
+          followup_modes: Json | null
+          id: string
+          messaging_doc_id: string
+          organisation_id: string
+          prospect_id: string
+          variant_id: string
+        }
+        Insert: {
+          composed_at?: string
+          email1_fingerprint: string
+          emails: Json
+          followup_arm: string
+          followup_mode: string
+          followup_modes?: Json | null
+          id?: string
+          messaging_doc_id: string
+          organisation_id: string
+          prospect_id: string
+          variant_id: string
+        }
+        Update: {
+          composed_at?: string
+          email1_fingerprint?: string
+          emails?: Json
+          followup_arm?: string
+          followup_mode?: string
+          followup_modes?: Json | null
+          id?: string
+          messaging_doc_id?: string
+          organisation_id?: string
+          prospect_id?: string
+          variant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sent_sequences_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sent_sequences_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sent_sequences_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "client_prospects_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sent_sequences_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       signals: {
         Row: {
           campaign_id: string | null
@@ -2589,6 +2819,52 @@ export type Database = {
             columns: ["prospect_id"]
             isOneToOne: false
             referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sourcing_cursors: {
+        Row: {
+          created_at: string
+          icp_document_id: string | null
+          organisation_id: string
+          record_offset: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          icp_document_id?: string | null
+          organisation_id: string
+          record_offset?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          icp_document_id?: string | null
+          organisation_id?: string
+          record_offset?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sourcing_cursors_icp_document_id_fkey"
+            columns: ["icp_document_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sourcing_cursors_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: true
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sourcing_cursors_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: true
+            referencedRelation: "organisations"
             referencedColumns: ["id"]
           },
         ]
@@ -2701,6 +2977,7 @@ export type Database = {
           generated_at: string | null
           generated_by_model: string | null
           icp_filter_spec: Json | null
+          icp_filter_spec_refusal: Json | null
           id: string
           is_stale: boolean
           last_updated_at: string
@@ -2726,6 +3003,7 @@ export type Database = {
           generated_at?: string | null
           generated_by_model?: string | null
           icp_filter_spec?: Json | null
+          icp_filter_spec_refusal?: Json | null
           id?: string
           is_stale?: boolean
           last_updated_at?: string
@@ -2751,6 +3029,7 @@ export type Database = {
           generated_at?: string | null
           generated_by_model?: string | null
           icp_filter_spec?: Json | null
+          icp_filter_spec_refusal?: Json | null
           id?: string
           is_stale?: boolean
           last_updated_at?: string
@@ -3123,6 +3402,207 @@ export type Database = {
         }
         Relationships: []
       }
+      tuning_rounds: {
+        Row: {
+          billable_searches: number
+          change_proposed: Json | null
+          change_reason: string | null
+          completed_at: string | null
+          created_at: string
+          differencing: Json | null
+          id: string
+          judge_agreement: number | null
+          judge_reliable: boolean | null
+          judge_resolved_sample: number | null
+          judged_sample: Json | null
+          kind: string
+          model_calls: number
+          operator_note: string | null
+          population: number | null
+          provider_calls: number
+          round_index: number
+          run_id: string
+          started_at: string
+          tier_counts: Json | null
+          unresolved_fields: Json | null
+        }
+        Insert: {
+          billable_searches?: number
+          change_proposed?: Json | null
+          change_reason?: string | null
+          completed_at?: string | null
+          created_at?: string
+          differencing?: Json | null
+          id?: string
+          judge_agreement?: number | null
+          judge_reliable?: boolean | null
+          judge_resolved_sample?: number | null
+          judged_sample?: Json | null
+          kind: string
+          model_calls?: number
+          operator_note?: string | null
+          population?: number | null
+          provider_calls?: number
+          round_index: number
+          run_id: string
+          started_at?: string
+          tier_counts?: Json | null
+          unresolved_fields?: Json | null
+        }
+        Update: {
+          billable_searches?: number
+          change_proposed?: Json | null
+          change_reason?: string | null
+          completed_at?: string | null
+          created_at?: string
+          differencing?: Json | null
+          id?: string
+          judge_agreement?: number | null
+          judge_reliable?: boolean | null
+          judge_resolved_sample?: number | null
+          judged_sample?: Json | null
+          kind?: string
+          model_calls?: number
+          operator_note?: string | null
+          population?: number | null
+          provider_calls?: number
+          round_index?: number
+          run_id?: string
+          started_at?: string
+          tier_counts?: Json | null
+          unresolved_fields?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tuning_rounds_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "tuning_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tuning_runs: {
+        Row: {
+          baseline_population: number | null
+          billable_searches: number
+          ceiling_population: number | null
+          completed_at: string | null
+          created_at: string
+          fit_interval_high: number | null
+          fit_interval_low: number | null
+          fit_of_resolved: number | null
+          fit_resolved_rows: number | null
+          fit_sampled_rows: number | null
+          icp_document_id: string | null
+          icp_document_updated_at: string | null
+          icp_document_version: string | null
+          id: string
+          instruction_resolution: string | null
+          instruction_text: string | null
+          model_calls: number
+          operator_note: string | null
+          operator_reviewed_at: string | null
+          operator_verdict: string | null
+          organisation_id: string
+          plan: Json | null
+          provider_calls: number
+          rounds_run: number
+          rubric_source: string | null
+          sample_size: number | null
+          started_at: string
+          terminal_reason: string | null
+          terminal_state: string | null
+          trigger_type: string
+        }
+        Insert: {
+          baseline_population?: number | null
+          billable_searches?: number
+          ceiling_population?: number | null
+          completed_at?: string | null
+          created_at?: string
+          fit_interval_high?: number | null
+          fit_interval_low?: number | null
+          fit_of_resolved?: number | null
+          fit_resolved_rows?: number | null
+          fit_sampled_rows?: number | null
+          icp_document_id?: string | null
+          icp_document_updated_at?: string | null
+          icp_document_version?: string | null
+          id?: string
+          instruction_resolution?: string | null
+          instruction_text?: string | null
+          model_calls?: number
+          operator_note?: string | null
+          operator_reviewed_at?: string | null
+          operator_verdict?: string | null
+          organisation_id: string
+          plan?: Json | null
+          provider_calls?: number
+          rounds_run?: number
+          rubric_source?: string | null
+          sample_size?: number | null
+          started_at?: string
+          terminal_reason?: string | null
+          terminal_state?: string | null
+          trigger_type: string
+        }
+        Update: {
+          baseline_population?: number | null
+          billable_searches?: number
+          ceiling_population?: number | null
+          completed_at?: string | null
+          created_at?: string
+          fit_interval_high?: number | null
+          fit_interval_low?: number | null
+          fit_of_resolved?: number | null
+          fit_resolved_rows?: number | null
+          fit_sampled_rows?: number | null
+          icp_document_id?: string | null
+          icp_document_updated_at?: string | null
+          icp_document_version?: string | null
+          id?: string
+          instruction_resolution?: string | null
+          instruction_text?: string | null
+          model_calls?: number
+          operator_note?: string | null
+          operator_reviewed_at?: string | null
+          operator_verdict?: string | null
+          organisation_id?: string
+          plan?: Json | null
+          provider_calls?: number
+          rounds_run?: number
+          rubric_source?: string | null
+          sample_size?: number | null
+          started_at?: string
+          terminal_reason?: string | null
+          terminal_state?: string | null
+          trigger_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tuning_runs_icp_document_id_fkey"
+            columns: ["icp_document_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tuning_runs_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tuning_runs_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       unattributed_bookings: {
         Row: {
           attendee_email: string | null
@@ -3383,15 +3863,6 @@ export type Database = {
       }
     }
     Views: {
-      mon_035: {
-        Row: {
-          check_code: string | null
-          detail: string | null
-          last_run: string | null
-          state: string | null
-        }
-        Relationships: []
-      }
       client_organisation_view: {
         Row: {
           contract_start_date: string | null
@@ -3767,6 +4238,31 @@ export type Database = {
         }
         Relationships: []
       }
+      mon_033: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_034: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_035: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
       queue_depth: {
         Row: {
           claimed: number | null
@@ -3803,7 +4299,11 @@ export type Database = {
         Returns: undefined
       }
       approve_document_suggestion: {
-        Args: { p_plain_text?: string; p_reviewer_id: string; p_suggestion_id: string }
+        Args: {
+          p_plain_text?: string
+          p_reviewer_id: string
+          p_suggestion_id: string
+        }
         Returns: Json
       }
       claim_jobs: {
@@ -4029,10 +4529,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      record_gateway_retry: {
-        Args: { p_method: string }
-        Returns: undefined
-      }
+      record_gateway_retry: { Args: { p_method: string }; Returns: undefined }
       record_job_spend: {
         Args: { p_detail: Json; p_job_id: string }
         Returns: undefined

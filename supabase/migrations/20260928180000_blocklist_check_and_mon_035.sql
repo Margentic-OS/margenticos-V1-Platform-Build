@@ -1,23 +1,35 @@
 -- MON-035 — no sending domain in use is on a public domain blocklist, and the check can see.
 --
--- Status: NOT YET APPLIED. Apply via the Supabase MCP apply_migration tool, to BOTH projects
---   for the table, the view and the registry row:
+-- Status: APPLIED (verified live 2026-09-28) to BOTH projects, for the table, the view and
+--   the monitor_checks row:
 --     hjpvnvjryxdjcfdsfhzy  production
 --     tidqheqjzvwmrrrebzir  test
---   The pg_cron job at the bottom is PRODUCTION ONLY and must not be applied to the test
---   project: the command targets the production route, so scheduling it there would run the
---   sweep against production twice a day. Same reasoning as the meeting-outcomes migration.
 --
---   REPLACE THE PLACEHOLDER with the real CRON_SECRET at apply time. Never commit the value.
+--   Read back on BOTH, in both directions, all eight privileges per role:
+--     blocklist_check_snapshot  [r] rls=true,  service_role holds all 8,
+--                                   anon and authenticated hold ZERO
+--     mon_035                   [v] owner=postgres, security_invoker=false,
+--                                   service_role holds all 8,
+--                                   anon and authenticated hold ZERO
+--     SELECT * FROM public.mon_035  ->  UNKNOWN, "No blocklist check has run yet."
+--                                   which is correct before the first firing and is the
+--                                   born-dark rule working rather than a fault
+--     monitor_checks 'MON-035'  ->  present, blind-spot, tier 1, is_scheduled=false
+--     test project cron.job     ->  0 rows, as designed
 --
---   After applying, verify in BOTH directions and mark this file APPLIED:
---     SELECT has_table_privilege('service_role',  'public.blocklist_check_snapshot', 'SELECT'), -- t
---            has_table_privilege('anon',          'public.blocklist_check_snapshot', 'SELECT'), -- f
---            has_table_privilege('authenticated', 'public.blocklist_check_snapshot', 'SELECT'); -- f
---     SELECT * FROM public.mon_035;   -- expect UNKNOWN, "No blocklist check has run yet."
---     SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'blocklist-check';
---   And regenerate src/types/database.ts, which carries hand-written entries for this table
---   and view until then.
+--   THE pg_cron JOB AND ITS cron_schedule_registry ROW AT THE BOTTOM ARE PRODUCTION ONLY and
+--   were applied SEPARATELY, after the code deployed, because the scheduled command POSTs to
+--   a route that 404s until then. They must never be applied to the test project: the command
+--   targets the production route, so scheduling it there would run the sweep against
+--   production twice a day. Same reasoning as the meeting-outcomes migration.
+--
+--   THE SECRET WAS NEVER WRITTEN INTO THIS FILE. The placeholder below is what is committed.
+--   At apply time the real bearer was read from an existing cron.job command server-side and
+--   interpolated there, so it never left the database. The apply refuses unless cron.job
+--   holds exactly one distinct 64-character bearer secret.
+--
+--   src/types/database.ts was regenerated from the live schema in the same commit, replacing
+--   the hand-written entries this file's first version relied on.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THIS EXISTS
