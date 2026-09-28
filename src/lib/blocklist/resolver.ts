@@ -78,24 +78,56 @@ export function resolverAddressesFrom(raw: string | undefined): string[] {
 }
 
 /**
+ * DNS error codes that genuinely mean "this name does not exist", which for a blocklist
+ * query is the answer "not listed".
+ *
+ * Everything else is an instrument failure. A timeout, a SERVFAIL, a refused connection:
+ * none of those say the domain is clean, they say we did not get to ask.
+ */
+const NO_RECORDS_CODES: ReadonlySet<string> = new Set(['ENOTFOUND', 'ENODATA'])
+
+/**
+ * Wrap a raw resolve4 in the ONE mapping that matters: which failures mean "not listed" and
+ * which mean "we could not tell".
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * SEPARATED FROM makeResolver SO IT CAN BE TESTED, AND THAT IS NOT TIDINESS.
+ *
+ * Found by mutation-testing this build on 2026-09-28. Replacing the `throw` below with
+ * `return []` was the ONLY mutation of eleven that survived the whole suite. It is also the
+ * worst one available: it turns every timeout and SERVFAIL into a clean result, which is
+ * precisely the silent all-clear MON-035 exists to prevent.
+ *
+ * Nothing caught it because the sweep's tests inject their own fake resolver. The fake
+ * throws correctly, so the sweep's handling of a throw is well covered, and the REAL
+ * resolver's decision about what counts as a throw was never exercised by anything. That is
+ * the fake-cannot-test-what-it-replaces shape from CLAUDE.md, one level up: both ends were
+ * right and the seam had no test.
+ *
+ * Injecting resolve4 puts the seam under test. makeResolver below is now three lines with
+ * no branch, so there is nothing left in it to get wrong silently.
+ * ═════════════════════════════════════════════════════════════════════════════
+ */
+export function wrapResolve4(resolve4: (name: string) => Promise<string[]>): ResolveA {
+  return async (name: string): Promise<string[]> => {
+    try {
+      return await resolve4(name)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code
+      if (code && NO_RECORDS_CODES.has(code)) return []
+      throw err
+    }
+  }
+}
+
+/**
  * An A-record resolver over the given servers.
  *
- * NXDOMAIN and NODATA return [], which is how "not listed" reaches the classifier. EVERY
- * OTHER ERROR THROWS, and the sweep turns that into a control failure. Collapsing a
- * timeout or a SERVFAIL into [] would be the exact bug this monitor exists to prevent: an
- * instrument failure rendered as a clean result.
+ * NXDOMAIN and NODATA return [], which is how "not listed" reaches the classifier. Every
+ * other error throws, and the sweep turns that into a control failure. See wrapResolve4.
  */
 export function makeResolver(addresses: readonly string[], timeoutMs = 5000): ResolveA {
   const resolver = new Resolver({ timeout: timeoutMs, tries: 2 })
   resolver.setServers([...addresses])
-
-  return async (name: string): Promise<string[]> => {
-    try {
-      return await resolver.resolve4(name)
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException)?.code
-      if (code === 'ENOTFOUND' || code === 'ENODATA') return []
-      throw err
-    }
-  }
+  return wrapResolve4(name => resolver.resolve4(name))
 }

@@ -3,7 +3,9 @@ import {
   BANNED_RESOLVERS,
   DEFAULT_RESOLVERS,
   BannedResolverError,
+  makeResolver,
   resolverAddressesFrom,
+  wrapResolve4,
 } from '../resolver'
 
 /**
@@ -81,5 +83,63 @@ describe('resolver selection', () => {
       expect(reason, `${address} has no reason`).toBeTruthy()
       expect(reason.length, `${address} reason is too short to be useful`).toBeGreaterThan(20)
     }
+  })
+})
+
+/**
+ * THE GAP MUTATION TESTING FOUND.
+ *
+ * On 2026-09-28 this build was mutation-tested with eleven mutations. Ten went red. The one
+ * that survived was replacing `throw err` with `return []` in the real resolver, which turns
+ * every timeout and SERVFAIL into "not listed" and is the single most dangerous change
+ * available to this monitor: it is the silent all-clear the whole check exists to prevent.
+ *
+ * It survived because the sweep's tests inject a fake resolver, so nothing ever exercised
+ * the real one's decision about which failures mean "no records". These are that test.
+ */
+describe('which DNS failures mean "not listed", and which mean "we could not tell"', () => {
+  function throwingWith(code: string | undefined): (name: string) => Promise<string[]> {
+    return async () => {
+      const err = new Error(`simulated ${code ?? 'no code'}`) as NodeJS.ErrnoException
+      if (code) err.code = code
+      throw err
+    }
+  }
+
+  it('passes an answer straight through', async () => {
+    const resolve = wrapResolve4(async () => ['127.0.0.64'])
+    await expect(resolve('x')).resolves.toEqual(['127.0.0.64'])
+  })
+
+  it('treats ENOTFOUND and ENODATA as not listed, because the name genuinely is absent', async () => {
+    for (const code of ['ENOTFOUND', 'ENODATA']) {
+      const resolve = wrapResolve4(throwingWith(code))
+      await expect(resolve('x'), code).resolves.toEqual([])
+    }
+  })
+
+  it.each(['ETIMEOUT', 'ETIMEOUT', 'SERVFAIL', 'ESERVFAIL', 'ECONNREFUSED', 'EREFUSED', 'ECANCELLED'])(
+    'RETHROWS %s, because a failure to ask is not a clean answer',
+    async (code) => {
+      const resolve = wrapResolve4(throwingWith(code))
+      await expect(resolve('x')).rejects.toThrow(/simulated/)
+    },
+  )
+
+  it('rethrows an error with no code at all rather than assuming it is clean', async () => {
+    const resolve = wrapResolve4(throwingWith(undefined))
+    await expect(resolve('x')).rejects.toThrow(/simulated/)
+  })
+
+  it('rethrows a thrown non-Error, failing closed on anything unrecognised', async () => {
+    const resolve = wrapResolve4(async () => {
+      throw 'a bare string'
+    })
+    await expect(resolve('x')).rejects.toBeTruthy()
+  })
+
+  it('makeResolver returns something callable over the given servers', () => {
+    // Construction only, no query: a real lookup here would make the suite depend on DNS.
+    expect(typeof makeResolver(['9.9.9.9'])).toBe('function')
   })
 })
