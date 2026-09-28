@@ -1835,6 +1835,32 @@ export function buildFindingsEvidence(candidates: ObservationCandidate[]): strin
  * SCORE STILL ORDERS THE LIST and is still not shown. Ordering is a hint; a number is a
  * target.
  */
+/**
+ * The candidates the WRITER'S PROMPT may contain: the chosen one, plus a supporting event.
+ *
+ * ORDER IS PRESERVED FROM THE INPUT, not rebuilt, so buildFindingsBlock's own score sort and
+ * its [SELECTED BY SYNTHESIS] mark behave exactly as before on the narrower list.
+ *
+ * FALLS BACK TO THE FULL LIST WHEN NOTHING IS CHOSEN. A run with no selected candidate is a
+ * run where synthesis declined to choose, and the writer is then the only thing that can. An
+ * empty prompt block would be a silent behaviour change on exactly the path that has least
+ * information, which is the opposite of what this narrowing is for.
+ *
+ * THE SUPPORTING EVENT IS ALREADY TRIGGER-GATED UPSTREAM. writerInputFromSynthesis only
+ * passes supportingCandidateId when it shares the main event's non-null trigger, so this
+ * function does not re-check it. Re-checking here would be a second copy of that rule.
+ */
+export function narrowToChosen(
+  candidates: ObservationCandidate[],
+  selectedCandidateId: string | null,
+  supportingCandidateId: string | null,
+): ObservationCandidate[] {
+  if (!selectedCandidateId) return candidates
+  const keep = new Set([selectedCandidateId, supportingCandidateId].filter((x): x is string => !!x))
+  const narrowed = candidates.filter(c => keep.has(c.id))
+  return narrowed.length > 0 ? narrowed : candidates
+}
+
 export function buildFindingsBlock(
   candidates: ObservationCandidate[],
   opts: {
@@ -2324,7 +2350,27 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
   // THE PROMPT BLOCK AND THE GATE CORPUS ARE DIFFERENT STRINGS. See buildFindingsBlock:
   // the gates substring-match the written opening against their corpus, so the counter-
   // readings must not be in it or a name appearing only there becomes traceable.
-  const findings = buildFindingsBlock(params.candidates, {
+  // ═══ THE PROMPT SEES THE CHOSEN FACT AND NOTHING ELSE ═══
+  //
+  // WHAT IT COST, measured on the 105-prospect cohort 2026-09-28. Gabriela Norton's Email 1
+  // shipped "PPR turns fifteen this year." That sentence is nowhere in her chosen candidate.
+  // It came from another finding in the block, and the writer treated the whole block as
+  // material to draw on, which is exactly what a numbered list of facts invites.
+  //
+  // Synthesis has already done the choosing, with a reason recorded. Handing the writer the
+  // runners-up asks it to re-litigate that choice with less information than the selector had,
+  // and it does: it blends. One fact, plus a supporting event ONLY when that event is an
+  // instance of the same trigger, is the whole of what Email 1 is meant to say.
+  //
+  // THE GATE CORPUS STAYS WIDE, and that asymmetry is deliberate rather than an oversight.
+  // Traceability asks "could the writer have got this from anywhere it was given?", and the
+  // honest answer must include everything it was ever shown, or a name the writer half
+  // remembers from a previous attempt reads as invented. The two questions are different:
+  // what may I say, and where could this have come from.
+  const promptCandidates = narrowToChosen(
+    params.candidates, params.selectedCandidateId ?? null, params.supportingCandidateId ?? null,
+  )
+  const findings = buildFindingsBlock(promptCandidates, {
     selectionReason: params.selectionReason ?? null,
     selectedCandidateId: params.selectedCandidateId ?? null,
     relevanceReason:     params.relevanceReason ?? null,
