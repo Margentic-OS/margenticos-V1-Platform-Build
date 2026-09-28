@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      blocklist_check_snapshot: {
+        Row: {
+          computed_at: string
+          control_failure_count: number
+          control_failures: Json
+          detail: string
+          domains_checked: number
+          id: number
+          incomplete: boolean
+          listed_count: number
+          listings: Json
+          lists_total: number
+          lists_trusted: number
+          refused_count: number
+        }
+        Insert: {
+          computed_at?: string
+          control_failure_count: number
+          control_failures?: Json
+          detail: string
+          domains_checked: number
+          id?: number
+          incomplete?: boolean
+          listed_count: number
+          listings?: Json
+          lists_total: number
+          lists_trusted: number
+          refused_count: number
+        }
+        Update: {
+          computed_at?: string
+          control_failure_count?: number
+          control_failures?: Json
+          detail?: string
+          domains_checked?: number
+          id?: number
+          incomplete?: boolean
+          listed_count?: number
+          listings?: Json
+          lists_total?: number
+          lists_trusted?: number
+          refused_count?: number
+        }
+        Relationships: []
+      }
       agent_runs: {
         Row: {
           agent_name: string
@@ -3338,6 +3383,15 @@ export type Database = {
       }
     }
     Views: {
+      mon_035: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
       client_organisation_view: {
         Row: {
           contract_start_date: string | null

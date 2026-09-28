@@ -159,4 +159,23 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // rows, which the succeeding path writes, rather than a counter the failing path would
   // have had to write while it was failing.
   ['MON-034', 'mon_034'],
+
+  // A sending domain on a public blocklist, added 2026-09-28. The subject is OUTSIDE this
+  // database and outside our own records entirely: what three public lists say about our
+  // domains. A view cannot make a DNS query, so mon_035 reads a stored verdict and checks
+  // it is fresh, which is MON-023's and MON-026's shape.
+  //
+  // It exists because on 2026-09-28 SURBL was found listing getmargenticos.com and
+  // inboxmargenticos.com, and inboxmargenticos.com was SENDING THE LIVE CAMPAIGN while
+  // every instrument here called it healthy. It passed a Gmail seed test and an Outlook
+  // seed test that same day, and warmup read 100% inbox. A seed test cannot see a
+  // blocklist; warmup measures the sending tool's own cooperating network.
+  //
+  // The check carries its own controls and a failed control is PROBLEM, not UNKNOWN. That
+  // is the load-bearing part: these lists refuse queries from public resolvers by
+  // returning NOTHING, which is byte-identical to a clean answer. Measured 2026-09-28,
+  // 8.8.8.8 asked Spamhaus about a domain Spamhaus certainly lists and got an empty
+  // response. A negative from these lists means "not listed" only once the same list, in
+  // the same run, through the same resolver, has been seen to return a listing it should.
+  ['MON-035', 'mon_035'],
 ] as const
