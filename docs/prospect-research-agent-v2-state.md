@@ -888,3 +888,36 @@ colliding with an example label points the writer at a specimen bridge.
 Covered by `__tests__/write-opening-scratch.test.ts`, including a positive control that feeds
 deliberation into the BRIDGE field and asserts the gates reject it. The prose in that test is
 synthetic: the real dumps name real prospects and this repository is public.
+
+## What a prospect costs is now read from rows, and the ledger reconciles to the bill (2026-09-26)
+
+Research spend used to be computed in memory and discarded. `research_usage` now records the
+token counts for every stage of every researched prospect, on the CLI, inline and queue paths
+alike. **Full detail, including the pricing SQL and what to check when a figure looks wrong,
+is in [docs/research-cost.md](research-cost.md).** The short version follows.
+
+**The ledger was reconciled against the Anthropic console for 26 September 2026, a
+deliberately controlled UTC day, and it is exact at the precision the console reports.**
+Console $29.20 against $29.2029 priced from rows: $28.80 of tokens against $28.8029, and
+$0.40 of web search fees against $0.4000. 683 recorded calls, 0.0099% apart, where the whole
+difference is the console rounding to whole cents. Every dollar billed that day is
+attributable to a recorded call.
+
+**What it does not cover, because the day was research-only.** Document generation, reply
+classification and the ICP-approval derivations do not write here, so on an ordinary day the
+console total is higher than this ledger by design. And the day exercised neither the Batch
+API's 50% synthesis discount (`synthesis_batched` was false on all 154 rows) nor the
+follow-ups stage (`followups` was null on all of them), so both are recorded by code that no
+bill has yet checked.
+
+**The cost arms, measured on one fixed cohort of 40 prospects.** Control $0.2175 a prospect.
+Capping synthesis candidates at 4 cost 25% MORE, not less, and produced no row at all for 6
+of the 40. Synthesis on Haiku was 74% cheaper and was rejected on quality. Brief web search
+was adopted, and it is the search COUNT that moves: 1.00 searches a prospect against 2.83
+with brief mode off, which takes web search from $0.039 to $0.0205 a prospect. The two
+rejected switches were deleted rather than left behind a flag.
+
+**Do not read arm C's total for the day as its production cost.** It is higher than the
+control's, because the control replayed stored search findings for free while arm C refetched
+every search to measure brief mode. The $0.40 was the price of measuring, not a cost the arm
+adds.
