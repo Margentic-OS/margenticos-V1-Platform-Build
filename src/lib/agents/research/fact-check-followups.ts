@@ -263,9 +263,24 @@ export function findReaderArrangements(text: string): string[] {
 const CONSEQUENCE_VERB =
   /^(?:you|your\s+\w+)\s+(?:no longer\s+)?(stop|stops|start|starts|stay|stays|keep|keeps|join|joins|hand|hands|get|gets|see|sees|spend|spends|end|ends|stay out|step back|carry on)\b/i
 
-/** A past-tense verb, a date, a year, or a perfect: the marks of an assertion about what IS or WAS. */
-const FACT_MARKER =
-  /\b(19|20)\d{2}\b|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\b|\b(?:has|have|had)\s+\w+(?:ed|en)\b|\b\w+ed\b/i
+/**
+ * The marks of an assertion about what IS or WAS: a date, a month, a perfect, or a past-tense
+ * verb naming something that HAPPENED.
+ *
+ * A CURATED EVENT-VERB LIST, NOT `\w+ed`. The first version used a bare -ed match and it
+ * defeated the exemption it was written to guard: "You stay FOCUSED on delivery" is the offer,
+ * and `focused` ends in -ed. So do `arranged`, `interested`, `based`, `retained` and every
+ * other participial adjective the copy legitimately uses. Measured 2026-09-28 on the six
+ * empty-verdict positions, which is where it surfaced.
+ */
+const FACT_MARKER = new RegExp([
+  '\\b(19|20)\\d{2}\\b',
+  '\\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\\b',
+  '\\b(?:has|have|had)\\s+\\w+(?:ed|en)\\b',
+  '\\b(?:refreshed|published|posted|launched|hired|joined|ended|won|attended|spoke|shared|' +
+    'rebuilt|moved|opened|added|appeared|announced|released|founded|acquired|stepped|' +
+    'presented|hosted|completed|received|raised|closed|signed|promoted)\\b',
+].join('|'), 'i')
 
 export function isOfferVoice(sentence: string): boolean {
   return CONSEQUENCE_VERB.test(sentence.trim()) && !FACT_MARKER.test(sentence)

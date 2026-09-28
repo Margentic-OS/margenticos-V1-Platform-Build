@@ -144,3 +144,53 @@ describe('a claim about the named prospect or firm needs a cited finding', () =>
     expect(checkOpeningCitations([], FINDINGS, POPULATION_BRIDGE, NEUTRAL_QUESTION, null)).toEqual([])
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE SHORTFALL RULE IS NARROWED. Added 2026-09-28.
+//
+// Re-running the fact-check on six empty-verdict positions showed three of them failing for
+// having a closing question, and one for a general market statement that merely contained
+// "you". Both are the shortfall rule answering a question it was not asked: it exists to spot
+// a verifier that did not work, and neither shape is evidence of that.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('what counts as a sentence the verifier should have checked', () => {
+  const F = '1. The firm posted a role in March.\n   source: website'
+
+  it('a CTA question does NOT trigger the shortfall', () => {
+    expect(
+      checkOpeningCitations([], F, POPULATION_BRIDGE,
+        "Is getting your work in front of buyers who have never come across it something you are focused on?",
+        'Rose Garden Consulting'),
+    ).toEqual([])
+  })
+
+  it('a market statement that merely contains "you" does NOT trigger it', () => {
+    expect(
+      checkOpeningCitations([], F,
+        'The deals worth winning require the right buyers to find you before the wrong ones do.',
+        'Worth a look?', 'Magnetude Consulting'),
+    ).toEqual([])
+  })
+
+  it('an offer line with a participial adjective is still exempt', () => {
+    // "focused" ends in -ed, which the first FACT_MARKER matched, denying the exemption.
+    expect(
+      checkOpeningCitations([], F, 'You stay focused on delivery.', 'Worth a look?', 'AAP Consulting'),
+    ).toEqual([])
+  })
+
+  it('STILL FAILS a subject-position claim about them on an empty verdict', () => {
+    const f = checkOpeningCitations([], F,
+      'Your Technical Services practice runs ahead of the buyers who know to look for it.',
+      'Worth a look?', 'Elev8 Consulting LLC')
+    expect(f.length).toBeGreaterThan(0)
+  })
+
+  it('STILL FAILS Karl, which is the control that must never go green by accident', () => {
+    const f = checkOpeningCitations([], F,
+      'You refreshed the Higher Impact site in early 2026.', 'Worth a look?',
+      'Higher Impact Consulting Group')
+    expect(f.some(x => x.includes('empty verdict'))).toBe(true)
+  })
+})

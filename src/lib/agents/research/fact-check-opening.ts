@@ -68,12 +68,28 @@ const FACT_CHECK_MODEL = 'claude-sonnet-4-6'
 function sentencesAboutThem(text: string, companyName: string | null): string[] {
   const forms = companyNameForms(companyName).map(f => f.toLowerCase())
   return splitIntoSentences(text).filter(s => {
+    const trimmed = s.trim()
+    if (!trimmed) return false
+    // A QUESTION IS NOT EVIDENCE THE VERIFIER FAILED. This rule only asks whether an empty
+    // verdict is suspicious, and a CTA asserts nothing, so counting it made three prospects
+    // fail for having a closing question. Whether a question PRESUPPOSES a fact is still the
+    // model's job, and it still returns such claims; this is only the shortfall trigger.
+    if (trimmed.endsWith('?')) return false
     // The offer in the reader's terms is not a claim about them. Same rule the follow-up
     // checker applies, imported rather than restated so the two cannot drift.
-    if (isOfferVoice(s)) return false
-    const low = s.toLowerCase()
-    if (/\b(you|your|you're|yours)\b/.test(low)) return true
-    return forms.some(f => f.length > 2 && low.includes(f))
+    if (isOfferVoice(trimmed)) return false
+    const low = trimmed.toLowerCase()
+    if (/^(we|our|i)\b/.test(low)) return false
+    // THE FIRM'S NAME ANYWHERE, BUT "YOU" ONLY AS THE SUBJECT, and the asymmetry is the point.
+    //
+    // "A structured role like that one brings new people to Higher Impact regularly" has the
+    // firm as its OBJECT and is squarely a claim about the firm. "The deals worth winning
+    // require the right buyers to find you before the wrong ones do" has the reader as its
+    // object and is a statement about a market. Subject position alone cannot tell them apart,
+    // so it is not asked to: naming the firm is specific enough to count wherever it appears,
+    // and a bare second-person pronoun is only a claim when it is what the sentence is about.
+    if (forms.some(f => f.length > 2 && low.includes(f))) return true
+    return /^(you|your)\b/.test(low)
   })
 }
 
