@@ -1,9 +1,9 @@
 // The Email 1 prompt carries the chosen fact and nothing else; the gate corpus stays wide.
 //
-// WHAT IT COST. Measured on the 105-prospect cohort, 2026-09-28: Gabriela Norton's Email 1
-// shipped "PPR turns fifteen this year", a sentence nowhere in her chosen candidate. It came
-// from another finding in the prompt block, because a numbered list of facts invites the writer
-// to draw on all of them.
+// WHAT IT COST. Measured on the 105-prospect cohort, 2026-09-28: prospect b444c547's Email 1
+// shipped a sentence about the firm's fifteenth anniversary, which appears nowhere in its
+// chosen candidate. It came from another finding in the prompt block, because a numbered list
+// of facts invites the writer to draw on all of them.
 //
 // THE ASYMMETRY IS THE POINT and is asserted here rather than described: the prompt narrows,
 // the evidence corpus does not. Traceability asks where a phrase COULD have come from, and the

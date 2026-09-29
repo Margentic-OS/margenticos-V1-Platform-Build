@@ -32,16 +32,16 @@ import {
 // a mix of strings, objects and arrays, and a section describing ALTERNATIVES, which is the
 // section a citation must never be credited for.
 const DOC = {
-  positioning_summary: 'We find and contact people who have never dealt with the client before.',
+  positioning_summary: 'We service and repair machines on site, in the hours the machines are not running.',
   key_messages: {
-    cold_outreach_hook: 'Reaching strangers is slow work and it stops when everyone is busy.',
+    cold_outreach_hook: 'Downtime costs more than the repair does.',
   },
   value_themes: [
-    { theme: 'A steady flow of first conversations with people outside the existing network.' },
-    { theme: 'The work carries on while the team is delivering.' },
+    { theme: 'A steady schedule of planned visits instead of emergency call-outs.' },
+    { theme: 'The work happens overnight so the line keeps moving.' },
   ],
   competitive_alternatives: [
-    { alternative: 'An in-house hire who also re-engages the audience the company already has.' },
+    { alternative: 'An in-house engineer who also looks after the building maintenance.' },
   ],
   headcount: 4,
   active: true,
@@ -54,7 +54,7 @@ const TEXT = flattenPositioningText(DOC)
 // failure it asserts is the thing it broke. A default that already failed would let a test
 // pass for a reason it is not about.
 const need = (over: Partial<CheckedNeed>): CheckedNeed => ({
-  id: 1, need: 'a need', line: 3, quote: 'A steady flow of first conversations', why: '', ...over,
+  id: 1, need: 'a need', line: 3, quote: 'A steady schedule of planned visits', why: '', ...over,
 })
 
 /** The labels the EMAIL callers use. The follow-up writer routes on these exact strings. */
@@ -63,12 +63,12 @@ const check = (needs: CheckedNeed[], text = TEXT) => checkNeedCitations(needs, t
 
 describe('positioning-text', () => {
   it('labels every string leaf with its path and drops everything that is not a string', () => {
-    expect(TEXT).toContain('positioning_summary: We find and contact people')
-    expect(TEXT).toContain('key_messages.cold_outreach_hook: Reaching strangers')
-    expect(TEXT).toContain('value_themes[0].theme: A steady flow')
-    expect(TEXT).toContain('value_themes[1].theme: The work carries on')
+    expect(TEXT).toContain('positioning_summary: We service and repair machines')
+    expect(TEXT).toContain('key_messages.cold_outreach_hook: Downtime costs')
+    expect(TEXT).toContain('value_themes[0].theme: A steady schedule')
+    expect(TEXT).toContain('value_themes[1].theme: The work happens overnight')
     // The path is what makes an alternatives line recognisable as one.
-    expect(TEXT).toContain('competitive_alternatives[0].alternative: An in-house hire')
+    expect(TEXT).toContain('competitive_alternatives[0].alternative: An in-house engineer')
     // Numbers, booleans and null carry no prose and are not quotable.
     expect(TEXT).not.toContain('headcount')
     expect(TEXT).not.toContain('active')
@@ -151,10 +151,10 @@ describe('buildNeedMatchPrompt', () => {
 describe('parseNeedMatchResponse', () => {
   it('reads a well-formed reply', () => {
     const [n] = parseNeedMatchResponse(
-      'here you go {"needs":[{"id":1,"need":"more first conversations","line":3,"quote":"A steady flow","why":""}]} done',
+      'here you go {"needs":[{"id":1,"need":"more first conversations","line":3,"quote":"A steady schedule","why":""}]} done',
       [1],
     )
-    expect(n).toEqual({ id: 1, need: 'more first conversations', line: 3, quote: 'A steady flow', why: '' })
+    expect(n).toEqual({ id: 1, need: 'more first conversations', line: 3, quote: 'A steady schedule', why: '' })
   })
 
   it('reads absent, malformed or wrong-shaped replies as "checked nothing" rather than throwing', () => {
@@ -182,7 +182,7 @@ describe('parseNeedMatchResponse', () => {
     // this change removed, and the shape that made it worth removing was a model that wrote
     // "so this is SUPPORTED" in its reasoning while the boolean beside it said otherwise.
     const cited = parseNeedMatchResponse(
-      '{"needs":[{"id":1,"need":"a","line":3,"quote":"A steady flow of first conversations","supported":false,"why":"x"}]}', [1])
+      '{"needs":[{"id":1,"need":"a","line":3,"quote":"A steady schedule of planned visits","supported":false,"why":"x"}]}', [1])
     expect(cited[0]).not.toHaveProperty('supported')
     expect(check(cited)).toEqual([])
 
@@ -218,7 +218,7 @@ describe('checkNeedCitations: the citation is the whole of the verdict', () => {
     const [f] = check([need({
       need: 're-engaging the audience they already have',
       line: 1,
-      quote: 'An in-house hire who also re-engages the audience',
+      quote: 'An in-house engineer who also looks after the building',
     })])
     expect(f).toContain('does not contain the sentence quoted as support')
     expect(f).toContain('[positioning_summary]')
@@ -234,7 +234,7 @@ describe('checkNeedCitations: the citation is the whole of the verdict', () => {
   })
 
   it('fails a quote too short to be a sentence', () => {
-    const short = 'A steady flow'
+    const short = 'A steady schedule'
     expect(short.length).toBeLessThan(MIN_QUOTE_CHARS)
     const [f] = check([need({ quote: short })])
     expect(f).toContain('quotes nothing long enough to be a sentence')
@@ -295,7 +295,7 @@ describe('checkNeedCitations: the citation is the whole of the verdict', () => {
       need({ need: 'one', line: null, quote: '' }),
       need({ need: 'two', line: 999 }),
       need({ need: 'three' }),
-      need({ need: 'four', line: 1, quote: 'An in-house hire who also re-engages the audience' }),
+      need({ need: 'four', line: 1, quote: 'An in-house engineer who also looks after the building' }),
     ])
     expect(failures).toHaveLength(3)
     expect(failures.some(f => f.includes('"one"'))).toBe(true)

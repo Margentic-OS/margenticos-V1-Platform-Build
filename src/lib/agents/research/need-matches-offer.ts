@@ -183,13 +183,13 @@ BE STRICT ABOUT TWO THINGS AND INDIFFERENT TO EVERYTHING ELSE:
   reader's own staff. If the document describes work done to one group, it does not support
   a need about another.
 
-  WHAT IS DONE TO THEM. Finding people, contacting people, qualifying people, converting
-  people, keeping people and distributing something to people are different work. Matching
-  the group is not enough if the action differs.
+  WHAT IS DONE FOR THEM OR TO THEM. Two needs can name the same people and ask for entirely
+  different work. Matching the group is not enough if the action differs, and the document
+  supports a need only when it names the action as well as the people.
 
-If you find yourself withholding a citation because the document does not mention the
-trigger, the award, the launch, the hire or the industry, you are judging the situation, and
-the line that describes the WORK is still the right citation.
+If you find yourself withholding a citation because the document does not mention the event
+behind the text, the kind of company, or the industry, you are judging the situation, and the
+line that describes the WORK is still the right citation.
 
 THE LINE NUMBER IS CHECKED IN CODE. A quote that does not appear on the line you name counts
 as no quote at all. Each line is labelled with where in the document it came from: lines

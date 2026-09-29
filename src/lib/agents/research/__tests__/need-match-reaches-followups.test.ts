@@ -18,8 +18,8 @@ import { flattenPositioningText } from '../positioning-text'
 import type { FollowupReference } from '../followup-frame'
 
 const POSITIONING = {
-  positioning_summary: 'We find and contact people who have never dealt with the client before.',
-  value_themes: [{ theme: 'A steady flow of first conversations with people outside the existing network.' }],
+  positioning_summary: 'We service and repair machines on site, in the hours the machines are not running.',
+  value_themes: [{ theme: 'A steady schedule of planned visits instead of emergency call-outs.' }],
 }
 const TEXT = flattenPositioningText(POSITIONING)
 
@@ -65,12 +65,12 @@ const FACT_CHECK_CLEAN = say(JSON.stringify({ claims: [
 /** Email 2's need is not work this document describes; email 3's is. */
 const NEEDS_SPLIT = say(JSON.stringify({ needs: [
   { id: 2, need: 'putting their own posts in front of more people', line: null, quote: '', why: 'the document describes contacting new people, not distributing their content' },
-  { id: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
+  { id: 3, need: 'planned visits instead of call-outs', line: 2, quote: 'A steady schedule of planned visits', why: 'same work' },
 ] }))
 
 const NEEDS_BOTH_FINE = say(JSON.stringify({ needs: [
-  { id: 2, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
-  { id: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
+  { id: 2, need: 'planned visits instead of call-outs', line: 2, quote: 'A steady schedule of planned visits', why: 'same work' },
+  { id: 3, need: 'planned visits instead of call-outs', line: 2, quote: 'A steady schedule of planned visits', why: 'same work' },
 ] }))
 
 const systemOf = (args?: { system?: unknown }) =>
@@ -111,7 +111,7 @@ describe('the need-match check reaches emails 2 and 3', () => {
 
     expect(needMatchCalls()).toHaveLength(1)
     const [args] = needMatchCalls()[0] as [{ system: Array<{ text: string }>; messages: Array<{ content: string }> }]
-    expect(args.system[0].text).toContain('2. [value_themes[0].theme] A steady flow')
+    expect(args.system[0].text).toContain('2. [value_themes[0].theme] A steady schedule')
     // Both emails in one call, because they are judged against the same document and a
     // second call would be a second bill for the same prefix.
     const user = args.messages[0].content

@@ -73,7 +73,7 @@ describe('an absence is not a hook', () => {
 
   it('KEEPS an absence inside a QUOTED TITLE', () => {
     expect(absenceAboutThem({
-      observation: "Casey published 'Your Mission on the Wall. A Destination No One Knows.' on July 28th.",
+      observation: "Casey published 'The Plan on the Wall. A Route No One Has Walked.' on July 28th.",
       ...about,
     })).toBeNull()
   })

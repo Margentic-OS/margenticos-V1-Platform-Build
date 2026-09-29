@@ -6,9 +6,9 @@
  * human can read them. Used to DISQUALIFY a candidate it over-fires badly. Measured across
  * 601 real candidates on 2026-09-28, it flagged 13, and three of those were plainly wrong:
  *
- *   "John published a post on 15 September positioning AGI against transactional recruiters
- *    who send resumes WITHOUT FOLLOW-through"      <- the absence is about RECRUITERS
- *   "a prospect published 'Your Mission on the Wall. A Destination NO ONE Knows.'"
+ *   "Casey published a post on 15 September positioning Ridgemont against transactional
+ *    recruiters who send resumes WITHOUT FOLLOW-through"   <- the absence is about RECRUITERS
+ *   "a prospect published 'The Plan on the Wall. A Route NO ONE Has Walked.'"
  *                                                  <- the absence is inside a QUOTED TITLE
  *   "a piece on why the right message is NOT ENOUGH WITHOUT the right audience"
  *                                                  <- the absence is the TOPIC she wrote about
@@ -70,7 +70,7 @@ function stripPublishedTopic(clause: string): string {
 /** Clause boundaries. An absence is judged against the clause it sits in, not the whole line. */
 function clauses(text: string): string[] {
   // A RELATIVE PRONOUN STARTS A NEW CLAUSE WITH OR WITHOUT A COMMA. Requiring the comma left
-  // "positioning AGI against transactional recruiters who send resumes without follow-through"
+  // "positioning Ridgemont against transactional recruiters who send resumes without follow-through"
   // as ONE clause, so the anchor (the firm's name, early) and the absence (about recruiters,
   // late) sat together and the candidate was wrongly excluded.
   //

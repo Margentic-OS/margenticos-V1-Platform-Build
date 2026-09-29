@@ -74,8 +74,8 @@ import { flattenPositioningText } from '../positioning-text'
 import type { ObservationCandidate, ProspectContext } from '../types'
 
 const POSITIONING = {
-  positioning_summary: 'We find and contact people who have never dealt with the client before.',
-  value_themes: [{ theme: 'A steady flow of first conversations with people outside the existing network.' }],
+  positioning_summary: 'We service and repair machines on site, in the hours the machines are not running.',
+  value_themes: [{ theme: 'A steady schedule of planned visits instead of emergency call-outs.' }],
 }
 const TEXT = flattenPositioningText(POSITIONING)
 
@@ -106,7 +106,7 @@ const say = (text: string) => ({ content: [{ type: 'text', text }], usage: { inp
 const FACT_CHECK_CLEAN = say('{"claims":[]}')
 const FACT_CHECK_FAILS = say('{"claims":[{"email":1,"claim":"the next set of buyers","finding":null,"why":"no finding names their buyers"}]}')
 const NEED_UNSUPPORTED = say('{"needs":[{"id":1,"need":"putting their own article in front of more people","line":null,"quote":"","why":"the document describes contacting new people, not distributing their content"}]}')
-const NEED_SUPPORTED = say('{"needs":[{"id":1,"need":"first conversations outside the network","line":2,"quote":"A steady flow of first conversations","why":"same work"}]}')
+const NEED_SUPPORTED = say('{"needs":[{"id":1,"need":"planned visits instead of call-outs","line":2,"quote":"A steady schedule of planned visits","why":"same work"}]}')
 
 /** The need-match call is the one whose system block carries this sentence. */
 const isNeedMatch = (args: { system: unknown }) =>
@@ -146,7 +146,7 @@ describe('loadClientContext builds the whole positioning document, not a summary
   it('carries every string leaf, labelled, from the active positioning row', async () => {
     const clientCtx = await loadClientContext('org1', 'seg1')
     expect(clientCtx.positioningText).toBe(TEXT)
-    expect(clientCtx.positioningText).toContain('value_themes[0].theme: A steady flow')
+    expect(clientCtx.positioningText).toContain('value_themes[0].theme: A steady schedule')
     // AND IT IS NOT THE SUMMARY. The two existing positioning strings are built from three
     // fields; this is the corpus. If they were ever the same value the check would be
     // judging needs against 7% of the document and nothing would say so.
@@ -182,8 +182,8 @@ describe('produceOpening calls the check, with the document, at the right moment
 
     const [args] = needMatchCalls()[0] as [{ system: Array<{ text: string }>; messages: Array<{ content: string }> }]
     const system = args.system[0].text
-    expect(system).toContain('1. [positioning_summary] We find and contact people')
-    expect(system).toContain('2. [value_themes[0].theme] A steady flow')
+    expect(system).toContain('1. [positioning_summary] We service and repair machines')
+    expect(system).toContain('2. [value_themes[0].theme] A steady schedule')
     // THE QUESTION, NOT ONLY THE BRIDGE. The operator's failing example was a CTA, so a
     // version reading the bridge alone would have passed the thing this was built for.
     const user = args.messages[0].content

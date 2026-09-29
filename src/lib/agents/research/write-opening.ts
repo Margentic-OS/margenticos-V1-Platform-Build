@@ -2390,10 +2390,10 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
   // readings must not be in it or a name appearing only there becomes traceable.
   // ═══ THE PROMPT SEES THE CHOSEN FACT AND NOTHING ELSE ═══
   //
-  // WHAT IT COST, measured on the 105-prospect cohort 2026-09-28. Gabriela Norton's Email 1
-  // shipped "PPR turns fifteen this year." That sentence is nowhere in her chosen candidate.
-  // It came from another finding in the block, and the writer treated the whole block as
-  // material to draw on, which is exactly what a numbered list of facts invites.
+  // WHAT IT COST, measured on the 105-prospect cohort 2026-09-28. Prospect b444c547's Email 1
+  // shipped a sentence about the firm's fifteenth anniversary. That sentence is nowhere in its
+  // chosen candidate. It came from another finding in the block, and the writer treated the
+  // whole block as material to draw on, which is exactly what a numbered list of facts invites.
   //
   // Synthesis has already done the choosing, with a reason recorded. Handing the writer the
   // runners-up asks it to re-litigate that choice with less information than the selector had,
