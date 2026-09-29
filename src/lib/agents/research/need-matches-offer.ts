@@ -66,7 +66,13 @@ const NEED_MATCH_MODEL = 'claude-sonnet-4-6'
  */
 export const MIN_QUOTE_CHARS = 20
 
-/** One need the verifier found in the copy, and the line it says meets it. */
+/**
+ * One need the verifier found in the copy, and the line it points at for it.
+ *
+ * THERE IS NO `supported` FIELD, DELIBERATELY. The verifier returns a citation or none, and
+ * whether that citation holds is decided by citationHolds. A boolean here would be a second
+ * verdict able to disagree with the first, which is exactly what it did.
+ */
 export interface CheckedNeed {
   /** 1, 2 or 3: which email the need was read from. */
   email: number
@@ -76,8 +82,7 @@ export interface CheckedNeed {
   line: number | null
   /** The sentence quoted from that line. Empty when nothing was cited. */
   quote: string
-  supported: boolean
-  /** The verifier's one-line reason. */
+  /** One line on what the need asks for that the document does not offer. */
   why: string
 }
 
@@ -98,6 +103,24 @@ function normalise(text: string): string {
     .replace(/[‐-―]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/**
+ * WHETHER A NEED'S CITATION SURVIVES CODE VERIFICATION. The whole of the verdict.
+ *
+ * Three conditions, none of which the model can talk its way past: the line exists, the
+ * quote is long enough to be a sentence rather than a word, and the quote really is on THAT
+ * line. The third is the one that matters: 23% of the live positioning document describes
+ * what OTHER providers do, so a quote can be entirely genuine and cited from the wrong place.
+ */
+export function citationHolds(
+  need: CheckedNeed,
+  lines: ReadonlyArray<{ path: string; text: string }>,
+): boolean {
+  if (need.line === null || need.line < 1 || need.line > lines.length) return false
+  const quote = normalise(need.quote)
+  if (quote.length < MIN_QUOTE_CHARS) return false
+  return normalise(lines[need.line - 1].text).includes(quote)
 }
 
 /**
@@ -131,12 +154,16 @@ replying. It appears in two places and you must read both:
   the sentence giving the reason to reply
   the closing question, which usually names the need as the thing being offered
 
-For each need, find the LINE of the positioning document that names the work meeting it,
-and quote that line's sentence EXACTLY as it appears. Copy it character for character. Do
-not paraphrase it, do not join two lines, and do not quote a line you cannot find.
+YOU RETURN A CITATION, NOT A VERDICT. For each need, give the ONE line of the positioning
+document that comes closest to naming work that meets it, and quote that line's sentence
+EXACTLY as it appears. Copy it character for character. Do not paraphrase it, do not join two
+lines, and do not quote a line you cannot find.
 
-If no line names work that meets the need, it is UNSUPPORTED. Say so, and explain in one
-sentence what the need asks for that the document does not offer.
+If NO line names work that meets the need, set line to null and quote to an empty string, and
+say in one line what the need asks for that the document does not offer.
+
+Nothing else you write decides anything. Whether the need is met is settled by checking your
+citation against the document, so the only question you are answering is WHICH LINE.
 
 JUDGE THE WORK, NOT THE SITUATION. Your only question is whether the document describes work
 that MEETS the need. It does not matter whether the document mentions the event that created
@@ -154,23 +181,23 @@ BE STRICT ABOUT TWO THINGS AND INDIFFERENT TO EVERYTHING ELSE:
   people, keeping people and distributing something to people are different work. Matching
   the group is not enough if the action differs.
 
-If you find yourself rejecting a need because the document does not mention the trigger, the
-award, the launch, the hire or the industry, you are judging the situation, and the answer is
-SUPPORTED.
+If you find yourself withholding a citation because the document does not mention the
+trigger, the award, the launch, the hire or the industry, you are judging the situation, and
+the line that describes the WORK is still the right citation.
 
 THE LINE NUMBER IS CHECKED IN CODE. A quote that does not appear on the line you name counts
-as no quote at all, and the need is treated as unsupported. Each line is labelled with where
-in the document it came from: lines about ALTERNATIVES, COMPETITORS or what OTHER providers
-do describe work the sender does NOT do, and must never be quoted as support.
+as no quote at all. Each line is labelled with where in the document it came from: lines
+about ALTERNATIVES, COMPETITORS or what OTHER providers do describe work the sender does NOT
+do, and must never be quoted as support.
 
 A need the copy does not name is not yours to invent. If the copy names none, return an
 empty list.
 
 Return ONLY this JSON, no prose around it:
 
-{"needs":[{"email":${opts.exampleEmail},"need":"<in one line>","line":12,"quote":"the sentence, exactly","supported":true,"why":"<one line>"}]}
+{"needs":[{"email":${opts.exampleEmail},"need":"<in one line>","line":12,"quote":"the sentence, exactly","why":"<one line, only when line is null>"}]}
 
-line is the NUMBER of the positioning line, or null when nothing supports the need.
+line is the NUMBER of the positioning line, or null when no line names work that meets it.
 
 ## The sender's positioning document
 
@@ -190,12 +217,13 @@ export function parseNeedMatchResponse(raw: string, allowedEmails: readonly numb
       const email = Number(o.email)
       if (!allowedEmails.includes(email)) return []
       const line = o.line === null || o.line === undefined ? null : Number(o.line)
+      // `supported` is IGNORED if the model sends one anyway. It is no longer in the schema,
+      // and reading it back would quietly restore the second verdict this change removed.
       return [{
         email,
         need: typeof o.need === 'string' ? o.need : '',
         line: line !== null && Number.isFinite(line) ? line : null,
         quote: typeof o.quote === 'string' ? o.quote : '',
-        supported: o.supported === true,
         why: typeof o.why === 'string' ? o.why : '',
       }]
     })
@@ -205,8 +233,9 @@ export function parseNeedMatchResponse(raw: string, allowedEmails: readonly numb
 }
 
 /**
- * THE CODE HALF. Every failure is derived from the verifier's own output plus the document,
- * never from trusting its verdict.
+ * THE WHOLE OF THE VERDICT. A need is supported if and only if its citation survives
+ * citationHolds; there is nothing else to consult, because the model no longer returns
+ * anything else.
  *
  * Each failure ENDS WITH ITS OWN INSTRUCTION, because the writer's retry feedback appends a
  * general sentence about the fact-check after whatever it is given. A need-mismatch needs
@@ -221,44 +250,26 @@ export function checkNeedCitations(
   const failures: string[] = []
 
   for (const n of needs) {
+    if (citationHolds(n, lines)) continue
+
     const label = n.email === 1 ? 'Email 1' : `email ${n.email}`
+    // WHY IT DID NOT HOLD, so a rejection can be read rather than counted. The four reasons
+    // are distinguishable in code and each one means something different about what went
+    // wrong: no line offered, a line that is not there, a quote too short to be a sentence,
+    // and a quote that is not on the line it was claimed from.
+    const why =
+      n.line === null
+        ? `no line of the document was cited for it` + (n.why ? `: ${n.why}` : '')
+        : n.line < 1 || n.line > lines.length
+          ? `it cites line ${n.line}, which does not exist: the document has ${lines.length} lines`
+          : normalise(n.quote).length < MIN_QUOTE_CHARS
+            ? `it cites line ${n.line} [${lines[n.line - 1].path}] and quotes nothing long enough to be a sentence`
+            : `it cites line ${n.line} [${lines[n.line - 1].path}], which does not contain the sentence quoted as support: ${JSON.stringify(n.quote)}`
 
-    if (!n.supported) {
-      failures.push(
-        `${label} names the need ${JSON.stringify(n.need)}, which the positioning document ` +
-        `does not describe the service meeting` + (n.why ? `: ${n.why}` : '') +
-        `. Name a need this service does meet, or drop it.`,
-      )
-      continue
-    }
-
-    // A CITATION TO A LINE THAT DOES NOT EXIST. A need resting on an invented citation is
-    // unsupported whatever the verdict says.
-    if (n.line === null || n.line < 1 || n.line > lines.length) {
-      failures.push(
-        `${label} names the need ${JSON.stringify(n.need)}, said to be met by positioning ` +
-        `line ${n.line ?? 'none'}, which does not exist: the document has ${lines.length} lines. ` +
-        `Name a need this service does meet, or drop it.`,
-      )
-      continue
-    }
-
-    const cited = lines[n.line - 1]
-    const quote = normalise(n.quote)
-    if (quote.length < MIN_QUOTE_CHARS) {
-      failures.push(
-        `${label} names the need ${JSON.stringify(n.need)} and quotes nothing long enough to ` +
-        `be a sentence in support of it. Name a need this service does meet, or drop it.`,
-      )
-      continue
-    }
-    if (!normalise(cited.text).includes(quote)) {
-      failures.push(
-        `${label} names the need ${JSON.stringify(n.need)}, cited to positioning line ` +
-        `${n.line} [${cited.path}], which does not contain the sentence quoted as support: ` +
-        `${JSON.stringify(n.quote)}. Name a need this service does meet, or drop it.`,
-      )
-    }
+    failures.push(
+      `${label} names the need ${JSON.stringify(n.need)} and ${why}. ` +
+      `Name a need this service does meet, or drop it.`,
+    )
   }
 
   return failures
@@ -326,7 +337,7 @@ export async function checkNeedMatchesOffer(params: NeedMatchParams): Promise<Ne
     prospect_id: params.prospectId,
     emails,
     needs: needs.length,
-    unsupported: needs.filter(n => !n.supported).length,
+    uncited: needs.filter(n => n.line === null).length,
     failures: failures.length,
     // REPORTED, NEVER GATED. See the header: there is no code-side detector for "this
     // sentence names a need", so an empty verdict cannot be told from copy that names none.

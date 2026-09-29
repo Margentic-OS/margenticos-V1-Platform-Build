@@ -104,9 +104,9 @@ const QUESTION = 'Worth a short call?'
 const say = (text: string) => ({ content: [{ type: 'text', text }], usage: { input_tokens: 1, output_tokens: 1 } })
 
 const FACT_CHECK_CLEAN = say('{"claims":[]}')
-const FACT_CHECK_FAILS = say('{"claims":[{"email":1,"claim":"the next set of buyers","finding":null,"supported":false,"why":"no finding names their buyers"}]}')
-const NEED_UNSUPPORTED = say('{"needs":[{"email":1,"need":"putting their own article in front of more people","line":null,"quote":"","supported":false,"why":"the document describes contacting new people, not distributing their content"}]}')
-const NEED_SUPPORTED = say('{"needs":[{"email":1,"need":"first conversations outside the network","line":2,"quote":"A steady flow of first conversations","supported":true,"why":"same work"}]}')
+const FACT_CHECK_FAILS = say('{"claims":[{"email":1,"claim":"the next set of buyers","finding":null,"why":"no finding names their buyers"}]}')
+const NEED_UNSUPPORTED = say('{"needs":[{"email":1,"need":"putting their own article in front of more people","line":null,"quote":"","why":"the document describes contacting new people, not distributing their content"}]}')
+const NEED_SUPPORTED = say('{"needs":[{"email":1,"need":"first conversations outside the network","line":2,"quote":"A steady flow of first conversations","why":"same work"}]}')
 
 /** The need-match call is the one whose system block carries this sentence. */
 const isNeedMatch = (args: { system: unknown }) =>

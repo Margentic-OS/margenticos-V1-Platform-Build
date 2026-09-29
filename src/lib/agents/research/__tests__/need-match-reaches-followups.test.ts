@@ -54,6 +54,9 @@ const CLEAN_3 = [
 
 const say = (text: string) => ({ content: [{ type: 'text', text }], usage: { input_tokens: 10, output_tokens: 10 } })
 
+// The FACT-CHECK still carries a `supported` boolean: only the NEED-MATCH schema lost one.
+// Two different checks, two different shapes, and stripping it here silently failed the pair
+// before the need-match call was ever reached.
 const FACT_CHECK_CLEAN = say(JSON.stringify({ claims: [
   { email: 2, claim: 'You took the second unit on in March.', finding: 1, supported: true, why: 'finding 1' },
   { email: 3, claim: 'You said yes to the second unit.', finding: 1, supported: true, why: 'finding 1' },
@@ -61,13 +64,13 @@ const FACT_CHECK_CLEAN = say(JSON.stringify({ claims: [
 
 /** Email 2's need is not work this document describes; email 3's is. */
 const NEEDS_SPLIT = say(JSON.stringify({ needs: [
-  { email: 2, need: 'putting their own posts in front of more people', line: null, quote: '', supported: false, why: 'the document describes contacting new people, not distributing their content' },
-  { email: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', supported: true, why: 'same work' },
+  { email: 2, need: 'putting their own posts in front of more people', line: null, quote: '', why: 'the document describes contacting new people, not distributing their content' },
+  { email: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
 ] }))
 
 const NEEDS_BOTH_FINE = say(JSON.stringify({ needs: [
-  { email: 2, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', supported: true, why: 'same work' },
-  { email: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', supported: true, why: 'same work' },
+  { email: 2, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
+  { email: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
 ] }))
 
 const systemOf = (args?: { system?: unknown }) =>

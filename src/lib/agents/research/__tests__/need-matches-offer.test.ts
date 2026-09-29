@@ -50,8 +50,11 @@ const DOC = {
 
 const TEXT = flattenPositioningText(DOC)
 
+// THE DEFAULT IS A CITATION THAT HOLDS, so every test below breaks exactly one thing and the
+// failure it asserts is the thing it broke. A default that already failed would let a test
+// pass for a reason it is not about.
 const need = (over: Partial<CheckedNeed>): CheckedNeed => ({
-  email: 1, need: 'a need', line: 1, quote: '', supported: true, why: '', ...over,
+  email: 1, need: 'a need', line: 3, quote: 'A steady flow of first conversations', why: '', ...over,
 })
 
 describe('positioning-text', () => {
@@ -102,12 +105,16 @@ describe('buildNeedMatchPrompt', () => {
     const prompt = buildNeedMatchPrompt({ emailsShown: '2 emails', exampleEmail: 2, positioningText: TEXT })
     expect(prompt).toContain(buildPositioningCorpus(TEXT))
     expect(prompt).toContain('"email":2')
+    // The model returns a citation and NO verdict. A schema carrying a boolean is a second
+    // verdict able to disagree with the citation, which is what this change removed.
+    expect(prompt).not.toContain('"supported"')
+    expect(prompt).toContain('YOU RETURN A CITATION, NOT A VERDICT')
     // The instruction the code half actually enforces, so a reader of the prompt is not
     // surprised by a rejection. See checkNeedCitations.
     expect(prompt).toContain('THE LINE NUMBER IS CHECKED IN CODE')
     // An example email number the parser would discard would make every verdict vanish
     // silently, which is the one failure a prompt test can catch cheaply.
-    expect(parseNeedMatchResponse('{"needs":[{"email":2,"need":"n","line":1,"quote":"q","supported":true,"why":""}]}', [2]))
+    expect(parseNeedMatchResponse('{"needs":[{"email":2,"need":"n","line":1,"quote":"q","why":""}]}', [2]))
       .toHaveLength(1)
   })
 
@@ -134,13 +141,10 @@ describe('buildNeedMatchPrompt', () => {
 describe('parseNeedMatchResponse', () => {
   it('reads a well-formed reply', () => {
     const [n] = parseNeedMatchResponse(
-      'here you go {"needs":[{"email":1,"need":"more first conversations","line":3,"quote":"A steady flow","supported":true,"why":"same work"}]} done',
+      'here you go {"needs":[{"email":1,"need":"more first conversations","line":3,"quote":"A steady flow","why":""}]} done',
       [1],
     )
-    expect(n).toEqual({
-      email: 1, need: 'more first conversations', line: 3,
-      quote: 'A steady flow', supported: true, why: 'same work',
-    })
+    expect(n).toEqual({ email: 1, need: 'more first conversations', line: 3, quote: 'A steady flow', why: '' })
   })
 
   it('reads absent, malformed or wrong-shaped replies as "checked nothing" rather than throwing', () => {
@@ -152,125 +156,125 @@ describe('parseNeedMatchResponse', () => {
   })
 
   it('drops a verdict for an email it was not asked about', () => {
-    const raw = '{"needs":[{"email":1,"need":"a","line":1,"quote":"q","supported":true,"why":""},' +
-                '{"email":9,"need":"b","line":1,"quote":"q","supported":true,"why":""}]}'
+    const raw = '{"needs":[{"email":1,"need":"a","line":1,"quote":"q","why":""},' +
+                '{"email":9,"need":"b","line":1,"quote":"q","why":""}]}'
     expect(parseNeedMatchResponse(raw, [1]).map(n => n.email)).toEqual([1])
   })
 
   it('keeps a null line as null rather than as a number', () => {
-    const [n] = parseNeedMatchResponse('{"needs":[{"email":1,"need":"a","line":null,"quote":"","supported":false,"why":"nothing"}]}', [1])
+    const [n] = parseNeedMatchResponse('{"needs":[{"email":1,"need":"a","line":null,"quote":"","why":"nothing"}]}', [1])
     expect(n.line).toBeNull()
-    expect(n.supported).toBe(false)
+    expect(n.why).toBe('nothing')
   })
 
-  it('treats anything but the literal true as unsupported', () => {
-    const [n] = parseNeedMatchResponse('{"needs":[{"email":1,"need":"a","line":1,"quote":"q","supported":"yes","why":""}]}', [1])
-    expect(n.supported).toBe(false)
+  it('IGNORES a supported flag the model sends anyway, in both directions', () => {
+    // The flag is out of the schema. Reading it back would quietly restore the second verdict
+    // this change removed, and the shape that made it worth removing was a model that wrote
+    // "so this is SUPPORTED" in its reasoning while the boolean beside it said otherwise.
+    const cited = parseNeedMatchResponse(
+      '{"needs":[{"email":1,"need":"a","line":3,"quote":"A steady flow of first conversations","supported":false,"why":"x"}]}', [1])
+    expect(cited[0]).not.toHaveProperty('supported')
+    expect(checkNeedCitations(cited, TEXT)).toEqual([])
+
+    const uncited = parseNeedMatchResponse(
+      '{"needs":[{"email":1,"need":"a","line":null,"quote":"","supported":true,"why":"x"}]}', [1])
+    expect(checkNeedCitations(uncited, TEXT)).toHaveLength(1)
   })
 })
 
-describe('checkNeedCitations', () => {
+describe('checkNeedCitations: the citation is the whole of the verdict', () => {
   it('passes a need cited to the line that really carries the quote', () => {
-    const failures = checkNeedCitations([need({
-      need: 'first conversations with people outside the network',
-      line: 3,
-      quote: 'A steady flow of first conversations',
-    })], TEXT)
-    expect(failures).toEqual([])
+    expect(checkNeedCitations([need({})], TEXT)).toEqual([])
   })
 
-  it('fails an unsupported need and says what to do instead', () => {
+  it('fails a need the verifier could not cite, and carries its reason', () => {
     const [f] = checkNeedCitations([need({
       need: 'putting their own article in front of more people',
-      supported: false,
-      line: null,
+      line: null, quote: '',
       why: 'the document describes contacting new people, not distributing their content',
     })], TEXT)
     expect(f).toContain('putting their own article in front of more people')
-    expect(f).toContain('does not describe the service meeting')
+    expect(f).toContain('no line of the document was cited for it')
     expect(f).toContain('the document describes contacting new people')
     // The instruction travels with the fault, because the writer's retry feedback appends a
-    // general sentence about the FACT-CHECK after whatever it is given, and that advice is
-    // wrong for this fault.
+    // general sentence about the FACT-CHECK after whatever it is given.
     expect(f).toContain('Name a need this service does meet, or drop it.')
   })
 
   it('fails a real sentence cited to the wrong line', () => {
     // THE CASE THIS CHECK EXISTS FOR. The quote is genuinely in the document, on the
-    // ALTERNATIVES line, and is offered as support for a need under a different line number.
-    // A whole-document search would return clean here.
+    // ALTERNATIVES line, and is offered as support under a different line number. A
+    // whole-document search would return clean here.
     const [f] = checkNeedCitations([need({
       need: 're-engaging the audience they already have',
       line: 1,
       quote: 'An in-house hire who also re-engages the audience',
     })], TEXT)
     expect(f).toContain('does not contain the sentence quoted as support')
-    // And the rejection names WHERE the support was claimed from, so it can be read.
     expect(f).toContain('[positioning_summary]')
   })
 
   it('fails a citation to a line that does not exist, in both directions', () => {
     const count = positioningLines(TEXT).length
     for (const line of [0, -1, count + 1, 999]) {
-      const [f] = checkNeedCitations([need({ line, quote: 'A steady flow of first conversations' })], TEXT)
+      const [f] = checkNeedCitations([need({ line })], TEXT)
       expect(f, `line ${line}`).toContain('which does not exist')
       expect(f, `line ${line}`).toContain(`has ${count} lines`)
     }
   })
 
-  it('fails a supported verdict that cited no line at all', () => {
-    const [f] = checkNeedCitations([need({ line: null, quote: 'A steady flow of first conversations' })], TEXT)
-    expect(f).toContain('line none, which does not exist')
-  })
-
   it('fails a quote too short to be a sentence', () => {
     const short = 'A steady flow'
     expect(short.length).toBeLessThan(MIN_QUOTE_CHARS)
-    const [f] = checkNeedCitations([need({ line: 3, quote: short })], TEXT)
+    const [f] = checkNeedCitations([need({ quote: short })], TEXT)
     expect(f).toContain('quotes nothing long enough to be a sentence')
   })
 
   it('accepts a quote that differs only in case, curly quotes, dashes or run of whitespace', () => {
-    const text = flattenPositioningText({ a: 'We reach people the client has never spoken to — anywhere.' })
-    const failures = checkNeedCitations([need({
-      line: 1,
-      quote: '  WE REACH people   the client has never spoken to - anywhere. ',
-    })], text)
-    expect(failures).toEqual([])
+    const text = flattenPositioningText({ a: 'We reach people the client has never spoken to \u2014 anywhere.' })
+    expect(checkNeedCitations([need({
+      line: 1, quote: '  WE REACH people   the client has never spoken to - anywhere. ',
+    })], text)).toEqual([])
   })
 
   it('returns nothing for an empty verdict, deliberately', () => {
     // An empty list is REPORTED and never gated. There is no code-side detector for "this
     // sentence names a need", so "the copy names none" and "the verifier went quiet" cannot
-    // be told apart, and rejecting on it would reject copy whenever the verifier was
-    // unhelpful. See the header of need-matches-offer.ts.
+    // be told apart. See the header of need-matches-offer.ts.
     expect(checkNeedCitations([], TEXT)).toEqual([])
   })
 
-  it('names the email in every failure, so the follow-up writer can charge it to one email', () => {
-    // write-followups.ts routes these with /\bemail 2\b/ and /\bemail 3\b/ and charges
-    // anything matching neither to BOTH. A failure that named no email would fail an email
-    // that was fine, so this is the control for that routing rather than a cosmetic check.
-    const two = checkNeedCitations([need({ email: 2, supported: false, line: null })], TEXT)
-    const three = checkNeedCitations([need({ email: 3, supported: false, line: null })], TEXT)
+  it('pre-approves no need, and no category of need, anywhere', () => {
+    // The SAME need text passes or fails purely on whether a line can be cited for it. If any
+    // need or category were hardcoded as acceptable, these two would not differ.
+    const NEEDS = [
+      'reaching people who have never heard of them',
+      'converting the audience they already have',
+      'putting their article in front of more people',
+      'anything at all, in words nobody has used before',
+    ]
+    for (const text of NEEDS) {
+      expect(checkNeedCitations([need({ need: text })], TEXT), text).toEqual([])
+      expect(checkNeedCitations([need({ need: text, line: null, quote: '' })], TEXT), text).toHaveLength(1)
+    }
+  })
 
-    expect(two).toHaveLength(1)
-    expect(three).toHaveLength(1)
+  it('names the email in every failure, so the follow-up writer can charge it to one email', () => {
+    const two = checkNeedCitations([need({ email: 2, line: null, quote: '' })], TEXT)
+    const three = checkNeedCitations([need({ email: 3, line: null, quote: '' })], TEXT)
     expect(/\bemail 2\b/.test(two[0])).toBe(true)
     expect(/\bemail 3\b/.test(two[0])).toBe(false)
     expect(/\bemail 3\b/.test(three[0])).toBe(true)
     expect(/\bemail 2\b/.test(three[0])).toBe(false)
-
-    // Email 1 has no routing to do and reads as prose in the writer's feedback.
-    const one = checkNeedCitations([need({ email: 1, supported: false, line: null })], TEXT)
+    const one = checkNeedCitations([need({ email: 1, line: null, quote: '' })], TEXT)
     expect(one[0].startsWith('Email 1 names the need')).toBe(true)
   })
 
   it('reports every failing need, not just the first', () => {
     const failures = checkNeedCitations([
-      need({ need: 'one', supported: false, line: null }),
-      need({ need: 'two', line: 999, quote: 'A steady flow of first conversations' }),
-      need({ need: 'three', line: 3, quote: 'A steady flow of first conversations' }),
+      need({ need: 'one', line: null, quote: '' }),
+      need({ need: 'two', line: 999 }),
+      need({ need: 'three' }),
       need({ need: 'four', line: 1, quote: 'An in-house hire who also re-engages the audience' }),
     ], TEXT)
     expect(failures).toHaveLength(3)
