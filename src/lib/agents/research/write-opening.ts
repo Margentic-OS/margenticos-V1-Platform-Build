@@ -22,7 +22,7 @@ import { countSentences } from '@/lib/style/sentence-count'
 import { collapseVerbatimQuotes } from '@/lib/style/quoted-span'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
-import { findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim } from '@/lib/style/assumed-capacity'
+import { findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, EMAIL1_RAW_BLOCKING_KINDS } from '@/lib/style/assumed-capacity'
 import { companyNameForms } from '@/lib/style/followup-gates'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
@@ -1686,18 +1686,16 @@ export function checkOpeningGates(
     // observation and the bridge alone would have passed a third of what it exists to catch.
     // The counter in prospect-research-agent-v2.ts still reads the bridge and the question
     // only; it is a tally and it is left alone.
-    // ═══ THE BLOCKING SUBSET, THE SAME ONE THE FOLLOW-UP GATE USES ═══
+    // ═══ RAW FOR TIME AND MONEY, ANCHORED FOR THE REST. Operator decision, 2026-09-29. ═══
     //
-    // Added 2026-09-29, and it corrects a rule this file introduced earlier the same day.
-    // Email 1 blocked on EVERY hit while follow-ups blocked only on isUnambiguousReaderClaim,
-    // so one detector was enforcing two different rules depending on which email it read.
+    // The reason is recorded in assumed-capacity.ts beside EMAIL1_RAW_BLOCKING_KINDS, in the
+    // detector both gates read, because it is about the DIFFERENCE between the two positions
+    // and so belongs in neither call site alone. In short: Email 1's bridge sits directly
+    // under the reader's own fact, and that position does the anchoring the sentence does
+    // not. The other two kinds fire on offer language, which position cannot convert into a
+    // claim about the reader.
     //
-    // EMAIL 1 IS THE POSITION THAT MOST NEEDS THE NARROWER RULE, not the least. Its bridge is
-    // REQUIRED to be a statement about a population, and the impersonal form is exactly what
-    // isUnambiguousReaderClaim declines to block. "Firms without a second income have to
-    // replace it faster" is the copy the brief asks for; the same sentence naming this reader
-    // is the claim it bans. No pattern can tell those apart, because the difference is not in
-    // the shape, and that is the whole reason the subset exists.
+    // Measured on the 56 stored Email 1s: 9 raw hits, 9 true positives, none false.
     const readerNames = companyNameForms(context?.companyName ?? null)
     for (const [part, text] of [
       ['observation', params.observation],
@@ -1705,7 +1703,8 @@ export function checkOpeningGates(
       ['question', params.question],
     ] as const) {
       const all = findAssumedCapacityClaims(text)
-      const blocking = all.filter(h => isUnambiguousReaderClaim(h, readerNames))
+      const blocking = all.filter(h =>
+        EMAIL1_RAW_BLOCKING_KINDS.includes(h.kind) || isUnambiguousReaderClaim(h, readerNames))
       // REPORTED EVEN WHEN NOT BLOCKED, because the impersonal form is the one that turns
       // into a real claim the moment a name is added, and a rate nobody logs is a rate
       // nobody can check later.

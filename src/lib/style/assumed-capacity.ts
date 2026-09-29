@@ -31,6 +31,42 @@ import { splitIntoSentences } from './sentence-count'
 
 export type AssumedCapacityKind = 'their_time' | 'who_sells' | 'they_lack' | 'their_money'
 
+/**
+ * ═══ THE TWO GATES APPLY THIS DETECTOR DIFFERENTLY, AND THAT IS DELIBERATE ═══
+ *
+ * Decided by the operator 2026-09-29, after a day in which the two positions drifted apart by
+ * accident and were then aligned the wrong way. Written down here, in the detector both gates
+ * read, because the reason lives in neither call site.
+ *
+ * EMAIL 1 BLOCKS ON THESE KINDS RAW, with no reader anchor:
+ *
+ *     their_time, their_money
+ *
+ * The Email 1 bridge sits DIRECTLY UNDER THE READER'S OWN FACT. That position does the
+ * anchoring that the sentence does not: a paragraph about this reader's event, followed by an
+ * impersonal claim about hours or money, reads as a claim about them whatever its grammar
+ * says. "A week split across three businesses" names nobody and is about somebody.
+ *
+ * Measured on the 56 stored Email 1s of the uploaded cohort: 9 raw hits, 9 true positives, no
+ * false positives. The anchored subset would have blocked 7 of those 9, and the two it let
+ * through (prospects 68335f7c and d2f44329) are both real claims about the reader.
+ *
+ * EMAIL 1 STILL USES THE ANCHORED SUBSET FOR THE OTHER TWO:
+ *
+ *     who_sells, they_lack
+ *
+ * Those fire on OFFER LANGUAGE. "No prospecting on your end" is a who_sells hit and is a
+ * promise about what the sender takes over, which is in the client's own approved template.
+ * The argument above does not reach them: position cannot make a sender promise into a claim
+ * about the reader.
+ *
+ * FOLLOW-UPS USE THE ANCHORED SUBSET FOR EVERYTHING. Emails 2 and 3 are several paragraphs
+ * with no fact sitting above them, so the impersonal form there really can be a statement
+ * about a population. Measured 2026-09-24: blocking the whole detector on follow-ups hit four
+ * live sentences, at least two of them sender-side, and one rejection discards both emails.
+ */
+export const EMAIL1_RAW_BLOCKING_KINDS: readonly AssumedCapacityKind[] = ['their_time', 'their_money']
+
 export interface AssumedCapacityHit {
   kind: AssumedCapacityKind
   /** The matched text, for the log line and the report. */
