@@ -201,8 +201,11 @@ it.** Blind reading file, arms hidden. Spend cap $25.
 
 Do not reopen these, and do not restate them here. They are recorded in Notion:
 
-**MargenticOS — Company Brain → "Messaging and Copy: The Record"**
-<https://app.notion.com/p/3e613d8aec6781a0b64fe12fe14858e9>
+**Notion → MargenticOS — Company Brain → "Messaging and Copy: The Record"**
+
+Referenced by title and path rather than by URL on purpose: a Notion page id is a 32-character
+hex string, which the pre-commit secret gate flags, and that gate is not worth narrowing to save
+a link. Find it from the Company Brain page, or ask the Notion MCP to search the title.
 
 Its subpages carry: how an email is made today; principles and dead ends (including approaches that
 made copy WORSE, such as giving the writer a client brief or voice samples); the experiment and
