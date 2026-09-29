@@ -189,7 +189,16 @@ ${bridge} ${question}`, null, `${observation} ${bridge}`, undefined,
 // THE FIFTH MUST STILL FAIL, and on the gate it always should have failed on. A control
 // that only proves things now pass would be satisfied by deleting every gate.
 describe('the shapes the one-sentence rule rejected', () => {
-  const bridge = 'Firms at that point usually find the next month of work is the part nobody owns.'
+  // CHANGED 2026-09-29, and the change is a finding rather than a tidy-up. The bridge here
+  // used to read "Firms at that point usually find the next month of work is the part nobody
+  // owns." Nothing about these tests is about the bridge; it is scenery, and it was written
+  // when the assumed-capacity detector only counted. That detector now BLOCKS on Email 1,
+  // and "the part nobody owns" is a claim about who inside the reader's company does the
+  // work, which the brief bans outright. The gate was right and the scenery was wrong.
+  //
+  // Replaced with a bridge that says what the EVENT means and makes no claim about the
+  // reader at all, which is the shape these tests need and the shape the rules ask for.
+  const bridge = 'Work of that kind tends to land before the next set of buyers does.'
   const question = 'Is that something you are working on?'
   const gatesFor = (observation: string) => checkOpeningGates(
     `${observation}\n\n${bridge} ${question}`, null, `${observation} ${bridge}`, undefined,

@@ -46,6 +46,16 @@ export interface AssumedCapacityHit {
  * the sender or about the world does not match. "your week" is a claim about them; "the
  * weeks after a launch" is not.
  */
+/**
+ * The nouns that name a share of somebody's finite time or attention, and the verbs that
+ * divide one. ONE DEFINITION EACH, used in both orders of the division pattern below.
+ *
+ * Nouns only, verbs of division only. Nothing here names a service, an industry, a buyer
+ * type or an act of selling, so the shapes built from them stay general.
+ */
+const CAPACITY_NOUN = '(time|hours?|attention|focus|capacity|bandwidth|energy|days?|weeks?)'
+const DIVISION_VERB = '(split|divided|shared|spread|stretched)'
+
 const THEIR_TIME: RegExp[] = [
   // "your time", "your week", "your diary", "your calendar", "your hours", "your day(s)"
   /\byour\s+(own\s+)?(time|week|weeks|day|days|diary|calendar|schedule|hours|bandwidth|capacity|attention|focus)\b/i,
@@ -103,6 +113,44 @@ const THEIR_TIME: RegExp[] = [
   // A ZERO-SUM TIME TRADE. "every hour spent chasing X is an hour not spent on Y" states
   // how the reader's hours divide, which is the same assumption in arithmetic clothing.
   /\b(an?|every|each)\s+(hour|day|week|minute|afternoon|morning)\b[^.!?]{0,80}\bnot\s+(spent|going|available|free)\b/i,
+
+  // ═══ ADDED 2026-09-29: HOW THE READER'S HOURS OR ATTENTION ARE DIVIDED ═══
+  //
+  // Measured on the stored cohort: the three patterns immediately above this block scored
+  // ZERO on every sentence of the one example the operator had named by hand, while the
+  // suite's own positive controls fired. The detector was working; it had no shape for the
+  // claim. Precision was 6 of 6 and recall was the unmeasured half, which is the half that
+  // decides what a gate is worth.
+  //
+  // WHAT THESE THREE HAVE IN COMMON, and why they are three rather than a word list: each
+  // asserts a DIVISION of the reader's finite time between two claims on it. That is a fact
+  // about how their week actually goes, which is the thing nobody outside the business can
+  // see. Each is named by its grammar. None carries an industry, a service, a buyer type or
+  // a verb of selling, and the existing role list is untouched: a division claim does not
+  // become acceptable because it is made about a job title the list happens to omit.
+
+  // CONTENTION FOR ONE POOL OF TIME. A verb of competing or sharing, then "the same" plus a
+  // unit of time or attention. The verb is required: "at the same time" is the ordinary
+  // idiom for simultaneity and says nothing about anyone's week, and a stored observation
+  // reporting two businesses run "at the same time since 2022" is a visible fact.
+  /\b(compet\w+|contend\w+|vie\w*|shar\w+|split\w*|divid\w+|draw\w*|pull\w*)\b[^.!?]{0,30}\bthe\s+same\s+(hours?|time|days?|weeks?|attention|focus|capacity|bandwidth|energy)\b/i,
+
+  // THE ZERO-SUM TRADE WITHOUT THE WORD "NOT". The pattern above requires "not spent" or
+  // "not going", so the same arithmetic written as a loss to the other side was invisible:
+  // "every hour you spend on one is an hour the other never gets back". The construction
+  // itself, a unit of time equated to a unit of time, is the claim.
+  /\b(an?|every|each)\s+(hour|day|week|minute|afternoon|morning)\b[^.!?]{0,80}\bis\s+an?\s+(hour|day|week|minute|afternoon|morning)\b/i,
+
+  // TIME OR ATTENTION EXPLICITLY DIVIDED. A capacity noun and a verb of division, in either
+  // order, with the division landing across two or more claims on it.
+  //
+  // BOTH ORDERS ARE BUILT FROM ONE NOUN LIST, and that is not tidiness. Written out twice,
+  // the second copy lost `days?` and `weeks?` within a minute of being typed, and the only
+  // reason it was caught is that a control sentence used "the week". Two lists that must
+  // agree are the drift this codebase keeps paying for; there is one list here and the
+  // second order cannot disagree with the first.
+  new RegExp(`\\b${CAPACITY_NOUN}\\b[^.!?]{0,40}\\b${DIVISION_VERB}\\s+(between|across|over|among)\\b`, 'i'),
+  new RegExp(`\\b${DIVISION_VERB}\\s+(between|across|over|among)\\b[^.!?]{0,40}\\b${CAPACITY_NOUN}\\b`, 'i'),
 ]
 
 /**

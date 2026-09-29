@@ -22,6 +22,7 @@ import { countSentences } from '@/lib/style/sentence-count'
 import { collapseVerbatimQuotes } from '@/lib/style/quoted-span'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
+import { findAssumedCapacityClaims, assumedCapacityFeedback } from '@/lib/style/assumed-capacity'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
 // The subject character cap lives with the messaging agent's other limits and is
@@ -1663,6 +1664,43 @@ export function checkOpeningGates(
     failures.push(...checkActivityVerdict(
       params.observation, params.bridge, { prospectId: context?.prospectId ?? 'unknown' },
     ))
+
+    // ═══ GUESSING HOW THE READER'S WEEK GOES. THIS BLOCKS, from 2026-09-29. ═══
+    //
+    // Same discipline the activity verdict served before its own flip: counted first, gated
+    // once its rate on real copy was known. Replayed over the 56 stored personalised Email 1s
+    // of the uploaded cohort it hit 6, and all six are the banned claim rather than near
+    // misses: a flagship engagement filling the reader's calendar, new client work needed the
+    // moment their calendar clears, a search taking the weeks that would otherwise go
+    // elsewhere. All six had already shipped.
+    //
+    // PRECISION WAS THE HALF THAT WAS MEASURED, AND RECALL WAS THE HALF THAT MATTERED. The
+    // same replay scored ZERO on the one example the operator had picked out by hand, while
+    // the suite's own positive controls fired: the detector worked and had no shape for a
+    // claim about hours being DIVIDED between two calls on them. Three patterns were added to
+    // assumed-capacity.ts in the same change, so this gate is not the one that was measured
+    // at 6 of 56; it is that one plus recall it did not have.
+    //
+    // ALL THREE PARTS. The question carried two of those six hits, so a gate reading the
+    // observation and the bridge alone would have passed a third of what it exists to catch.
+    // The counter in prospect-research-agent-v2.ts still reads the bridge and the question
+    // only; it is a tally and it is left alone.
+    for (const [part, text] of [
+      ['observation', params.observation],
+      ['bridge', params.bridge],
+      ['question', params.question],
+    ] as const) {
+      const hits = findAssumedCapacityClaims(text)
+      if (hits.length > 0) {
+        logger.info('writer-assumed-capacity: gated', {
+          prospectId: context?.prospectId ?? 'unknown',
+          part,
+          kinds: [...new Set(hits.map(h => h.kind))],
+          matched: hits.map(h => h.matched),
+        })
+        failures.push(`${part}: ${assumedCapacityFeedback(hits)}`)
+      }
+    }
 
     for (const [part, text] of [['observation', params.observation], ['bridge', params.bridge]] as const) {
       // Named logContext, not context: a local called `context` would shadow the

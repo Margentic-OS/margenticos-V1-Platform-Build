@@ -196,3 +196,60 @@ describe('the feedback names the text, not the rule', () => {
     expect(text.match(/"your time"/g)).toHaveLength(1)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HOW THE READER'S HOURS OR ATTENTION ARE DIVIDED. Added 2026-09-29.
+//
+// WHY THESE EXIST. Replayed over 56 stored personalised Email 1s the detector scored 6 hits
+// and all six were genuine, so its PRECISION looked settled. On the one sentence the
+// operator had picked out by hand it scored ZERO, while this file's own positive controls
+// fired: the detector worked and simply had no shape for a claim about time being DIVIDED
+// between two calls on it. Precision was the half that had been measured; recall was the
+// half that decides what a gate is worth.
+//
+// EVERY FIXTURE BELOW IS INVENTED. The firms and the situations are made up, and the shapes
+// are the operator's, restated so no real prospect appears in this repository.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('a claim about how the reader\'s hours are divided', () => {
+  const fires = (s: string) => findAssumedCapacityClaims(s).length > 0
+
+  it('fires when two things are said to compete for one pool of hours', () => {
+    expect(fires("Harbour Lane's next projects compete for the same hours as your second company.")).toBe(true)
+    expect(fires('The two roles draw on the same attention every week.')).toBe(true)
+  })
+
+  it('fires on a zero-sum trade written as a loss rather than with the word "not"', () => {
+    // The pre-existing zero-sum pattern requires "not spent" or "not going", so the same
+    // arithmetic written as a loss to the other side was invisible.
+    expect(fires('Every hour you spend on the second venture is an hour the first one never gets back.')).toBe(true)
+    expect(fires('Each day given to one is a day the other waits.')).toBe(true)
+  })
+
+  it('fires on time or attention explicitly divided, in BOTH word orders', () => {
+    // The two orders are built from one shared noun list. Written out twice, the second copy
+    // lost "days" and "weeks" immediately, and only a control using "the week" caught it.
+    expect(fires('Your attention is divided between the two companies.')).toBe(true)
+    expect(fires('A founder spread across two firms has less of the week for either.')).toBe(true)
+    expect(fires('The week is stretched across both of them.')).toBe(true)
+  })
+
+  it('stays silent on a SENDER PROMISE, which is what the service takes over', () => {
+    // The operator's own negative control. A promise that the reader stops doing something
+    // is an offer, not a claim about their diary, and it is in the approved template.
+    expect(fires('You stop chasing the calendar.')).toBe(false)
+    expect(fires('We keep the conversations arriving while the current work runs.')).toBe(false)
+  })
+
+  it('stays silent on "at the same time", which is the ordinary idiom for simultaneity', () => {
+    // A stored observation reported two businesses run "at the same time since 2022". That
+    // is a visible fact about what exists, not a claim about how a week is spent, which is
+    // why the contention verb is required rather than the phrase alone.
+    expect(fires('You have run both businesses as active companies at the same time since 2022.')).toBe(false)
+    expect(fires('Both announcements landed at the same time.')).toBe(false)
+  })
+
+  it('stays silent where "takes time" is the idiom for slowness', () => {
+    expect(fires('That kind of hire takes time to ramp.')).toBe(false)
+  })
+})
