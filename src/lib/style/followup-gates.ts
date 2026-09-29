@@ -226,9 +226,17 @@ export function companyNameForms(companyName: string | null | undefined): string
   // be credited with a callback because the email happened to say "restaurant". Anything
   // looser starts accepting ordinary nouns as company references, which turns a gate that
   // was too strict into one that passes copy it should reject.
+  // A LEADING ARTICLE IS NOT A NAME. Added 2026-09-29. Measured on the live prospect table:
+  // 21 of 660 companies are stored with a leading "The" or "A", and for every one of them this
+  // loop returned that article as the firm's distinguishing short form. The consequence runs
+  // both ways and both are wrong: the callback gate credited any sentence containing "The" as
+  // naming the company, and the capacity gate treated any such sentence as an unambiguous
+  // claim about that reader.
+  const ARTICLES = new Set(['the', 'a', 'an'])
   for (const raw of companyName.split(/[\s,./&-]+/)) {
     const token = raw.replace(/[^\p{L}\p{N}]/gu, '')
     if (token.length < 2) continue
+    if (ARTICLES.has(token.toLowerCase())) continue
     if (COMPANY_SUFFIXES.has(token.toLowerCase())) continue
     forms.push(token)
     break

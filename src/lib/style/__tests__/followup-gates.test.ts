@@ -798,3 +798,25 @@ describe('a weekday is not the name of a thing', () => {
     expect(f.some(x => x.includes('Tuesday'))).toBe(false)
   })
 })
+
+describe('companyNameForms skips a leading article', () => {
+  it('returns the distinguishing token, not "The"', () => {
+    // Measured on the live prospect table 2026-09-29: 21 of 660 companies are stored with a
+    // leading article, and every one of them returned that article as its short form. The
+    // consequence runs both ways and both are wrong: the callback gate credited any sentence
+    // containing "The" as naming the company, and the capacity gate treated any such sentence
+    // as an unambiguous claim about that reader.
+    expect(companyNameForms('The Delivery Company')).toEqual(['Delivery'])
+    expect(companyNameForms('A Better Workshop')).toEqual(['Better'])
+    expect(companyNameForms('An Open Studio')).toEqual(['Open'])
+  })
+
+  it('leaves a name that merely CONTAINS an article word alone', () => {
+    expect(companyNameForms('Theta Advisory')).toEqual(['Theta'])
+    expect(companyNameForms('Anchor Consulting')).toEqual(['Anchor'])
+  })
+
+  it('still prefers an acronym wherever it sits', () => {
+    expect(companyNameForms('The Delivery Company (TDC)')).toContain('TDC')
+  })
+})

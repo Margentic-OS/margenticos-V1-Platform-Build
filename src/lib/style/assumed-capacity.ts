@@ -29,7 +29,7 @@
 
 import { splitIntoSentences } from './sentence-count'
 
-export type AssumedCapacityKind = 'their_time' | 'who_sells' | 'they_lack'
+export type AssumedCapacityKind = 'their_time' | 'who_sells' | 'they_lack' | 'their_money'
 
 export interface AssumedCapacityHit {
   kind: AssumedCapacityKind
@@ -53,6 +53,18 @@ export interface AssumedCapacityHit {
  * Nouns only, verbs of division only. Nothing here names a service, an industry, a buyer
  * type or an act of selling, so the shapes built from them stay general.
  */
+/**
+ * Nouns naming a share of somebody's MONEY: what comes in, what is held, what is owed to
+ * them. ONE DEFINITION, used by every money shape below, for the reason the division patterns
+ * learned the hard way: a second copy of a noun list loses an entry and nothing says so.
+ *
+ * DELIBERATELY WITHOUT "price", "pricing", "cost" or "invoice". Those name a NUMBER ON AN
+ * OFFER, which anyone may mention neutrally, and a rule that fired on them would reject a
+ * sentence saying what something costs. What is banned is asserting how much of it THEY have.
+ */
+const MONEY_NOUN = '(income|revenue|revenues|turnover|cash|cashflow|cash flow|billings|fees|' +
+  'margins?|profits?|earnings|takings|receipts|funding|runway)'
+
 const CAPACITY_NOUN = '(time|hours?|attention|focus|capacity|bandwidth|energy|days?|weeks?)'
 const DIVISION_VERB = '(split|divided|shared|spread|stretched)'
 
@@ -151,6 +163,54 @@ const THEIR_TIME: RegExp[] = [
   // second order cannot disagree with the first.
   new RegExp(`\\b${CAPACITY_NOUN}\\b[^.!?]{0,40}\\b${DIVISION_VERB}\\s+(between|across|over|among)\\b`, 'i'),
   new RegExp(`\\b${DIVISION_VERB}\\s+(between|across|over|among)\\b[^.!?]{0,40}\\b${CAPACITY_NOUN}\\b`, 'i'),
+]
+
+/**
+ * ═══ WHAT THE READER'S MONEY IS DOING. Added 2026-09-29. ═══
+ *
+ * The same class as the time shapes and the same argument: you can see an event from outside,
+ * you cannot see a balance sheet. A sentence asserting what a company earns, holds or has
+ * stopped earning is a guess about a stranger's finances, and a wrong one in the second line
+ * is worse than a generic line.
+ *
+ * WHY IT IS A SEPARATE KIND. It is the gap two other checks leave open, measured on the stored
+ * cohort: the fact-check can pass a money claim when a finding happens to mention the event
+ * behind it, and the firmographic rule bans FIGURES, so a claim carrying no number goes
+ * straight through. Prospects 1b2a2796 and 6835f6e6 both shipped one.
+ *
+ * NO AMOUNT IS NAMED IN ANY PATTERN. Numbers are the firmographic rule's job and it already
+ * does it. These are about the ASSERTION, which is why they work without a figure.
+ *
+ * ANCHORING IS THE CALLER'S JOB, not these patterns'. A money noun in a population statement
+ * is a legitimate bridge, and Email 1's bridge is required to be one. isUnambiguousReaderClaim
+ * is what separates "firms lose the income behind them when a contract ends" from the same
+ * sentence with this reader's name in it, and both gates now apply it.
+ */
+const THEIR_MONEY: RegExp[] = [
+  // A POSSESSIVE, SECOND PERSON OR ON A NAME, PLUS A MONEY NOUN. "your revenue", "your second
+  // income", "Acme's billings". The same two shapes the time patterns use, because a
+  // possessive is how a claim about whose money it is gets made.
+  new RegExp(`\\byour\\s+(own\\s+)?(\\w+\\s+){0,2}${MONEY_NOUN}\\b`, 'i'),
+  new RegExp(`\\b[A-Z][A-Za-z0-9&.\u2019'-]*(?:[\u2019']s|s[\u2019'])\\s+${MONEY_NOUN}\\b`, ''),
+
+  // AN ABSENCE OF MONEY. "without a second income behind it", "without the revenue it was
+  // running beside". Both stored examples are this shape, and neither carries a figure.
+  new RegExp(`\\bwithout\\s+(a|an|any|the|that|its|their|your)\\s+(\\w+\\s+){0,2}${MONEY_NOUN}\\b`, 'i'),
+
+  // ── TWO SHAPES TRIED AND DROPPED, 2026-09-29, recorded so they are not re-derived ──
+  //
+  // MONEY AS THE SUBJECT OF A LOSS, `<money noun> ... stopped|dried up|is gone`. It fires on
+  // "Steady income just stopped", which is in this module's own leave-alone list: as a trigger
+  // reason that is the CONSEQUENCE OF THE EVENT, which is what a reason is required to be,
+  // not a guess about anyone. A detector that rejects the copy the rules ask for is worse
+  // than no detector.
+  //
+  // THEY NEED OR LACK MONEY, `needs|lacks|replace ... <money noun>`. It fired on nothing in
+  // the corpus, so it is unmeasured recall, and "needs" is the ordinary verb of a trigger
+  // reason. The highest-risk phrasing in the register this detector also gates.
+  //
+  // Both were dropped because the two stored examples this shape exists for are the ABSENCE
+  // form, which the pattern above catches, so neither bought anything measurable.
 ]
 
 /**
@@ -289,8 +349,34 @@ const SECOND_PERSON_READER = /\byou(?:[\u2019']re|r|rs|rself)?\b/i
  * Measured 2026-09-24 against the client's approved copy: without this, two of eighty-six
  * approved sentences were rejected, and both were offer statements.
  */
-const READER_NOT_DOING_IT =
-  /\b(no|never|without|do(?:es)?n[\u2019']t|do not|does not|stop|stops|stopped)\b/i
+const READER_NOT_DOING_IT = new RegExp([
+  // "without you touching the outreach", "without you lifting a finger"
+  '\\bwithout\\s+you\\b',
+  // "You don't touch the prospecting", "you never write a list"
+  '\\byou\\s+(?:do\\s+not|don[\u2019\']t|never|no\\s+longer)\\s+\\w+',
+  // "You stop chasing the calendar"
+  '\\byou\\s+stop(?:s|ped)?\\s+\\w+',
+  // "No prospecting on your end", "nothing on your side"
+  '\\b(?:no|nothing)\\b[^.!?]{0,25}\\bon\\s+your\\s+(?:end|side|part|behalf)\\b',
+].join('|'), 'i')
+
+/**
+ * ═══ NARROWED 2026-09-29, AND IT WAS EXEMPTING ALMOST EVERYTHING ═══
+ *
+ * This was a bare alternation of `no|never|without|don't|do not|stop|stops|stopped` matched
+ * ANYWHERE in the sentence. Every one of its documented examples ties the negation to the
+ * READER not doing the work, but nothing in the pattern required that, so any sentence
+ * containing a negation at all was read as a sender promise and exempted from the capacity
+ * gate outright.
+ *
+ * Found by trying to use it. Two stored bridges asserting the reader's finances, prospects
+ * 1b2a2796 and 6835f6e6, were both exempted on the word "without" in "without a second income
+ * behind it" and "without the revenue it was running beside". The negation there is part of
+ * the CLAIM, not a promise that the reader need do nothing.
+ *
+ * Now each alternative names the reader explicitly. Every example the comment below lists
+ * still matches; a bare negation no longer does.
+ */
 
 /**
  * SOMETHING ARRIVING IN THE READER'S DIARY IS A DELIVERY PROMISE.
@@ -367,7 +453,7 @@ export function findAssumedCapacityClaims(text: string): AssumedCapacityHit[] {
   if (!text || !text.trim()) return []
   const hits: AssumedCapacityHit[] = []
   for (const sentence of sentencesOf(text)) {
-    for (const [kind, patterns] of [['their_time', THEIR_TIME], ['who_sells', WHO_SELLS], ['they_lack', THEY_LACK]] as const) {
+    for (const [kind, patterns] of [['their_time', THEIR_TIME], ['who_sells', WHO_SELLS], ['they_lack', THEY_LACK], ['their_money', THEIR_MONEY]] as const) {
       for (const re of patterns) {
         const m = sentence.match(re)
         if (m) {

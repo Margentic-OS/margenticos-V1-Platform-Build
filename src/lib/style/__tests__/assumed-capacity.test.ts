@@ -9,7 +9,7 @@
 // shapes are the shapes of an assumption about a reader, and they are the same in any market.
 
 import { describe, it, expect } from 'vitest'
-import { findAssumedCapacityClaims, assumedCapacityFeedback } from '../assumed-capacity'
+import { findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, isSenderSide } from '../assumed-capacity'
 
 const hit = (s: string) => findAssumedCapacityClaims(s)
 
@@ -251,5 +251,89 @@ describe('a claim about how the reader\'s hours are divided', () => {
 
   it('stays silent where "takes time" is the idiom for slowness', () => {
     expect(fires('That kind of hire takes time to ramp.')).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WHAT THE READER'S MONEY IS DOING. Added 2026-09-29.
+//
+// The gap the other checks leave open, measured on the stored cohort: the fact-check can pass
+// a money claim when a finding mentions the event behind it, and the firmographic rule bans
+// FIGURES, so a claim carrying no number goes straight through. Two stored Email 1s shipped
+// one. They are referred to here by prospect id and their text is NOT reproduced; every
+// fixture below is an invented sentence of the same shape.
+//
+// NO AMOUNT APPEARS IN ANY PATTERN. Numbers are the firmographic rule's job.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('a claim about the reader\'s money', () => {
+  const fires = (s: string) => findAssumedCapacityClaims(s).some(h => h.kind === 'their_money')
+
+  it('fires on the ABSENCE shape, which is what both stored examples were', () => {
+    // Prospects 1b2a2796 and 6835f6e6. Invented equivalents, same grammar.
+    expect(fires('The Delivery Company now needs to win new clients without a second income behind it.')).toBe(true)
+    expect(fires('A closed engagement leaves Kestrel without the revenue it was running beside.')).toBe(true)
+  })
+
+  it('fires on a possessive, second person or on a name', () => {
+    expect(fires('Your revenue depends on one contract.')).toBe(true)
+    expect(fires("Kestrel's billings come from two clients.")).toBe(true)
+    expect(fires('Your margins are thinner than they were.')).toBe(true)
+  })
+
+  it('stays silent on a NEUTRAL mention of a fee, a price or a cost', () => {
+    // The operator's negative control. A number on an offer is something anyone may mention;
+    // what is banned is asserting how much of it THEY have. "price", "pricing", "cost" and
+    // "invoice" are deliberately absent from the noun list for this reason.
+    expect(fires('The workshop has a fixed fee.')).toBe(false)
+    expect(fires('Pricing is published on the site.')).toBe(false)
+    expect(fires('That kind of repair costs less than the downtime.')).toBe(false)
+    expect(fires('You will get an invoice at the end of the month.')).toBe(false)
+  })
+
+  it('stays silent on a SENDER PROMISE about money', () => {
+    expect(fires('You pay nothing until a meeting is booked.')).toBe(false)
+    expect(fires('We work for a share of what it brings in.')).toBe(false)
+  })
+
+  it('stays silent where the event itself is the subject, with no money claim', () => {
+    expect(fires('You announced a new product line on 14 August.')).toBe(false)
+    expect(fires('A contract ending is the moment the next one has to exist.')).toBe(false)
+  })
+
+  // THE SHAPE THE PATTERN CANNOT JUDGE ON ITS OWN, stated rather than hidden. An absence of
+  // money in a POPULATION statement is the copy the brief asks for; the same sentence naming
+  // this reader is the claim it bans, and the difference is not in the shape. That is what
+  // isUnambiguousReaderClaim decides, and why both gates apply it.
+  it('DOES fire on a population statement, which is why the caller must anchor it', () => {
+    const s = 'Firms without a second income have to replace it faster.'
+    expect(fires(s)).toBe(true)
+    const [hit] = findAssumedCapacityClaims(s)
+    expect(isUnambiguousReaderClaim(hit, [])).toBe(false)
+    expect(isUnambiguousReaderClaim(hit, ['Kestrel'])).toBe(false)
+    // And the same sentence naming the reader does block.
+    const named = findAssumedCapacityClaims('Kestrel is without a second income now.')[0]
+    expect(isUnambiguousReaderClaim(named, ['Kestrel'])).toBe(true)
+  })
+})
+
+describe('the sender exemption names the reader, rather than matching any negation', () => {
+  const exempt = (s: string, m: string) => isSenderSide(s, m)
+
+  it('still exempts every shape it was written for', () => {
+    expect(exempt('Booked calls land on your calendar without you touching the prospecting side.', 'your calendar')).toBe(true)
+    expect(exempt('No prospecting on your end.', 'prospecting')).toBe(true)
+    expect(exempt("You don't touch the list building.", 'list')).toBe(true)
+    expect(exempt('You stop chasing the calendar.', 'calendar')).toBe(true)
+    expect(exempt('We run the outreach and you take the calls.', 'outreach')).toBe(true)
+  })
+
+  it('NO LONGER exempts a sentence merely because it contains a negation', () => {
+    // It matched a bare `no|never|without|don't|stop` anywhere, so any sentence carrying a
+    // negation was read as a sender promise and left the capacity gate entirely. Both stored
+    // money-guess bridges were exempted on the word "without".
+    expect(exempt('The Delivery Company now needs to win new clients without a second income behind it.', 'without a second income')).toBe(false)
+    expect(exempt('A closed engagement leaves Kestrel without the revenue it was running beside.', 'without the revenue')).toBe(false)
+    expect(exempt('Your calendar never clears before the next job starts.', 'Your calendar')).toBe(false)
   })
 })

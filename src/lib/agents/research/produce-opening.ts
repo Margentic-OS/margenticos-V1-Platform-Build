@@ -359,6 +359,9 @@ export async function produceOpening({
     clientName,
     buyer: buyer.description,
     prospectFirstName: ctx.first_name,
+    // For the capacity gate's blocking subset. A claim naming the firm rather than the
+    // reader does not block without it, and both stored examples are that shape.
+    prospectCompanyName: ctx.company_name ?? null,
     candidates,
     selectedCandidateId,
     relevanceReason,

@@ -22,7 +22,8 @@ import { countSentences } from '@/lib/style/sentence-count'
 import { collapseVerbatimQuotes } from '@/lib/style/quoted-span'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
-import { findAssumedCapacityClaims, assumedCapacityFeedback } from '@/lib/style/assumed-capacity'
+import { findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim } from '@/lib/style/assumed-capacity'
+import { companyNameForms } from '@/lib/style/followup-gates'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
 // The subject character cap lives with the messaging agent's other limits and is
@@ -1433,7 +1434,7 @@ export function checkOpeningGates(
    * For the sentence-initial log line only. Optional so existing single-purpose callers
    * and tests need not thread it through; production always passes it.
    */
-  context?: { prospectId: string },
+  context?: { prospectId: string; companyName?: string | null },
   /**
    * The findings block the writer was actually shown, which is wider than the evidence
    * corpus. Numbers only, see untraceableClaims. Optional so existing single-purpose
@@ -1685,20 +1686,42 @@ export function checkOpeningGates(
     // observation and the bridge alone would have passed a third of what it exists to catch.
     // The counter in prospect-research-agent-v2.ts still reads the bridge and the question
     // only; it is a tally and it is left alone.
+    // ═══ THE BLOCKING SUBSET, THE SAME ONE THE FOLLOW-UP GATE USES ═══
+    //
+    // Added 2026-09-29, and it corrects a rule this file introduced earlier the same day.
+    // Email 1 blocked on EVERY hit while follow-ups blocked only on isUnambiguousReaderClaim,
+    // so one detector was enforcing two different rules depending on which email it read.
+    //
+    // EMAIL 1 IS THE POSITION THAT MOST NEEDS THE NARROWER RULE, not the least. Its bridge is
+    // REQUIRED to be a statement about a population, and the impersonal form is exactly what
+    // isUnambiguousReaderClaim declines to block. "Firms without a second income have to
+    // replace it faster" is the copy the brief asks for; the same sentence naming this reader
+    // is the claim it bans. No pattern can tell those apart, because the difference is not in
+    // the shape, and that is the whole reason the subset exists.
+    const readerNames = companyNameForms(context?.companyName ?? null)
     for (const [part, text] of [
       ['observation', params.observation],
       ['bridge', params.bridge],
       ['question', params.question],
     ] as const) {
-      const hits = findAssumedCapacityClaims(text)
-      if (hits.length > 0) {
+      const all = findAssumedCapacityClaims(text)
+      const blocking = all.filter(h => isUnambiguousReaderClaim(h, readerNames))
+      // REPORTED EVEN WHEN NOT BLOCKED, because the impersonal form is the one that turns
+      // into a real claim the moment a name is added, and a rate nobody logs is a rate
+      // nobody can check later.
+      for (const h of all.filter(h => !blocking.includes(h))) {
+        logger.info('writer-assumed-capacity: scored, not gated', {
+          prospectId: context?.prospectId ?? 'unknown', part, kind: h.kind, matched: h.matched,
+        })
+      }
+      if (blocking.length > 0) {
         logger.info('writer-assumed-capacity: gated', {
           prospectId: context?.prospectId ?? 'unknown',
           part,
-          kinds: [...new Set(hits.map(h => h.kind))],
-          matched: hits.map(h => h.matched),
+          kinds: [...new Set(blocking.map(h => h.kind))],
+          matched: blocking.map(h => h.matched),
         })
-        failures.push(`${part}: ${assumedCapacityFeedback(hits)}`)
+        failures.push(`${part}: ${assumedCapacityFeedback(blocking)}`)
       }
     }
 
@@ -2218,6 +2241,15 @@ export interface WriteAndJudgeParams {
   templateOpening: string
   prospectId: string
   /**
+   * The prospect's company as stored, for the capacity gate's blocking subset only.
+   *
+   * WITHOUT IT THE SUBSET FALLS BACK TO SECOND PERSON ALONE, and a claim naming the firm
+   * rather than the reader stops blocking. Both stored money-guess bridges are that shape:
+   * neither says "you". Optional so the offline tests need not thread it; production passes
+   * it, and produce-opening is the only production caller.
+   */
+  prospectCompanyName?: string | null
+  /**
    * Batch-scoped uniqueness for the bridge and the closing question. Omit for a single
    * prospect run: with nothing else in the batch there is nothing to collide with, and a
    * per-prospect registry would only ever reserve against itself.
@@ -2498,7 +2530,9 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     // The cap covers the whole written block, so gate the combined text.
     const gates = checkOpeningGates(
       `${opening} ${question}`.trim(), params.prospectFirstName, findingsEvidence, params.p3,
-      { observation, bridge, question }, { prospectId: params.prospectId }, findings,
+      { observation, bridge, question },
+      { prospectId: params.prospectId, companyName: params.prospectCompanyName ?? null },
+      findings,
     )
     // THE EVENT YEAR, for each event the observation actually names.
     //
