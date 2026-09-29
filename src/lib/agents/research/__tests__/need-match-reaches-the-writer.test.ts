@@ -16,6 +16,8 @@
 // RULE ZERO. Every fixture is invented and industry-neutral.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import fs from 'fs'
+import path from 'path'
 
 const db = vi.hoisted(() => ({ tables: {} as Record<string, Array<Record<string, unknown>>> }))
 const createMock = vi.hoisted(() => vi.fn())
@@ -224,5 +226,47 @@ describe('produceOpening calls the check, with the document, at the right moment
     const failures = await (await closureFor(TEXT))({ bridge: '  ', question: '' })
     expect(createMock.mock.calls).toHaveLength(0)
     expect(failures).toEqual([])
+  })
+})
+
+// ── THE TWO PRODUCTION CALL SITES ──────────────────────────────────────────────
+//
+// Every test above drives produceOpening DIRECTLY and passes the document itself, so all of
+// them stay green if the two production callers stop passing it. That is precisely the shape
+// this branch's header warns about: the three fields declared on WriteAndJudgeParams and
+// never passed were undefined in production for twelve days with tests green at both ends.
+//
+// Reading the source is crude and it is what is available. Building either caller far enough
+// to observe the argument means a Supabase project, a messaging document and a batch entry,
+// and a fixture that large tests the fixture.
+//
+// WHAT IT CATCHES: the line being deleted, renamed, or pointed at something else.
+// WHAT IT CANNOT: the value arriving null for a reason upstream of the call. The
+// loadClientContext tests above cover that end of the same chain.
+// The precedent and its positive control are followup-usage-is-reported.test.ts.
+describe('both production callers pass the document', () => {
+  const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), 'utf8')
+  const inline = read('src/lib/agents/prospect-research-agent-v2.ts')
+  const collect = read('src/lib/agents/prospect-research-collect-agent.ts')
+
+  it('can find something it is certain about, so a miss below is the code and not the read', () => {
+    // Without this, a renamed or moved module makes every assertion here pass vacuously on
+    // an empty string. icpBuyerTitle is the sibling field that travels the same route.
+    for (const [name, src] of [['inline', inline], ['collect', collect]] as const) {
+      expect(src.length, name).toBeGreaterThan(1000)
+      expect(src, name).toContain('icpBuyerTitle')
+      expect(src, name).toContain('produceOpening(')
+    }
+  })
+
+  it('the inline agent passes it off the same client context read as the buyer title', () => {
+    expect(inline).toMatch(/positioningText:\s*clientCtx\.positioningText/)
+  })
+
+  it('phase 2 of the batch path passes it off the SNAPSHOT, defaulting to null', () => {
+    // The snapshot and not a fresh read, so the needs are judged against the document phase 1
+    // planned against. An entry written before the field existed has no key and reads back
+    // undefined, which must become null rather than an assertion that the document is empty.
+    expect(collect).toMatch(/positioningText:\s*entry\.client_context\?\.positioningText\s*\?\?\s*null/)
   })
 })
