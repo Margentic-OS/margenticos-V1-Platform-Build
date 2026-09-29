@@ -215,7 +215,7 @@ describe('a claim about how the reader\'s hours are divided', () => {
   const fires = (s: string) => findAssumedCapacityClaims(s).length > 0
 
   it('fires when two things are said to compete for one pool of hours', () => {
-    expect(fires("Harbour Lane's next projects compete for the same hours as your second company.")).toBe(true)
+    expect(fires("Kestrel Works's next projects compete for the same hours as your second company.")).toBe(true)
     expect(fires('The two roles draw on the same attention every week.')).toBe(true)
   })
 
