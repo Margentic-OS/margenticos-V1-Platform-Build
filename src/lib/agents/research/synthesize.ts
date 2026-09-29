@@ -800,7 +800,7 @@ export function findProspectReasonFaults(reason: string): string[] {
 /**
  * A CANDIDATE THAT NAMES WHAT THE PROSPECT LACKS IS NOT A HOOK. Added 2026-09-28.
  *
- * WHY IN ELIGIBILITY AND NOT IN A PROSE GATE. Brian Murphy's chosen fact was "All five blog
+ * WHY IN ELIGIBILITY AND NOT IN A PROSE GATE. one prospect's (id 31ebdeaf) chosen fact was "All five blog
  * posts published in 2026 are personal lifestyle content covering vacations, family, and
  * moving, with no IT, business development, or client-facing content visible." The absence IS
  * the candidate. A gate on the written sentence only teaches the writer to paraphrase the same
@@ -814,9 +814,9 @@ export function findProspectReasonFaults(reason: string): string[] {
  * its own doc comment says "Report only: nothing acts on these" — this is the change that makes
  * something act. A second copy of those patterns is a second list to keep in step.
  *
- * MEASURED against real candidate text before it was written: it flags Brian Murphy's and
- * Aubrey Edwards's absence candidates, and flags NEITHER John McCarthy's 15 September post nor
- * Richard Spilsbury's blog post, both of which stay eligible.
+ * MEASURED against real candidate text before it was written: it flags one prospect's (id 31ebdeaf) and
+ * another's (id 2455e55c) absence candidates, and flags NEITHER a third prospect's (id 1a523aab) 15 September post nor
+ * a fourth prospect's blog post, both of which stay eligible.
  *
  * REACH IS PARTIAL AND THAT IS NOT HIDDEN. This runs inside synthesis, so a FRESH run excludes
  * the candidate from selection. A REUSE run reads selected_candidate_id off the row and does

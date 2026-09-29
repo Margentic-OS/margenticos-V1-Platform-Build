@@ -8,7 +8,7 @@
  *
  *   "John published a post on 15 September positioning AGI against transactional recruiters
  *    who send resumes WITHOUT FOLLOW-through"      <- the absence is about RECRUITERS
- *   "Vanessa published 'Your Mission on the Wall. A Destination NO ONE Knows.'"
+ *   "a prospect published 'Your Mission on the Wall. A Destination NO ONE Knows.'"
  *                                                  <- the absence is inside a QUOTED TITLE
  *   "a piece on why the right message is NOT ENOUGH WITHOUT the right audience"
  *                                                  <- the absence is the TOPIC she wrote about
@@ -16,9 +16,9 @@
  * All three are dated things the prospect DID, which is exactly what a hook is supposed to be.
  *
  * DATE PRECISION DOES NOT SEPARATE THEM, which was the first idea and worth recording as a
- * dead end: of the 13, day-precise dates appear on both the true hits (Brian Murphy's
- * lifestyle-content survey, 2026-05-19) and the false ones (McCarthy 2026-09-15), so a
- * date-based rule keeps Brian and drops John, the precise opposite of what is wanted.
+ * dead end: of the 13, day-precise dates appear on both the true hits (one prospect's (id 31ebdeaf)
+ * lifestyle-content survey, 2026-05-19) and the false ones (prospect 1a523aab 2026-09-15), so a
+ * date-based rule keeps the first and drops the other, the precise opposite of what is wanted.
  *
  * WHAT DOES SEPARATE THEM IS WHOSE ABSENCE IT IS. Two exclusions, in order:
  *

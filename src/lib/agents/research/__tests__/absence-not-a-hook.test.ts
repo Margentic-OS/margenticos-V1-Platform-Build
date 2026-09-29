@@ -1,6 +1,6 @@
 // A candidate that names what the prospect LACKS is not a hook.
 //
-// WHY IN ELIGIBILITY, NOT IN A PROSE GATE. Brian Murphy's chosen fact was an absence: "All five
+// WHY IN ELIGIBILITY, NOT IN A PROSE GATE. one prospect's (id 31ebdeaf) chosen fact was an absence: "All five
 // blog posts published in 2026 are personal lifestyle content ... with no IT, business
 // development, or client-facing content visible." The absence IS the candidate, so a gate on the
 // written sentence only teaches the writer to paraphrase it — the material it was given contains
