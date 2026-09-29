@@ -110,8 +110,37 @@ describe('the identity scrub does not regress', () => {
     expect(scanText(`she has run ${a} ${b} since 2023`)).not.toEqual([])
   })
 
+  // THE CONTROLS ABOVE ONLY PROVE THE 2026-09-15 ENTRIES ARE WIRED. These two prove the
+  // 2026-09-29 ones are, and they are separate tests on purpose: a merge that dropped the
+  // second batch would leave every test above green.
+  it('POSITIVE CONTROL: the scanner finds a token added in the second scrub', () => {
+    const planted = String.fromCharCode(109, 97, 103, 110, 101, 116, 117, 100, 101)
+    expect(TOKENS.has(sha256(planted))).toBe(true)
+    expect(LENGTHS.has(planted.length)).toBe(true) // the pre-filter must not skip it
+    expect(scanText(`a sentence naming ${planted} in passing`)).not.toEqual([])
+  })
+
+  it('POSITIVE CONTROL: the scanner finds a phrase added in the second scrub', () => {
+    const a = String.fromCharCode(97, 115, 116, 111, 110)
+    const b = String.fromCharCode(104, 101, 97, 108, 116, 104)
+    expect(PHRASES.has(sha256(`${a} ${b}`))).toBe(true)
+    expect(scanText(`they have worked with ${a} ${b} since 2024`)).not.toEqual([])
+  })
+
   it('does not fire on ordinary prose', () => {
     expect(scanText('The writer prompt asks for one sentence, and the gate enforces it.')).toEqual([])
+  })
+
+  // THE REPLACEMENTS ARE NOT THEMSELVES BANNED, and this says so out loud. Every invented
+  // name written in on 2026-09-29 was checked against the live prospects and organisations
+  // tables first; a replacement that collided with a real prospect would have scrubbed one
+  // identity in by the same edit that scrubbed another out.
+  it('does not fire on the invented replacement names', () => {
+    expect(scanText(
+      'Lantern Business Consulting, Inc. and Bramble Consulting LLC and Velmont Consulting ' +
+      'and Harbour Restaurant Consulting and KALVAR Management Consulting and Brightpath ' +
+      'Delivery Group and Remote Desk Tuesday (RDT Ltd) and Kestrel Healthcare Consulting',
+    )).toEqual([])
   })
 
   it('actually scanned a meaningful number of files', () => {

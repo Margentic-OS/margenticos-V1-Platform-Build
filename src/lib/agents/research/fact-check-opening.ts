@@ -6,9 +6,9 @@
 // prospect, because that is not a property of the string. Two real examples from the 104,
 // both of which passed every existing gate:
 //
-//   "A structured role like that one brings new people to Higher Impact regularly."
+//   "A structured role like that one brings new people to Brightpath regularly."
 //        The findings say only that the role ENDED. Nothing says it ever brought anyone in.
-//   "The Operations Company now needs to win new clients without a second income behind it."
+//   "The Delivery Company now needs to win new clients without a second income behind it."
 //        The findings say a second role ended. Nothing says the company needs clients, and
 //        nothing establishes its finances.
 //
@@ -33,7 +33,7 @@
 // A GENERAL STATEMENT ABOUT A POPULATION STAYS ALLOWED, and that is not a loophole: Email 1's
 // bridge is SUPPOSED to be one. The rule is about the SUBJECT. "Most firms that grow this way
 // hit the same week twice a year" is a claim about a market. "A structured role like that one
-// brings new people to Higher Impact regularly" names the firm and is a claim about it.
+// brings new people to Brightpath regularly" names the firm and is a claim about it.
 
 import Anthropic from '@anthropic-ai/sdk'
 import { logger } from '@/lib/logger'
@@ -82,7 +82,7 @@ function sentencesAboutThem(text: string, companyName: string | null): string[] 
     if (/^(we|our|i)\b/.test(low)) return false
     // THE FIRM'S NAME ANYWHERE, BUT "YOU" ONLY AS THE SUBJECT, and the asymmetry is the point.
     //
-    // "A structured role like that one brings new people to Higher Impact regularly" has the
+    // "A structured role like that one brings new people to Brightpath regularly" has the
     // firm as its OBJECT and is squarely a claim about the firm. "The deals worth winning
     // require the right buyers to find you before the wrong ones do" has the reader as its
     // object and is a statement about a market. Subject position alone cannot tell them apart,

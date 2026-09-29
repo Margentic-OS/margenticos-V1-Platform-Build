@@ -225,7 +225,7 @@ describe('headcount spellings the 2026-09-21 batch got past the gate', () => {
 
   it('catches size invariance, which is the headcount restated as a non-event', () => {
     fires('both went up while your team stayed the same size.')
-    fires('your team at AROSE GROUP has held at roughly the same size')
+    fires('your team at ZEPHYR GROUP has held at roughly the same size')
     fires('a long time for a firm to stay exactly the same size.')
     fires('has been at the same size for at least the last twelve months.')
   })

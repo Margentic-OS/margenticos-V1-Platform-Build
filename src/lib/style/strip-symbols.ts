@@ -9,12 +9,12 @@
  * THEY COME FROM TWO PLACES, and a fix that only knows about one misses the other:
  *   - the FINDINGS, when the research quotes a product or framework name the prospect
  *     trademarked: "You published a complete guide to Reach Equity™ on September 13"
- *   - the COMPANY NAME itself, stored with the symbol attached: "Focus & Find®"
+ *   - the COMPANY NAME itself, stored with the symbol attached: "Pivot & Frame®"
  *
  * THE SECOND IS WHY MATCHING MUST STRIP TOO, not just the outgoing text. companyNameForms
- * builds the variants every gate compares against, so a company stored as "Focus & Find®"
- * produced forms nothing in the copy could match: the writer writes "Focus & Find", the gate
- * looks for "Focus & Find®", and every rule keyed on the company name silently stops firing
+ * builds the variants every gate compares against, so a company stored as "Pivot & Frame®"
+ * produced forms nothing in the copy could match: the writer writes "Pivot & Frame", the gate
+ * looks for "Pivot & Frame®", and every rule keyed on the company name silently stops firing
  * for that prospect. That is the quiet half of this fault and the reason the strip belongs in
  * one shared function rather than at the end of the composition pipeline alone.
  *

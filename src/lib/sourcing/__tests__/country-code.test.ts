@@ -93,7 +93,7 @@ describe('country-code', () => {
     it('leaves non-excluded countries from live data eligible', () => {
       for (const [name, email] of [
         ['United States', 'a@example.com'],
-        ['Canada', 'b@stackdconsulting.com'],
+        ['Canada', 'b@thatchdconsulting.com'],
         ['Australia', 'c@vantor.example.com'],
       ] as const) {
         const result = checkSendEligibility(toIso2CountryCode(name), email)

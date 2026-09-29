@@ -27,7 +27,7 @@ Phase 1 complete. Production-ready for client zero scale (50–500 prospects per
 
 ## Tests verified clean April 24
 
-- Ginny research result: Tier 3 classification with honest framing, no fallbacks triggered.
+- Nora research result: Tier 3 classification with honest framing, no fallbacks triggered.
 - All 5 pre-flight bug fixes committed and tested:
   - Bug 2A: `max_tokens` 1500→3000 (synthesis was hitting ceiling mid-reasoning)
   - Bug 2B: web search `limited` gate removed (thin-but-real results now reach synthesis)

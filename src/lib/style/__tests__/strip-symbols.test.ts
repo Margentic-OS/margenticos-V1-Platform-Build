@@ -33,7 +33,7 @@ describe('symbols are removed from anything that ships', () => {
   })
 
   it('CONTROL: an emoji in a company name is NOT removed, because it is part of the name', () => {
-    expect(stripSymbols('The Operations Company ⚙️')).toBe('The Operations Company ⚙️')
+    expect(stripSymbols('The Delivery Company ⚙️')).toBe('The Delivery Company ⚙️')
   })
 
   it('CONTROL: empty survives, and runs of spaces collapse as they do everywhere else', () => {
@@ -68,7 +68,7 @@ describe('hasSymbols is not stateful', () => {
 /**
  * COMPANY-NAME MATCHING IS ALREADY SYMBOL-INSENSITIVE, and these tests exist to say so.
  *
- * A strip was added here first, on the reasoning that a company stored as "Focus & Find(R)"
+ * A strip was added here first, on the reasoning that a company stored as "Pivot & Frame(R)"
  * would build match forms nothing in the copy could match. MEASURED, and it was wrong:
  * companyNameForms tokenises on non-word characters, so the symbol is already gone before any
  * form is built. Nine shapes were probed, including a symbol mid-name, on an acronym, and on a
@@ -81,8 +81,8 @@ describe('hasSymbols is not stateful', () => {
  */
 describe('company-name matching is symbol-insensitive by construction', () => {
   it('a name stored with a registered symbol produces the SAME forms as the plain name', () => {
-    const withSymbol = companyNameForms('Focus & Find®')
-    const plain = companyNameForms('Focus & Find')
+    const withSymbol = companyNameForms('Pivot & Frame®')
+    const plain = companyNameForms('Pivot & Frame')
     expect(withSymbol.length).toBeGreaterThan(0)
     expect(withSymbol.some(f => f.includes('®'))).toBe(false)
     // The EQUALITY is the point: matching must not depend on how the name was stored. Asserted

@@ -66,12 +66,12 @@ import { orchestrateDraft } from '@/lib/reply-handling/draft-orchestrator'
 
 const CAMPAIGN = { id: 'internal-a', organisation_id: 'org-a', external_id: 'campaign-a' }
 const THREAD = 'cf-7DvQHZEUyJSJ10gGcPO6ZEW'
-const LEAD = 'augusta@consulthigson.com'
+const LEAD = 'avery@consultnorthwold.com'
 
 // The real body shape, taken verbatim from GET /emails?lead=…&email_type=sent on 2026-09-21.
 // body is an object carrying html and nothing else.
 const REAL_OUTBOUND_HTML =
-  '<div><p>Augusta</p><p>The assumption most consulting founders work from: outreach is ' +
+  '<div><p>Avery</p><p>The assumption most consulting founders work from: outreach is ' +
   'something to do when the diary empties.</p><p>We run outbound continuously so qualified ' +
   'meetings land in the diary.</p><p>Doug<br>MargenticOS</p></div>'
 
@@ -212,7 +212,7 @@ describe('a reply whose thread matches a sent email reaches the drafter', () => 
     expect(captured).not.toBeNull()
     expect(typeof captured).toBe('string')
     // Converted out of html, with paragraph breaks preserved rather than collapsed.
-    expect(String(captured)).toContain('Augusta')
+    expect(String(captured)).toContain('Avery')
     expect(String(captured)).toContain('We run outbound continuously')
     expect(String(captured)).not.toContain('<p>')
     expect(String(captured)).toContain('\n')
@@ -374,7 +374,7 @@ describe('extractOutboundBodyText', () => {
   it('reads the html body object, which is the only shape the endpoint returns for a sent email', () => {
     const text = extractOutboundBodyText(sentRow())
     expect(text).not.toBeNull()
-    expect(text).toContain('Augusta')
+    expect(text).toContain('Avery')
     expect(text).toContain('Doug')
     expect(text).not.toContain('<')
   })

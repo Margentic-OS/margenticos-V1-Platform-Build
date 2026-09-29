@@ -155,7 +155,7 @@ describe('activity-verdict: a firmographic fact is not an absence', () => {
 
   it('is silent on slow headcount growth stated as a company fact', () => {
     const observation =
-      'Strategy Here has been operating since 2018 with 2.5% headcount growth over the past 12 months.'
+      'Strategy Onward has been operating since 2018 with 2.5% headcount growth over the past 12 months.'
     expect(findActivityVerdicts(observation, '')).toEqual([])
     expect(checkActivityVerdict(observation, '', { prospectId: 'p' })).toEqual([])
   })
@@ -170,7 +170,7 @@ describe('activity-verdict: the two hits that shipped are now rejected', () => {
   it('rejects the observation that listed what their website lacks', () => {
     const observation =
       "Your LinkedIn posts over the last 60 days have all been reshares of other people's content, " +
-      'and the People Strategy Consulting website carries no dated articles or case studies.'
+      'and the Fernbank Strategy Consulting website carries no dated articles or case studies.'
     expect(checkActivityVerdict(observation, '', { prospectId: 'p' }).length).toBeGreaterThan(0)
   })
 

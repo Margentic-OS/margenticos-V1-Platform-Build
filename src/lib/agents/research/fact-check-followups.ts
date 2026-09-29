@@ -383,7 +383,7 @@ export function checkCitations(
   // WHAT THIS CATCHES, and it is a real escape rather than a hypothetical. Measured
   // 2026-09-25, a follow-up shipped:
   //
-  //     "You refreshed the Higher Impact site in early 2026, which signals active
+  //     "You refreshed the Brightpath site in early 2026, which signals active
   //      investment in growth."
   //
   // Nothing in that prospect's research mentions a website, a refresh, or 2026. The

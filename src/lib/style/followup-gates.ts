@@ -172,18 +172,18 @@ const COMPANY_SUFFIXES = new Set([
  * gate were emails that did name the company and were rejected anyway:
  *
  *     written      stored
- *     "Abacus"     "Abacus Business Consulting, Inc."
- *     "Cavalry"    "Cavalry Consulting LLC"
- *     "Interra's"  "Interra Consulting"
- *     "BCR"        "BCR Business Consulting Resources, Inc."
- *     "Matrix"     "Matrix Restaurant Consulting"
- *     "CANDOR"     "CANDOR Management Consulting"
+ *     "Lantern"     "Lantern Business Consulting, Inc."
+ *     "Bramble"    "Bramble Consulting LLC"
+ *     "Velmont's"  "Velmont Consulting"
+ *     "QRS"        "QRS Business Consulting Resources, Inc."
+ *     "Harbour"     "Harbour Restaurant Consulting"
+ *     "KALVAR"     "KALVAR Management Consulting"
  *
  * Half the gate's output was wrong, and wrong in the expensive direction: it threw away
  * correct copy and spent a retry doing it.
  *
  * SO THIS TAKES THE FIRST SIGNIFICANT TOKEN, suffixes dropped. It deliberately does NOT
- * try to match any token: a company called "Matrix Restaurant Consulting" should not be
+ * try to match any token: a company called "Harbour Restaurant Consulting" should not be
  * credited with a callback because the email happened to contain the word "restaurant".
  * The leading token is the distinguishing part of a name in every case measured, and
  * anything looser starts accepting ordinary nouns as company references.
@@ -200,13 +200,13 @@ export function companyNameForms(companyName: string | null | undefined): string
   // remaining two were companies whose real short form is an acronym at the END:
   //
   //     written     stored
-  //     "VMF's"     "Virtual Miss Friday (VMF Ltd)"
-  //     "GBCS's"    "Global Business Consulting Services (GBCS)"
+  //     "RDT's"     "Remote Desk Tuesday (RDT Ltd)"
+  //     "IACS's"    "International Advisory Consulting Solutions (IACS)"
   //
   // The leading token is "Virtual" and "Global", so the rule below could never reach them.
   // An acronym is safe to accept from anywhere in the name in a way an ordinary word is
   // not: it is distinctive by construction, so it cannot collide with a common noun the
-  // way accepting "Restaurant" from "Matrix Restaurant Consulting" would.
+  // way accepting "Restaurant" from "Harbour Restaurant Consulting" would.
   for (const token of companyName.match(/\b\p{Lu}{2,}\b/gu) ?? []) {
     if (!COMPANY_SUFFIXES.has(token.toLowerCase())) forms.push(token)
   }
@@ -215,14 +215,14 @@ export function companyNameForms(companyName: string | null | undefined): string
   // ordinary company name, and it fixed six measured false positives where the gate had
   // matched the registered name in full while the copy used the short form:
   //
-  //     "Abacus" / "Abacus Business Consulting, Inc."      "Cavalry" / "Cavalry Consulting LLC"
-  //     "Interra's" / "Interra Consulting"                 "BCR" / "BCR Business Consulting Resources, Inc."
-  //     "Matrix" / "Matrix Restaurant Consulting"          "CANDOR" / "CANDOR Management Consulting"
+  //     "Lantern" / "Lantern Business Consulting, Inc."      "Bramble" / "Bramble Consulting LLC"
+  //     "Velmont's" / "Velmont Consulting"                 "QRS" / "QRS Business Consulting Resources, Inc."
+  //     "Harbour" / "Harbour Restaurant Consulting"          "KALVAR" / "KALVAR Management Consulting"
   //
   // Half the gate's output was wrong, and wrong in the expensive direction: it threw away
   // correct copy and spent a retry doing it.
   //
-  // DELIBERATELY NOT "ANY TOKEN". A company called "Matrix Restaurant Consulting" must not
+  // DELIBERATELY NOT "ANY TOKEN". A company called "Harbour Restaurant Consulting" must not
   // be credited with a callback because the email happened to say "restaurant". Anything
   // looser starts accepting ordinary nouns as company references, which turns a gate that
   // was too strict into one that passes copy it should reject.
@@ -250,7 +250,7 @@ export function companyNameForms(companyName: string | null | undefined): string
   // THE FALLBACK IS THE WHOLE NAME WITH LEGAL SUFFIXES REMOVED, which is a form that
   // certainly appears when the copy names the company in full, and is strictly safer than
   // the leading-token rule: it is longer and more distinctive, so it cannot collide with an
-  // ordinary noun the way accepting "Restaurant" from "Matrix Restaurant Consulting" would.
+  // ordinary noun the way accepting "Restaurant" from "Harbour Restaurant Consulting" would.
   // Only LEGAL suffixes come off, so "9 Consulting" keeps "Consulting" and yields the
   // name as written rather than the bare "8".
   //

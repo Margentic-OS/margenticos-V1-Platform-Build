@@ -57,10 +57,48 @@
 // the plaintext, not in a comment, not in a variable name, not "just this once".
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ─── SECOND SCRUB, 2026-09-29. THE FIRST ONE WAS NOT THE WHOLE PROBLEM ───────
+//
+// A fresh scan of every blob reachable from origin found 35 more real identities still
+// live on main: real, enriched, email-verified prospects in the client-zero organisation,
+// two real client organisations, and the schools and trusts from a sourcing run. They were
+// not caught on 2026-09-15 because that scrub worked from the files it already knew about.
+// This one worked from the DATABASE: every company name, person and address in prospects
+// and organisations, matched against the repository.
+//
+// TWO THINGS THAT SCAN FOUND ONLY BECAUSE IT WAS RUN TWICE, both worth knowing because
+// both are the scan defining the reach of its own fix:
+//
+//   A name WRAPPED ACROSS TWO LINES in a markdown file matches no substring search. Two
+//   prospects were invisible until the file was re-scanned with newlines collapsed.
+//
+//   A SHOUTED heading survived a case-sensitive replace, and a file naming a prospect by
+//   FIRST NAME ONLY was never in the file list, because that list was built by matching
+//   COMPANY names. The fix reached exactly as far as the search that built it.
+//
+// WHAT WENT IN AND WHY EACH FORM. Distinctive runs are hashed as TOKENS: surnames, and the
+// domains, which tokenise as one long run. Names built from ordinary words are hashed as
+// two-word PHRASES instead, because neither half can be banned alone without firing on
+// innocent code.
+//
+// THE MOST FALSE-POSITIVE-PRONE ENTRY IS A TWO-WORD PHRASE OF TWO COMMON WORDS, added
+// deliberately because it is the short form that real sent copy actually used, and the
+// gate matched on it. If it ever fires on innocent prose, narrow it out and say so here,
+// exactly as the 2026-09-15 removal below did. Do not add an exemption to the scanner.
+//
+// A LENGTH OF 4 IS NOW IN THE PRE-FILTER, for one four-character acronym that appears bare
+// in a test expectation. It costs a hash of every four-character token in the repository,
+// which is a fraction of a second, and it is the only way a bare acronym is caught.
+//
+// DELIBERATELY STILL ABSENT: the first names. Devon, Marin, Marlow, Avery and the rest of
+// the replacements are invented, but the REAL first names they replaced are ordinary words
+// a future test may legitimately use, and the rule at the top of this file holds.
+
 /** SHA-256 of single lowercased tokens that must never reappear. */
 export const REDACTED_TOKEN_HASHES: readonly string[] = [
   '054034dc899e3b25ad030fd32b1afb27e93ce2cb',
   '07184920d9f38891bc9a258f9298ade0773010d1',
+  '0eb15342cdbbd0acacb97d2b547cfd293f32f391',
   '12492c7e4c22db9ac2af630f128d630101274215',
   '21d3589bf5c419a7482f91205395be252550177a',
   '22c34dcf0133835d9e7f2aef0a741dca3ab7ba78',
@@ -77,31 +115,48 @@ export const REDACTED_TOKEN_HASHES: readonly string[] = [
   '58c0d939d21a50304c9890ee17ffbe5914ca6104',
   '59a76878e368de5fd518e0143aed7013fe9beec9',
   '5a3fcb5d666f27037f71bd447bde31126f21c217',
+  '60a950a8dfed7801e6530a0176ca8006151655a6',
+  '6544dddce3ba17bdeab5ed9ce5e1b82a91aff30f',
+  '657cc0478182b807138817707be97c1805e47b5b',
+  '6989d53ed1c4e386b3544ca8fb1d309e8c4dfdb8',
+  '6aeb322b5c5b20d71adf9d5aa455447f607fad76',
   '71cb02ed8285bbc0339e0974f935e7502ea54ab8',
+  '722fcc0871a4fdb30068756c52ffe86d7183e8c0',
   '743a30ee6df49e0b5119e0cc53577c14206704da',
   '74791411df6e879eaa5ac4e2a84b7ee02154c38e',
+  '782a92f0c87e7d170cbddd96bfbd1d3d95101da5',
   '7896fa35c68ef83d9b8acb6a680722a1b763121d',
+  '7cf66df974d1e046ec7ae7fd114b25c8ffa4849c',
   '7d59fc804c59ffcd08755e8607975dcbd1fae7a8',
   '7d6c1216b1d123584d8ef1b528860932585d80fc',
   '7f1e903a634a8ecba72661752a257e7b0f9c5b1d',
   '7fa8398c9888bd7abca8fa94f2b0b813aa8a50bc',
+  '80da22bf26232eb13d5845b48307195e000292e7',
   '82339d24d52fa6b2f1b881b955d9523a75557ab2',
   '8517deb1be8be2a4fe9da1f61523974cdae21717',
+  '8bbda622766689a6d42a1096cd96852c8a6d27c4',
   '8c4e7cf6bfcf209c7c185bc316ff68a9918a9bc9',
   '8dc90ffc0d0b577c951359c5dfec49ae349812cc',
+  '8e4680e82e2a1ca21f8f78a3662e3c80cc26f00e',
   '956e22b93147d413f2a0da7871cae4811ad33d52',
+  '97be9e17cbc9a0af0779195685563643b8f5cd12',
   '97cda41db87e55d2a021fb37e26e446154ae83db',
   '98c07213171eca4551ac83b48cea9a2d29927b4e',
   '99155fea548e21bdd3680e052fc799c986f284ea',
   '9cada2d98dea659c5754f120a0078f5475e6101a',
   'a0910f8bcd12deda96087b928ac9d1fab98bda1f',
+  'a1c5db9e33759f6e5179f531e2b2fe9883a8f31e',
   'a4f17eed181bd83a68ae614a088cef8dcfb628ed',
+  'a81bfd9d23eec0b1a805509a9318525bdc00e8dc',
   'a97121ec5d86ee65954b569b6c36a3d646b7fdf3',
   'b484c2c89421b3dda8810174cc24b1f2ce8073e6',
   'b5c46a452a839bf63475ff3895da53790ad6aac7',
   'b740d031521c59652486548d84bfcc1bb66b8dd2',
   'b9a3f58600779707a993c01b1605de7b7e6b8f43',
   'baec7897e1ada3fa69fc6db2b4f7743237def675',
+  'c26bb58d416d8d363f3cd6c1c2036913b5d55764',
+  'c5a00c4d9402b366df75fa2f63267b8a1b4a8d35',
+  'c63a7182087e76078561d11b03eadb358d918d5e',
   'c99be70e1e06ca3c7728a6f66122da31d1d62847',
   'cac651a1326bde2f5e16757f2fcf235b5deb48f3',
   'd015ad184a30aef9491638805da7d140ddcfe903',
@@ -111,9 +166,11 @@ export const REDACTED_TOKEN_HASHES: readonly string[] = [
   'e8033848475c08229ce795efaa18529d42beb2f3',
   'e8df0aebeaa992723ff575dd2883ac19db255f1e',
   'e934327e4c2b5bb92eba6efed9d0523413e12250',
+  'ee125778f79f736361091e389d9071b28f8496e3',
   'f0a9f72ddc8c8edc975fa7af30b0e2d86efeb67c',
   'f1360df204d926781540dd32a1976252feb44ffd',
   'f745b62dcee065a359cb639973cb6c88aba248ff',
+  'fe31665004815dbf590d21ac85ea183a261f063d',
 ]
 
 /**
@@ -122,15 +179,37 @@ export const REDACTED_TOKEN_HASHES: readonly string[] = [
  * single-token scan: "full bloom" is two English words and neither is a name.
  */
 export const REDACTED_PHRASE_HASHES: readonly string[] = [
+  '049ff145eb984e1ee2070b25275341d317c7a749',
   '11254cb15f9780ba223ee5db7a996816be5c3b92',
+  '21f4f913f40f6d3a5e2482100ef5f40f82545ef9',
   '227c40c771515b58e2f7eaeb61992ce3b0a60fa9',
+  '2e07e09c8b99c5cffdf1af1ea5f3130693d91f01',
+  '3ebafc4899b9e1b5ccce0a02d893b07797d0ecbc',
   '403149e6d9ab6d4d966e56b5612a4b63b70e9e56',
   '46896fad511f39414547e522f248a7f4b7111b91',
+  '5d6653ccf5e6be92c0e52ed7a097a2338129290e',
+  '5ecf0ea18b250b2cb9dec27cb5fe57c164c03d47',
+  '616631f6672015b74030befc82d871675e330c30',
+  '63b5ad79d90a8a60de058dbc5d727946e4ac97e0',
+  '6ac3600c8600e47413508a088b1aa825598a66cd',
   '6faa261e0ff3f0a33ff7c17494bd4bc1e798b0f1',
+  '7cad4a6314bfa2400f43f0f3ba28ddb71a2d3ec9',
+  '8324e62df29584d35ec4c873673364ebfe7573f5',
+  '91cea194bc2358a21c109f7565b0db25cc051ac8',
+  '9d789d80405864fc3c2d9b17291e3d1362e00573',
   'a00fb57336090c2fb10db6ef3d835ae6658a4735',
   'a0972e49d03fac6c69750d2b6da1d2836532a1fc',
+  'a52da9fb6f0f9a426c9f162509ca2b898a3a35fc',
+  'ab5298e735a94a20831be6df11263b9e56ffbd32',
+  'bab39a127dfc782d2c5522b0875e2a97d0f42079',
+  'c7a82990a8624615d92d24f2015530b012712bd6',
+  'c9b678f64fc4323192edbbc5ad98f92eef5689e3',
+  'd6088180b85cd0d94b6c0c1cad73f27360b2feb8',
+  'dc485b75c6a3b1b9d0d8ea7f5529ad9396e14619',
   'e4317f5e7fe21f2d5e012858f7d7081c2b9d26d3',
   'eaad40518d0a8918c653e3896f7692cca9be388a',
+  'ec3a6f873477c1c8335797cd60d56234477315f4',
+  'ec652ad875b68db7951bda5ed3405784c4d80965',
   'f8bcacd69a4553ff1a4a865487d86017c2dc2ebf',
 ]
 
@@ -140,4 +219,4 @@ export const REDACTED_PHRASE_HASHES: readonly string[] = [
  * from seconds into well under one. A LENGTH IS NOT AN IDENTIFIER and reveals nothing
  * about who was removed; it is published for speed, and the digests remain one-way.
  */
-export const REDACTED_TOKEN_LENGTHS: readonly number[] = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 22, 23]
+export const REDACTED_TOKEN_LENGTHS: readonly number[] = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24]

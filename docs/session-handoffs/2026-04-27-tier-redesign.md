@@ -92,17 +92,17 @@ ICP-pain framing path runs for all other combinations (no signal, signal rejecte
 
 | Result | Count |
 |---|---|
-| `strong` / `use_as_hook` | 1 (Anya Dayson — LinkedIn post within 60d, passed both filter tests) |
+| `strong` / `use_as_hook` | 1 (Rhea Calloway — LinkedIn post within 60d, passed both filter tests) |
 | `moderate` / `ignore` | 9 |
 | `moderate` / no dateable signal | 1 |
 
-**Anya Dayson is the designated test case** for the composition layer end-to-end run when reply handling work begins. She is the only batch 2 prospect who will hit the bridge-sentence path.
+**Rhea Calloway is the designated test case** for the composition layer end-to-end run when reply handling work begins. She is the only batch 2 prospect who will hit the bridge-sentence path.
 
 ---
 
 ## What is NOT yet tested
 
-**Composition layer end-to-end with new schema.** The bridge + CTA generation path in `compose-sequence.ts` (the `tier1` / `use_as_hook` branch) has never executed against a real prospect under the new schema. `generatePersonalization()` behaviour on the bridge path is unverified. Anya Dayson is the test case.
+**Composition layer end-to-end with new schema.** The bridge + CTA generation path in `compose-sequence.ts` (the `tier1` / `use_as_hook` branch) has never executed against a real prospect under the new schema. `generatePersonalization()` behaviour on the bridge path is unverified. Rhea Calloway is the test case.
 
 ---
 
@@ -110,6 +110,6 @@ ICP-pain framing path runs for all other combinations (no signal, signal rejecte
 
 | Tag | Title | Trigger |
 |---|---|---|
-| `[pre-c0]` | Tier 1 / use_as_hook composition path untested on real data | When reply handling work starts; Anya Dayson is the test case |
+| `[pre-c0]` | Tier 1 / use_as_hook composition path untested on real data | When reply handling work starts; Rhea Calloway is the test case |
 | `[monitor]` | Promote estimate-batch-cost.ts to a committed CLI | Before any batch over 50 prospects |
 | `[research]` | trigger_data column overloaded — synthesis output overwrites seed metadata | Before any code reads trigger_data for non-synthesis purposes |

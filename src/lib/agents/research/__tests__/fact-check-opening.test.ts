@@ -17,15 +17,15 @@ import { checkOpeningCitations } from '../fact-check-opening'
 import type { CheckedClaim } from '../fact-check-followups'
 
 const FINDINGS = [
-  '1. Karl ended his Director of Coaching role at Christian Business Fellowship in January 2025, after holding it since September 2022.',
+  '1. Devon ended his Director of Coaching role at Christian Business Fellowship in January 2025, after holding it since September 2022.',
   '   source: linkedin | profile',
-  '2. Karl became Founder and Board Chair at a regional chamber of commerce in August 2025.',
+  '2. Devon became Founder and Board Chair at a regional chamber of commerce in August 2025.',
   '   source: linkedin | profile',
 ].join('\n')
 
 // Real copy from the 2026-09-25 cohort. Every existing gate passed both.
-const KARL_BRIDGE = 'A structured role like that one brings new people to Higher Impact regularly.'
-const NICK_BRIDGE = 'The Operations Company now needs to win new clients without a second income behind it.'
+const KARL_BRIDGE = 'A structured role like that one brings new people to Brightpath regularly.'
+const NICK_BRIDGE = 'The Delivery Company now needs to win new clients without a second income behind it.'
 
 // The form Email 1's bridge is SUPPOSED to take: a claim about a population, naming nobody.
 const POPULATION_BRIDGE = 'A new hire needs client work in their diary before the first invoice lands.'
@@ -37,20 +37,20 @@ const claim = (over: Partial<CheckedClaim>): CheckedClaim => ({
 })
 
 describe('a claim about the named prospect or firm needs a cited finding', () => {
-  it('FAILS Karl: the verifier found nothing supporting it', () => {
+  it('FAILS Devon: the verifier found nothing supporting it', () => {
     const f = checkOpeningCitations(
-      [claim({ claim: 'brings new people to Higher Impact regularly', finding: null, supported: false, why: 'No finding says the role brought anyone in.' })],
-      FINDINGS, KARL_BRIDGE, NEUTRAL_QUESTION, 'Higher Impact Consulting Group',
+      [claim({ claim: 'brings new people to Brightpath regularly', finding: null, supported: false, why: 'No finding says the role brought anyone in.' })],
+      FINDINGS, KARL_BRIDGE, NEUTRAL_QUESTION, 'Brightpath Delivery Group',
     )
     expect(f).toHaveLength(1)
-    expect(f[0]).toContain('brings new people to Higher Impact regularly')
+    expect(f[0]).toContain('brings new people to Brightpath regularly')
     expect(f[0]).toContain('which the findings do not support')
   })
 
-  it('FAILS Nick: the verifier found nothing supporting it', () => {
+  it('FAILS Marin: the verifier found nothing supporting it', () => {
     const f = checkOpeningCitations(
       [claim({ claim: 'needs to win new clients without a second income behind it', finding: null, supported: false, why: 'Nothing establishes the company finances.' })],
-      FINDINGS, NICK_BRIDGE, NEUTRAL_QUESTION, 'The Operations Company',
+      FINDINGS, NICK_BRIDGE, NEUTRAL_QUESTION, 'The Delivery Company',
     )
     expect(f).toHaveLength(1)
     expect(f[0]).toContain('without a second income behind it')
@@ -62,14 +62,14 @@ describe('a claim about the named prospect or firm needs a cited finding', () =>
    * the model declines to classify them at all, which is exactly what it did on the follow-up
    * side for three iterations.
    */
-  it('FAILS Karl on an EMPTY verdict, because the sentence names the firm', () => {
-    const f = checkOpeningCitations([], FINDINGS, KARL_BRIDGE, NEUTRAL_QUESTION, 'Higher Impact Consulting Group')
+  it('FAILS Devon on an EMPTY verdict, because the sentence names the firm', () => {
+    const f = checkOpeningCitations([], FINDINGS, KARL_BRIDGE, NEUTRAL_QUESTION, 'Brightpath Delivery Group')
     expect(f).toHaveLength(1)
     expect(f[0]).toContain('an empty verdict is not a clean one')
   })
 
-  it('FAILS Nick on an EMPTY verdict, because the sentence names the firm', () => {
-    const f = checkOpeningCitations([], FINDINGS, NICK_BRIDGE, NEUTRAL_QUESTION, 'The Operations Company')
+  it('FAILS Marin on an EMPTY verdict, because the sentence names the firm', () => {
+    const f = checkOpeningCitations([], FINDINGS, NICK_BRIDGE, NEUTRAL_QUESTION, 'The Delivery Company')
     expect(f).toHaveLength(1)
     expect(f[0]).toContain('an empty verdict is not a clean one')
   })
@@ -78,7 +78,7 @@ describe('a claim about the named prospect or firm needs a cited finding', () =>
 
   it('PASSES a population statement on an empty verdict: it names nobody', () => {
     expect(
-      checkOpeningCitations([], FINDINGS, POPULATION_BRIDGE, NEUTRAL_QUESTION, 'Higher Impact Consulting Group'),
+      checkOpeningCitations([], FINDINGS, POPULATION_BRIDGE, NEUTRAL_QUESTION, 'Brightpath Delivery Group'),
     ).toEqual([])
   })
 
@@ -89,7 +89,7 @@ describe('a claim about the named prospect or firm needs a cited finding', () =>
         FINDINGS,
         'You ended that role in January 2025.',
         NEUTRAL_QUESTION,
-        'Higher Impact Consulting Group',
+        'Brightpath Delivery Group',
       ),
     ).toEqual([])
   })
@@ -101,7 +101,7 @@ describe('a claim about the named prospect or firm needs a cited finding', () =>
         FINDINGS,
         'You held it for over two years.',
         NEUTRAL_QUESTION,
-        'Higher Impact Consulting Group',
+        'Brightpath Delivery Group',
       ),
     ).toEqual([])
   })
@@ -111,7 +111,7 @@ describe('a claim about the named prospect or firm needs a cited finding', () =>
   it('FAILS a citation to a finding that does not exist', () => {
     const f = checkOpeningCitations(
       [claim({ claim: 'something', finding: 9, supported: true })],
-      FINDINGS, 'You did something.', NEUTRAL_QUESTION, 'Higher Impact Consulting Group',
+      FINDINGS, 'You did something.', NEUTRAL_QUESTION, 'Brightpath Delivery Group',
     )
     expect(f).toHaveLength(1)
     expect(f[0]).toContain('does not exist')
@@ -119,7 +119,7 @@ describe('a claim about the named prospect or firm needs a cited finding', () =>
   })
 
   /**
-   * THE QUESTION IS CHECKED, which is the difference from the follow-up rules. Karl's real
+   * THE QUESTION IS CHECKED, which is the difference from the follow-up rules. Devon's real
    * question presupposes introductions that no finding establishes, inside a sentence ending
    * in a question mark.
    */
@@ -129,14 +129,14 @@ describe('a claim about the named prospect or firm needs a cited finding', () =>
       FINDINGS,
       POPULATION_BRIDGE,
       "Is finding new coaching clients to replace those introductions something you're working on?",
-      'Higher Impact Consulting Group',
+      'Brightpath Delivery Group',
     )
     expect(f.some(x => x.includes('those introductions'))).toBe(true)
   })
 
   it('CONTROL: a neutral question that assumes nothing passes', () => {
     expect(
-      checkOpeningCitations([], FINDINGS, POPULATION_BRIDGE, 'Worth a look?', 'Higher Impact Consulting Group'),
+      checkOpeningCitations([], FINDINGS, POPULATION_BRIDGE, 'Worth a look?', 'Brightpath Delivery Group'),
     ).toEqual([])
   })
 
@@ -161,7 +161,7 @@ describe('what counts as a sentence the verifier should have checked', () => {
     expect(
       checkOpeningCitations([], F, POPULATION_BRIDGE,
         "Is getting your work in front of buyers who have never come across it something you are focused on?",
-        'Rose Garden Consulting'),
+        'Willow Court Consulting'),
     ).toEqual([])
   })
 
@@ -169,28 +169,28 @@ describe('what counts as a sentence the verifier should have checked', () => {
     expect(
       checkOpeningCitations([], F,
         'The deals worth winning require the right buyers to find you before the wrong ones do.',
-        'Worth a look?', 'Magnetude Consulting'),
+        'Worth a look?', 'Tessellate Consulting'),
     ).toEqual([])
   })
 
   it('an offer line with a participial adjective is still exempt', () => {
     // "focused" ends in -ed, which the first FACT_MARKER matched, denying the exemption.
     expect(
-      checkOpeningCitations([], F, 'You stay focused on delivery.', 'Worth a look?', 'AAP Consulting'),
+      checkOpeningCitations([], F, 'You stay focused on delivery.', 'Worth a look?', 'ZQP Consulting'),
     ).toEqual([])
   })
 
   it('STILL FAILS a subject-position claim about them on an empty verdict', () => {
     const f = checkOpeningCitations([], F,
       'Your Technical Services practice runs ahead of the buyers who know to look for it.',
-      'Worth a look?', 'Elev8 Consulting LLC')
+      'Worth a look?', 'Summit9 Consulting LLC')
     expect(f.length).toBeGreaterThan(0)
   })
 
-  it('STILL FAILS Karl, which is the control that must never go green by accident', () => {
+  it('STILL FAILS Devon, which is the control that must never go green by accident', () => {
     const f = checkOpeningCitations([], F,
-      'You refreshed the Higher Impact site in early 2026.', 'Worth a look?',
-      'Higher Impact Consulting Group')
+      'You refreshed the Brightpath site in early 2026.', 'Worth a look?',
+      'Brightpath Delivery Group')
     expect(f.some(x => x.includes('empty verdict'))).toBe(true)
   })
 })

@@ -788,8 +788,8 @@ transcript and in a code search, exactly like a merged one.
   GATES HARD. `hasConsultancyEvidence` is the only escape from Disqualifier 6, and it also decides
   the 20-point adjacent-industry score.
   For a client outside consulting it is the difference between a batch and nothing. Not one of
-  Tessom Foods's 20 sourced company names contains any of the seven: `York Steiner School`,
-  `Oxford Diocesan Bucks Schools Trust`, `Kingston Educational Trust`, and so on for all 20. Their
+  Tessom Foods's 20 sourced company names contains any of the seven: `Elmgrove Free School`,
+  `Wessex Diocesan Vale Schools Trust`, `Ashford Educational Trust`, and so on for all 20. Their
   mapped industry is also unclassifiable per C1. So when tiering runs on that batch, the expected
   outcome is 20 of 20 removed as `industry_not_consulting`.
   The same query run over Calder Health's 20 shows the other side of the shape: **15 of 20 match**,
@@ -814,7 +814,7 @@ transcript and in a code search, exactly like a merged one.
   it.
   Calder Health's stored spec says `company_headcount_max: 500`. Every prospect between 101 and 500 that
   Calder Health sources will be removed as `company_too_large` against a bound Calder Health's ICP explicitly
-  set higher. `NHS Management, LLC` is in that returned batch.
+  set higher. `Meridian Management, LLC` is in that returned batch.
   Currently breaks: **Calder Health**, pending enrichment. NOT FIXED, on main or on `sourcing-portable`
   (identical at branch lines 307-308).
 
@@ -933,8 +933,7 @@ The evidence, in the order it settles the question:
    `src/lib/operator/sourcing-entry.ts:68`, the real orchestrator entry point.
 
 6. **The returned prospects could not have come from `APOLLO_FILTER`.** Tessom Foods's 20 are schools
-   and academy trusts — `York Steiner School`, `Holy Cross Catholic MAC`, `Illuminate Minds Academy
-   Trust` — with titles that are all Chair variants: `Board Chair`, `Chairperson of the Board`,
+   and academy trusts — `Elmgrove Free School`, `Saint Corwin Catholic MAC`, `Brightfield Minds Academy Trust` — with titles that are all Chair variants: `Board Chair`, `Chairperson of the Board`,
    `Chair of the Board of Trustees`. Those match that client's own `chair` / `chairperson` /
    `board of management` fragments. Calder Health's 20 are healthcare consultancies and operators with
    titles like `Director of Nursing` and `Vice President of Business Development`, matching its
@@ -1072,8 +1071,7 @@ non-consulting client on that branch sources correctly and is then removed at cl
   medical device distributors and care home groups". Its tier_1/tier_2 `industries` say
   "Healthcare Consulting" and "Supply Chain Consulting". Those are what the spec carries,
   so those are what the query asks for, and on 2026-09-03 it returned exactly that:
-  Aston Health Consulting Services, Infinity Healthcare Consulting, Pinnacle Healthcare
-  Consulting, Kohler HealthCare Consulting. Healthcare CONSULTANCIES, not distributors.
+  Calder Health Consulting Services, Rowanbrook Healthcare Consulting, Kestrel Healthcare Consulting, Kohler HealthCare Consulting. Healthcare CONSULTANCIES, not distributors.
 
   The query is correct. The document is wrong, and it is wrong in a specific way worth
   noting: the canonical taxonomy has no name for a medical device distributor, so the ICP
@@ -2038,9 +2036,9 @@ geographic hint at all. Same write-once constraint, same reason it was not fixed
   organisations. prospects.campaign_id and signals.campaign_id are SET NULL, not cascade,
   which is why deleting the mock campaign detached its prospects instead of deleting them.
 
-- [pre-c1] GINNY HUDGENS IS A REAL PROSPECT SITTING IN THE ARCHIVED ORG. Decide where she
+- [pre-c1] NORA WHITFIELD IS A REAL PROSPECT SITTING IN THE ARCHIVED ORG. Decide where she
   belongs. prospect 7cd92532-55e0-45d4-9d99-4a7c2ae0a12d, ines@orrin.example.com,
-  Founder, The Strategic Implementer, in the old MargenticOS org
+  Founder, The Practice Lever, in the old MargenticOS org
   74243c62-f42d-4f3f-b93e-bd5e51f0b6c0, now with campaign_id NULL after the mock campaign
   was deleted.
 
@@ -4722,7 +4720,7 @@ the new OPS-1 blocks for operational continuity.
     Bug 2C: buildTier3TriggerText() grammar fixed (gerund/modal-negative/noun phrase detection)
     Bug 8A: CSV FK disambiguation fixed (prospects!prospect_id to resolve ambiguous join)
     Bug 6: HAIKU_PERSONALIZATION_USD added to cost estimate (was running 12-25% low)
-  Dogfood test (Ginny Hudgens) passed: correct Tier 3 classification with coherent reasoning,
+  Dogfood test (Nora Whitfield) passed: correct Tier 3 classification with coherent reasoning,
   web search content reached synthesis, relevance_reason persisted cleanly to DB.
 
 - [DONE 2026-04-24] Composition layer Phase 1 feature additions
@@ -4735,8 +4733,8 @@ the new OPS-1 blocks for operational continuity.
   All agents producing customer-facing output import from this module; no inline duplication.
   Commits fe36d05 and earlier composition sessions.
 
-- [DONE 2026-04-27] Tier 1 composition path validated on real data (Anya Dayson)
-  Dogfood batch 2 re-run produced Anya Dayson (Ascend Strategic Marketing) as icp_fit=strong /
+- [DONE 2026-04-27] Tier 1 composition path validated on real data (Rhea Calloway)
+  Dogfood batch 2 re-run produced Rhea Calloway (Beacon Strategic Marketing) as icp_fit=strong /
   signal_relevance=use_as_hook — the first real Tier 1 result. Full composition dry-run confirmed:
   trigger fires correctly, Haiku bridge generates cleanly ("That relationship-driven approach works
   until you need predictable revenue between partnership cycles."), patched B1 template reads
@@ -5551,14 +5549,14 @@ Revisit once prospect research agent is built and full outbound cycle is working
   paragraph start (paragraphs 2+). Paragraph 1 (opener) exempt — gets replaced at composition time.
   Commit: db1bffe. Synthetic test 7/7 passed. v6 regeneration: Variant B fired 1 retry on first pass,
   passed clean on attempt 1. 16/16 emails audited — no violations, no stilted prose.
-  Anya Dayson composition dry-run: trigger→P2 transition clean without bridge (Haiku credit exhausted
+  Rhea Calloway composition dry-run: trigger→P2 transition clean without bridge (Haiku credit exhausted
   during test — bridge path tested logically but not live in this session; see item below).
   v5 archived as "5_pre_validator_extension" and "5" (archived). v6 now active.
 
-- [DONE 2026-04-28] Anya bridge path live-tested after credits topped up
-  Credits were topped up mid-session. Re-ran test-anya-compose.ts: both Haiku calls succeeded.
+- [DONE 2026-04-28] Rhea bridge path live-tested after credits topped up
+  Credits were topped up mid-session. Re-ran test-rhea-compose.ts: both Haiku calls succeeded.
   CTA personalised to "Ascend" ("When referrals slow, does pipeline visibility become a challenge
-  at Ascend?"). Bridge was generated but correctly suppressed by word-count gate — Anya's trigger
+  at Ascend?"). Bridge was generated but correctly suppressed by word-count gate — Rhea's trigger
   is 38 words, leaving only 15-word headroom; 75 + ~16 = 91 > 90 cap. Gate working as intended.
   Bridge path is fully validated: generation call works, gate logic works, email reads coherently.
 
@@ -8204,7 +8202,7 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   ceiling disqualifier at line ~221 (company_headcount > 100 → company_too_large).
 
   The problem: the tier ceiling works, the floor does not exist. Live evidence 2026-08-18:
-    Dustin, Stack'd Consulting Inc., headcount 4100 → sourced_tier NULL,
+    Marlow, Thatch'd Consulting Inc., headcount 4100 → sourced_tier NULL,
       tiering_reason 'company_too_large'. Correctly blocked; the claim query requires
       sourced_tier IS NOT NULL.
     Noor, Northwell Consulting, headcount 1 → tier_1 (score 100): industry 45,

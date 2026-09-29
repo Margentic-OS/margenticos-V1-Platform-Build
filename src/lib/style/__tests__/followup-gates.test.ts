@@ -428,12 +428,12 @@ describe('the company short form: the measured false positive, both directions',
   // name in full while the copy used the short form. Each pair below is a real one from
   // that run, and each must now pass.
   it.each([
-    ['Abacus Business Consulting, Inc.', 'Abacus'],
-    ['Cavalry Consulting LLC', 'Cavalry'],
-    ['Interra Consulting', "Interra's"],
-    ['BCR Business Consulting Resources, Inc.', 'BCR'],
-    ['Matrix Restaurant Consulting', 'Matrix'],
-    ['CANDOR Management Consulting', 'CANDOR'],
+    ['Lantern Business Consulting, Inc.', 'Lantern'],
+    ['Bramble Consulting LLC', 'Bramble'],
+    ['Velmont Consulting', "Velmont's"],
+    ['QRS Business Consulting Resources, Inc.', 'QRS'],
+    ['Harbour Restaurant Consulting', 'Harbour'],
+    ['KALVAR Management Consulting', 'KALVAR'],
   ])('stored %j is addressed by %j', (stored, written) => {
     const f = checkFollowupGates({
       ...base,
@@ -444,9 +444,9 @@ describe('the company short form: the measured false positive, both directions',
   })
 
   it('extracts the distinguishing token, dropping legal and descriptive suffixes', () => {
-    expect(companyShortForm('Abacus Business Consulting, Inc.')).toBe('Abacus')
-    expect(companyShortForm('Cavalry Consulting LLC')).toBe('Cavalry')
-    expect(companyShortForm('BCR Business Consulting Resources, Inc.')).toBe('BCR')
+    expect(companyShortForm('Lantern Business Consulting, Inc.')).toBe('Lantern')
+    expect(companyShortForm('Bramble Consulting LLC')).toBe('Bramble')
+    expect(companyShortForm('QRS Business Consulting Resources, Inc.')).toBe('QRS')
     expect(companyShortForm(null)).toBeNull()
     // A name that is ENTIRELY suffixes has no distinguishing token, and the gate then
     // requires second person, which is the stricter branch and the safe failure direction.
@@ -454,12 +454,12 @@ describe('the company short form: the measured false positive, both directions',
   })
 
   it('THE OTHER DIRECTION: a non-leading token does NOT count as naming them', () => {
-    // "Matrix Restaurant Consulting" must not be credited with a callback because the
+    // "Harbour Restaurant Consulting" must not be credited with a callback because the
     // email happened to say "restaurant". Anything looser starts accepting ordinary nouns
     // as company references, which would make the gate pass on copy it should reject.
     const f = checkFollowupGates({
       ...base,
-      companyName: 'Matrix Restaurant Consulting',
+      companyName: 'Harbour Restaurant Consulting',
       prose: asParagraphs('The restaurant sector has been slow. Things are hard. Worth a look?'),
     })
     expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)
@@ -517,8 +517,8 @@ describe('the acronym short form: the SECOND measured false positive', () => {
   // companies keep their real short form as an acronym at the END of the registered name,
   // so the leading token ("Virtual", "Global") could never reach it.
   it.each([
-    ['Virtual Miss Friday (VMF Ltd)', "VMF's"],
-    ['Global Business Consulting Services (GBCS)', "GBCS's"],
+    ['Remote Desk Tuesday (RDT Ltd)', "RDT's"],
+    ['International Advisory Consulting Solutions (IACS)', "IACS's"],
   ])('stored %j is addressed by %j', (stored, written) => {
     const f = checkFollowupGates({
       ...base,
@@ -529,12 +529,12 @@ describe('the acronym short form: the SECOND measured false positive', () => {
   })
 
   it('collects the acronym and the leading token, and nothing else', () => {
-    expect(companyNameForms('Virtual Miss Friday (VMF Ltd)')).toEqual(['VMF', 'Virtual'])
+    expect(companyNameForms('Remote Desk Tuesday (RDT Ltd)')).toEqual(['RDT', 'Remote'])
     // Every word after the acronym is generic, so the acronym is the ONLY form offered.
     // That is the safe answer: "Business" as a short form would let "Business is slow"
     // count as naming the company.
-    expect(companyNameForms('Global Business Consulting Services (GBCS)')).toEqual(['GBCS'])
-    expect(companyNameForms('Abacus Business Consulting, Inc.')).toEqual(['Abacus'])
+    expect(companyNameForms('International Advisory Consulting Solutions (IACS)')).toEqual(['IACS'])
+    expect(companyNameForms('Lantern Business Consulting, Inc.')).toEqual(['Lantern'])
     expect(companyNameForms(null)).toEqual([])
   })
 
@@ -581,10 +581,10 @@ describe('the acronym short form: the SECOND measured false positive', () => {
     it('ORDINARY NAMES ARE UNCHANGED, which is what makes this a fallback', () => {
       // The control that matters: the fallback must fire only when the rules above found
       // nothing, or it would start offering whole names everywhere and widen the gate.
-      expect(companyNameForms('Matrix Restaurant Consulting')).toEqual(['Matrix'])
-      expect(companyNameForms('Abacus Business Consulting, Inc.')).toEqual(['Abacus'])
-      expect(companyNameForms('Virtual Miss Friday (VMF Ltd)')).toEqual(['VMF', 'Virtual'])
-      expect(companyNameForms('Cavalry Consulting LLC')).toEqual(['Cavalry'])
+      expect(companyNameForms('Harbour Restaurant Consulting')).toEqual(['Harbour'])
+      expect(companyNameForms('Lantern Business Consulting, Inc.')).toEqual(['Lantern'])
+      expect(companyNameForms('Remote Desk Tuesday (RDT Ltd)')).toEqual(['RDT', 'Remote'])
+      expect(companyNameForms('Bramble Consulting LLC')).toEqual(['Bramble'])
       expect(companyNameForms(null)).toEqual([])
       expect(companyNameForms('')).toEqual([])
     })
@@ -614,10 +614,10 @@ describe('the acronym short form: the SECOND measured false positive', () => {
   it('THE OTHER DIRECTION HOLDS: an ordinary non-leading word still does not count', () => {
     // An acronym is distinctive by construction and safe to accept from anywhere. An
     // ordinary word is not, or the gate starts passing copy it should reject.
-    expect(companyNameForms('Matrix Restaurant Consulting')).toEqual(['Matrix'])
+    expect(companyNameForms('Harbour Restaurant Consulting')).toEqual(['Harbour'])
     const f = checkFollowupGates({
       ...base,
-      companyName: 'Matrix Restaurant Consulting',
+      companyName: 'Harbour Restaurant Consulting',
       prose: asParagraphs('The restaurant sector has been slow. Things are hard. Worth a look?'),
     })
     expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)

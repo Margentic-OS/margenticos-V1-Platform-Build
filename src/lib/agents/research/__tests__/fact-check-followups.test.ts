@@ -209,7 +209,7 @@ describe('the fact-check prompt', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // THE SENTENCE THE VERIFIER NEVER RETURNED. Added 2026-09-25.
 //
-// A follow-up shipped "You refreshed the Higher Impact site in early 2026, which signals
+// A follow-up shipped "You refreshed the Brightpath site in early 2026, which signals
 // active investment in growth." Nothing in that prospect's research mentions a website, a
 // refresh, or 2026.
 //
@@ -226,11 +226,11 @@ describe('the fact-check prompt', () => {
 
 describe('a sentence about them that the verifier never returned', () => {
   const FINDINGS = [
-    '1. Karl ended his Director of Coaching role in January 2025, after holding it since September 2022.',
+    '1. Devon ended his Director of Coaching role in January 2025, after holding it since September 2022.',
     '   source: linkedin | profile',
   ].join('\n')
 
-  const KARL = 'You refreshed the Higher Impact site in early 2026, which signals active investment in growth.'
+  const KARL = 'You refreshed the Brightpath site in early 2026, which signals active investment in growth.'
 
   it('POSITIVE CONTROL: the real escape is caught', () => {
     // Exactly what the verifier returned on the day: the trailing clause only.
@@ -239,24 +239,24 @@ describe('a sentence about them that the verifier never returned', () => {
       finding: null, supported: false,
       why: 'No finding draws this inference; the finding notes the site was refreshed.',
     }]
-    const f = checkCitations(claims, FINDINGS, 'Worth a look?', KARL, 'Higher Impact Consulting Group')
+    const f = checkCitations(claims, FINDINGS, 'Worth a look?', KARL, 'Brightpath Delivery Group')
     expect(f.some(x => x.includes('never returned as a claim'))).toBe(true)
-    expect(f.some(x => x.includes('You refreshed the Higher Impact site'))).toBe(true)
+    expect(f.some(x => x.includes('You refreshed the Brightpath site'))).toBe(true)
   })
 
   it('CONTROL: the same sentence passes once the verifier actually returns it', () => {
     const claims = [{
-      email: 3, claim: 'You refreshed the Higher Impact site in early 2026',
+      email: 3, claim: 'You refreshed the Brightpath site in early 2026',
       finding: 1, supported: true, why: 'covered',
     }]
-    const f = checkCitations(claims, FINDINGS, 'Worth a look?', KARL, 'Higher Impact Consulting Group')
+    const f = checkCitations(claims, FINDINGS, 'Worth a look?', KARL, 'Brightpath Delivery Group')
     expect(f.some(x => x.includes('never returned as a claim'))).toBe(false)
   })
 
   it('CONTROL: a question is not a claim, so a CTA never trips this', () => {
     const f = checkCitations(
       [{ email: 2, claim: 'x', finding: 1, supported: true, why: '' }],
-      FINDINGS, 'Is that something you are working on?', 'Worth a look?', 'Higher Impact Consulting Group',
+      FINDINGS, 'Is that something you are working on?', 'Worth a look?', 'Brightpath Delivery Group',
     )
     expect(f.some(x => x.includes('never returned as a claim'))).toBe(false)
   })
@@ -264,7 +264,7 @@ describe('a sentence about them that the verifier never returned', () => {
   it('CONTROL: a sentence about the SENDER is the offer, not a claim about them', () => {
     const f = checkCitations(
       [{ email: 2, claim: 'x', finding: 1, supported: true, why: '' }],
-      FINDINGS, 'We run the outreach so meetings keep arriving.', 'Worth a look?', 'Higher Impact Consulting Group',
+      FINDINGS, 'We run the outreach so meetings keep arriving.', 'Worth a look?', 'Brightpath Delivery Group',
     )
     expect(f.some(x => x.includes('never returned as a claim'))).toBe(false)
   })
@@ -289,7 +289,7 @@ describe('an offer line in second person is exempt; a stated fact is not', () =>
   const coverageFailures = (prose2: string, prose3: string) =>
     checkCitations(
       [{ email: 2, claim: 'the firm posted a role in March', finding: 1, supported: true, why: '' }],
-      FINDINGS, prose2, prose3, 'Higher Impact Consulting Group',
+      FINDINGS, prose2, prose3, 'Brightpath Delivery Group',
     ).filter(x => x.includes('never returned'))
 
   it('PASSES the three offer lines', () => {
@@ -303,9 +303,9 @@ describe('an offer line in second person is exempt; a stated fact is not', () =>
   })
 
   it('STILL FAILS a stated fact about their past', () => {
-    const f = coverageFailures('Worth a look?', 'You refreshed the Higher Impact site in early 2026.')
+    const f = coverageFailures('Worth a look?', 'You refreshed the Brightpath site in early 2026.')
     expect(f).toHaveLength(1)
-    expect(f[0]).toContain('You refreshed the Higher Impact site')
+    expect(f[0]).toContain('You refreshed the Brightpath site')
   })
 
   it('STILL FAILS a state claim, because a state is not a consequence of the service', () => {
@@ -316,7 +316,7 @@ describe('an offer line in second person is exempt; a stated fact is not', () =>
   })
 
   it('LABELS the failure by email, so one fault cannot clear both positions', () => {
-    const only3 = coverageFailures('Worth a look?', 'You refreshed the Higher Impact site in early 2026.')
+    const only3 = coverageFailures('Worth a look?', 'You refreshed the Brightpath site in early 2026.')
     expect(only3[0]).toContain('email 3')
     expect(only3.some(x => x.includes('email 2'))).toBe(false)
   })

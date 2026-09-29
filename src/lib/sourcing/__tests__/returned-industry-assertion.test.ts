@@ -370,7 +370,7 @@ describe('classifyTier: every disqualifier returns a registered reason', () => {
   it('does not rescue on a word the client never asked for', async () => {
     const withKeywords = { ...spec(['Management Consulting']), keywords: ['education'] }
     const result = await classifyTier(
-      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Northern Star Consulting' },
+      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Eastern Field Consulting' },
       withKeywords,
     )
     expect(result.tiering_reason).toBe('industry_off_target')

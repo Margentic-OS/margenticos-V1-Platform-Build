@@ -11,7 +11,7 @@ import { createClient } from '@supabase/supabase-js'
 import { runProspectResearchAgentV2 } from '@/lib/agents/prospect-research-agent-v2'
 
 const ORG_ID      = '74243c62-f42d-4f3f-b93e-bd5e51f0b6c0' // MargenticOS client zero
-const PROSPECT_ID = '7cd92532-55e0-45d4-9d99-4a7c2ae0a12d' // Ginny Hudgens — The Strategic Implementer
+const PROSPECT_ID = '7cd92532-55e0-45d4-9d99-4a7c2ae0a12d' // Nora Whitfield — The Practice Lever
 
 async function main() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
