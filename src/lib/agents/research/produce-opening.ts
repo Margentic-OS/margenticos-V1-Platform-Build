@@ -95,6 +95,28 @@ export interface ProduceOpeningInput {
    * icpBuyerTitle above, and the same reason.
    */
   positioningText?: string | null
+  /**
+   * WHETHER THE NEED-MATCH CHECK BLOCKS, OR ONLY REPORTS. Defaults to REPORT.
+   *
+   * ═══ WHY THIS IS A PARAMETER AND NOT A MODULE CONSTANT ═══
+   *
+   * activity-verdict and opening-reference both carry their mode as a constant in their own
+   * file, which is right for a rule that is either on or off everywhere. This one has to be
+   * BOTH AT ONCE: report in production, block in one arm of the A/B, in the same binary on
+   * the same commit. A constant cannot do that, and two binaries differing by an edit is the
+   * thing an A/B is supposed to rule out.
+   *
+   * MEASURED, over 56 stored Email 1s on 2026-09-29: blocking would reject 17 of them, and
+   * on the operator's own controls it holds 2 of 2 it must catch and 4 of 5 it must pass.
+   * Not good enough to gate production on. What is not known is how often a REJECTION IS
+   * RECOVERED BY A RETRY, because a replay over stored copy cannot answer that: the writer
+   * never runs. The A/B arm is what answers it, which is why the blocking path exists at all.
+   *
+   * REPORT STILL RUNS THE CHECK AND STILL PAYS FOR IT. It is not a way of turning the call
+   * off; it is a way of seeing the verdict without acting on it, which is the only way the
+   * rate on live copy becomes visible.
+   */
+  needMatchMode?: 'report' | 'block'
   /** Batch-scoped. Absent on a single-prospect run, where there is nothing to collide with. */
   uniqueness?: BatchUniquenessRegistry
   /**
@@ -282,6 +304,7 @@ export async function produceOpening({
   variantId,
   icpBuyerTitle,
   positioningText,
+  needMatchMode = 'report',
   uniqueness,
   onAttempt,
   writeFollowupEmails = false,
@@ -423,6 +446,7 @@ export async function produceOpening({
       const needs = await checkNeedMatchesOffer({
         apiKey,
         positioningText,
+
         // The bridge and the question, labelled as the fact-check labels them, and nothing
         // else. The observation is a finding quoted back and names no need; the offer line
         // is fixed template text the writer never sees and is the client's own words.
@@ -434,6 +458,20 @@ export async function produceOpening({
         labelOf: () => 'Email 1',
         prospectId: ctx.id,
       })
+
+      // REPORT OR BLOCK, decided by the caller. The check ran either way and the verdict is
+      // already in the log line checkNeedMatchesOffer writes; what the mode decides is
+      // whether the writer is told. Returning [] here is the whole of "report only".
+      if (needMatchMode === 'report') {
+        if (needs.failures.length > 0) {
+          logger.info('research/produce-opening: need-match would have rejected, reporting only', {
+            prospect_id: ctx.id,
+            mode: 'report',
+            failures: needs.failures,
+          })
+        }
+        return []
+      }
       return needs.failures
     },
   })
@@ -538,6 +576,9 @@ export async function produceOpening({
     // its follow-ups and the two cannot demand different things. Undefined turns the check
     // off there exactly as it does above.
     positioningText,
+    // AND THE SAME MODE. An arm that blocked Email 1 and only reported on its follow-ups
+    // would be measuring two different rules in one number.
+    needMatchMode,
     prospectId: ctx.id,
   })
 

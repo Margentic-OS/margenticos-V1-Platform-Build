@@ -91,7 +91,7 @@ function route(needReply: ReturnType<typeof say>) {
   })
 }
 
-const run = (positioningText?: string) => writeFollowups({
+const run = (positioningText?: string, needMatchMode: 'report' | 'block' = 'block') => writeFollowups({
   apiKey: 'test', clientName: 'Example Co', buyer: 'an operator',
   email1Body: '{{first_name}},\n\nOne.\n\nTwo.\n\nThree?\n\n' + SIGNOFF,
   offerLine: 'A separate track keeps the conversations arriving.',
@@ -99,7 +99,7 @@ const run = (positioningText?: string) => writeFollowups({
   findingsEvidence: '1. They took on a second unit in March.\n   source: web | a listings page',
   reference: REFERENCE, prospectId: 'need-match-followups-test', prospectFirstName: null,
   datedCandidates: [], now: new Date('2026-09-25T00:00:00Z'),
-  positioningText,
+  positioningText, needMatchMode,
 })
 
 beforeEach(() => createMock.mockReset())
@@ -135,6 +135,15 @@ describe('the need-match check reaches emails 2 and 3', () => {
     expect(r.email2.prose).toBeNull()
     expect(r.email2.failures.join(' | ')).toContain('putting their own posts in front of more people')
     expect(r.email3.failures.join(' | ')).not.toContain('putting their own posts')
+  })
+
+  it('REPORT IS THE DEFAULT: the check runs, and neither email is taken down by it', async () => {
+    route(NEEDS_SPLIT)
+    const r = await run(TEXT, 'report')
+    expect(needMatchCalls()).toHaveLength(1)
+    // The same verdict that takes email 2 down in the test above leaves it shipping here.
+    expect(r.email2.prose).not.toBeNull()
+    expect(r.email3.prose).not.toBeNull()
   })
 
   it('does not run at all when the client has no positioning document', async () => {

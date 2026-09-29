@@ -324,6 +324,9 @@ export interface WriteFollowupsParams {
    * ProduceOpeningInput: the batch snapshot is JSONB written before the field existed.
    */
   positioningText?: string | null
+  /** Whether the need-match check blocks or only reports. Defaults to REPORT, as Email 1's
+   *  does, and for the same reason: see ProduceOpeningInput.needMatchMode. */
+  needMatchMode?: 'report' | 'block'
   prospectId: string
   /**
    * The prospect's first name, for the third-person gate. REQUIRED, null when unknown.
@@ -556,7 +559,15 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
       // nothing in it saying which half is wrong. Every failure this check produces does
       // name one, so the catch-all should stay empty; it is here because a silently
       // DROPPED failure is the one outcome a filter pair can produce and nobody can see.
-      const nmAll = needMatch.failures
+      // REPORT OR BLOCK. The call was made and paid for either way; the mode decides only
+      // whether the writer is told. See ProduceOpeningInput.needMatchMode.
+      const blocking = params.needMatchMode === 'block'
+      if (!blocking && needMatch.failures.length > 0) {
+        logger.info('research/write-followups: need-match would have rejected, reporting only', {
+          prospect_id: params.prospectId, mode: 'report', failures: needMatch.failures,
+        })
+      }
+      const nmAll = blocking ? needMatch.failures : []
       fail2.push(...nmAll.filter(f => /\bemail 2\b/.test(f)))
       fail3.push(...nmAll.filter(f => /\bemail 3\b/.test(f)))
       const nmBoth = nmAll.filter(f => !/\bemail [23]\b/.test(f))

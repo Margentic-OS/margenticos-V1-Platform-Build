@@ -115,11 +115,11 @@ const isNeedMatch = (args: { system: unknown }) =>
 const needMatchCalls = () => createMock.mock.calls.filter(([a]) => isNeedMatch(a))
 
 /** Drive produceOpening, then return the factCheck closure it handed the writer. */
-async function closureFor(positioningText?: string) {
+async function closureFor(positioningText?: string, needMatchMode: 'report' | 'block' = 'block') {
   await produceOpening({
     apiKey: 'k', clientName: 'Client', ctx, candidates: [CANDIDATE],
     selectedCandidateId: 'c1', relevanceReason: 'R',
-    messagingContent: {} as never, variantId: 'A', positioningText,
+    messagingContent: {} as never, variantId: 'A', positioningText, needMatchMode,
   })
   const params = writeAndJudgeOpening.mock.calls[0][0] as {
     factCheck?: (c: { bridge: string; question: string }) => Promise<string[]>
@@ -219,6 +219,34 @@ describe('produceOpening calls the check, with the document, at the right moment
     // Positive control: the fact-check DID run, so the absent need-match call above is the
     // off switch rather than a closure that returned early on the empty-copy guard.
     expect(createMock.mock.calls).toHaveLength(1)
+  })
+
+  it('REPORT IS THE DEFAULT, and reporting still runs the check and still pays for it', async () => {
+    // The production mode. The call is made, the verdict is logged, and the writer is told
+    // nothing. Turning the check off and reporting on it are different states, and only one
+    // of them makes the rate on live copy visible.
+    createMock.mockImplementation(async (a: { system: unknown }) => isNeedMatch(a) ? NEED_UNSUPPORTED : FACT_CHECK_CLEAN)
+
+    await produceOpening({
+      apiKey: 'k', clientName: 'Client', ctx, candidates: [CANDIDATE],
+      selectedCandidateId: 'c1', relevanceReason: 'R',
+      messagingContent: {} as never, variantId: 'A', positioningText: TEXT,
+    })
+    const params = writeAndJudgeOpening.mock.calls[0][0] as {
+      factCheck: (c: { bridge: string; question: string }) => Promise<string[]>
+    }
+    const failures = await params.factCheck({ bridge: BRIDGE, question: QUESTION })
+
+    expect(needMatchCalls()).toHaveLength(1)
+    expect(failures).toEqual([])
+  })
+
+  it('and the SAME verdict blocks when the arm asks it to', async () => {
+    // The control for the one above: same reply, same copy, one parameter different. Without
+    // it, "report returns nothing" would pass just as happily if the check never ran.
+    createMock.mockImplementation(async (a: { system: unknown }) => isNeedMatch(a) ? NEED_UNSUPPORTED : FACT_CHECK_CLEAN)
+    const failures = await (await closureFor(TEXT, 'block'))({ bridge: BRIDGE, question: QUESTION })
+    expect(failures).toHaveLength(1)
   })
 
   it('does not call any model when both the bridge and the question are empty', async () => {
