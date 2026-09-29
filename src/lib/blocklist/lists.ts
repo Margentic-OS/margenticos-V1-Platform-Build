@@ -80,6 +80,53 @@ export interface Blocklist {
  */
 export const CLEAN_CONTROL_DOMAIN = 'example.com'
 
+/**
+ * Domains checked on EVERY run whether or not they have ever sent a message.
+ *
+ * WHY THIS IS SEPARATE FROM THE SENDING DOMAINS, AND WHY IT IS NOT JUST APPENDED TO THEM
+ *
+ * sendingDomainsInUse() derives its list from sending_mailbox_daily_stats, a record of what
+ * ACTUALLY SENT. That is the right source for sending domains and structurally the wrong one
+ * for the corporate domain: margenticos.com has no mailboxes, never sends, and therefore can
+ * never appear in that table however long the window. So the one domain the whole business
+ * rests on was the one domain MON-035 could not see, and no amount of waiting would have
+ * changed that.
+ *
+ * It needs watching because a blocklist operator that decides a set of lookalike domains is
+ * running cold outreach can escalate to the registrant's main domain. That risk is the
+ * recorded reason no SURBL delisting request was filed for getmargenticos.com or
+ * inboxmargenticos.com on 2026-09-29: filing one draws attention to the relationship between
+ * the lookalikes and the brand. If the escalation happens anyway, this is the arm that sees
+ * it, and it matters more than any sending domain does. A listing here reaches the website,
+ * the reply-to address, and every message the business sends from anywhere.
+ *
+ * A HARDCODED FLOOR, NOT A CONFIGURABLE LIST. brandDomainsFrom() below lets an environment
+ * variable ADD to this and never remove from it. A coverage gap produced by an unset or
+ * mistyped environment variable is precisely the born-dark failure this monitor exists to
+ * prevent: it would report OK while asking about nothing.
+ */
+export const BRAND_DOMAINS: readonly string[] = ['margenticos.com'] as const
+
+/** A plausible hostname. Deliberately strict: a junk entry must not become a DNS query. */
+function looksLikeDomain(value: string): boolean {
+  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(value)
+}
+
+/**
+ * The brand domains to check: the floor above, plus anything BLOCKLIST_BRAND_DOMAINS adds.
+ *
+ * Comma-separated. Absent, empty or unparseable input degrades to the floor rather than to
+ * an empty list, so no configuration mistake can quietly reduce coverage. Entries that are
+ * not domain-shaped are dropped rather than queried.
+ */
+export function brandDomainsFrom(raw: string | undefined): string[] {
+  const extra = (raw ?? '')
+    .split(',')
+    .map(d => d.trim().toLowerCase())
+    .filter(looksLikeDomain)
+  return [...new Set([...BRAND_DOMAINS, ...extra])].sort()
+}
+
 /** Last octet of a 127.0.0.x answer, or null if the address is not in that form. */
 function lastOctetOf127(address: string, thirdOctet: number): number | null {
   const m = /^127\.0\.(\d+)\.(\d+)$/.exec(address.trim())

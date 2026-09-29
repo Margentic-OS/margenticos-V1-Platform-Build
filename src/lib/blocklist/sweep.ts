@@ -37,7 +37,28 @@ export interface ControlFailure {
 }
 
 export interface BlocklistVerdict {
+  /**
+   * Total domains queried: sending plus brand.
+   *
+   * NOT the denominator mon_035 uses for its vacuous-truth check. See
+   * sendingDomainsChecked, and the comment there for why folding the two together would
+   * have retired an existing guard without anybody noticing.
+   */
   domainsChecked: number
+  /**
+   * Sending domains queried. THE DENOMINATOR mon_035 reads to decide whether the sweep had
+   * anything in scope.
+   *
+   * Counted apart from the brand domains for one specific reason: the brand list is a
+   * non-empty hardcoded floor, so a combined count could never be zero, and
+   * `domains_checked = 0` is what tells the monitor the sending-stats sync has stopped.
+   * Adding the brand domain to the same count would have silently turned that guard into
+   * dead code. Same shape as the parallel arrays and the `as` cast in CLAUDE.md: the
+   * feature works and something quietly stops watching.
+   */
+  sendingDomainsChecked: number
+  /** Brand domains queried, excluding any that also turned up as a sending domain. */
+  brandDomainsChecked: number
   listsTotal: number
   listsTrusted: number
   listedCount: number
@@ -53,6 +74,14 @@ export interface SweepInput {
   resolve: ResolveA
   /** Sending domains in use. An empty list is UNKNOWN downstream, never OK. */
   domains: readonly string[]
+  /**
+   * Domains to check regardless of whether they send, from brandDomainsFrom().
+   *
+   * Defaults to EMPTY here rather than to BRAND_DOMAINS, so the sweep stays a pure function
+   * of what it is handed and no test silently acquires a live DNS query. The route supplies
+   * the real list; brandDomainsFrom() is what guarantees it is never empty in production.
+   */
+  brandDomains?: readonly string[]
   lists?: ReadonlyArray<Blocklist>
 }
 
@@ -65,7 +94,11 @@ export interface SweepInput {
  */
 export async function runBlocklistSweep(input: SweepInput): Promise<BlocklistVerdict> {
   const lists = input.lists ?? BLOCKLISTS
-  const domains = [...new Set(input.domains.map(d => d.trim().toLowerCase()).filter(Boolean))].sort()
+  const sending = normalise(input.domains)
+  // A brand domain that has started sending is counted as a sending domain and queried once,
+  // not twice. The sending count is the one that must stay honest.
+  const brand = normalise(input.brandDomains ?? []).filter(d => !sending.includes(d))
+  const domains = [...new Set([...sending, ...brand])].sort()
 
   const listings: BlocklistListing[] = []
   const controlFailures: ControlFailure[] = []
@@ -156,6 +189,8 @@ export async function runBlocklistSweep(input: SweepInput): Promise<BlocklistVer
 
   return {
     domainsChecked: domains.length,
+    sendingDomainsChecked: sending.length,
+    brandDomainsChecked: brand.length,
     listsTotal: lists.length,
     listsTrusted,
     listedCount: listings.length,
@@ -165,6 +200,8 @@ export async function runBlocklistSweep(input: SweepInput): Promise<BlocklistVer
     incomplete,
     detail: describe({
       domains,
+      sending,
+      brand,
       lists,
       listsTrusted,
       listings,
@@ -179,6 +216,11 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/** Trim, lowercase, drop blanks, de-duplicate, sort. */
+function normalise(domains: readonly string[]): string[] {
+  return [...new Set(domains.map(d => d.trim().toLowerCase()).filter(Boolean))].sort()
+}
+
 /**
  * The sentence an operator reads on the monitor board.
  *
@@ -188,6 +230,8 @@ function errText(err: unknown): string {
  */
 function describe(v: {
   domains: readonly string[]
+  sending: readonly string[]
+  brand: readonly string[]
   lists: ReadonlyArray<Blocklist>
   listsTrusted: number
   listings: BlocklistListing[]
@@ -196,18 +240,31 @@ function describe(v: {
   incomplete: boolean
 }): string {
   const scope =
-    `${v.domains.length} sending domain(s) against ${v.listsTrusted} of ${v.lists.length} ` +
-    `blocklist(s) whose controls passed`
+    `${v.sending.length} sending domain(s) and ${v.brand.length} brand domain(s) against ` +
+    `${v.listsTrusted} of ${v.lists.length} blocklist(s) whose controls passed`
 
   if (v.domains.length === 0) {
     return (
-      'No sending domains to check, so nothing was queried. This is not a pass: the domain ' +
-      'list is derived from recent per-mailbox sending stats, and an empty list means ' +
-      'either nothing has sent recently or that sync has stopped.'
+      'No domains to check at all, so nothing was queried. This is not a pass: the sending ' +
+      'list is derived from recent per-mailbox sending stats and the brand list is a ' +
+      'hardcoded floor, so both being empty means the brand floor is not reaching this sweep.'
     )
   }
 
   const parts: string[] = []
+
+  // Reported as a named problem rather than by an absent count, because the brand floor
+  // means the total is never zero and the old "nothing in scope" reading is unavailable.
+  if (v.sending.length === 0) {
+    return (
+      'NO SENDING DOMAIN IN SCOPE. No sending domain has appeared in the per-mailbox daily ' +
+      `stats in the last 30 days, so only the ${v.brand.length} brand domain(s) ` +
+      `(${v.brand.join(', ')}) were queried. That is not a pass: either nothing has sent for ` +
+      'a month or the sending-stats sync has stopped. ' +
+      describeFindings(v).replace(/^No listings\./, 'No listings on the brand domain(s).') +
+      ` Checked ${scope}.`
+    )
+  }
 
   if (v.listings.length > 0) {
     const named = v.listings
@@ -245,4 +302,36 @@ function describe(v: {
   }
 
   return `${parts.join(' ')} Checked ${scope}.`
+}
+
+/**
+ * The findings half of the sentence, without the scope clause.
+ *
+ * Exists so the no-sending-domains branch above can still report a listing it found on a
+ * brand domain. Before this split, an empty sending list returned early and a brand-domain
+ * listing discovered in the same run was never mentioned in the detail line.
+ */
+function describeFindings(v: {
+  listings: BlocklistListing[]
+  controlFailures: ControlFailure[]
+  refusedCount: number
+  incomplete: boolean
+}): string {
+  const parts: string[] = []
+  if (v.listings.length > 0) {
+    parts.push(`LISTED: ${v.listings.map(l => `${l.domain} on ${l.list} (${l.address})`).join('; ')}.`)
+  }
+  if (v.controlFailures.length > 0) {
+    parts.push(
+      `CONTROL FAILURES (${v.controlFailures.length}): ` +
+        v.controlFailures.map(c => c.detail).join(' '),
+    )
+  }
+  if (v.refusedCount > 0) {
+    parts.push(`${v.refusedCount} domain query(ies) returned an unrecognised answer.`)
+  }
+  if (v.incomplete) {
+    parts.push('The run did not finish cleanly, so every count above is a floor.')
+  }
+  return parts.length === 0 ? 'No listings.' : parts.join(' ')
 }

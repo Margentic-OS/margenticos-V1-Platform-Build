@@ -80,6 +80,10 @@ export async function writeBlocklistSnapshot(
       {
         id: 1,
         domains_checked: verdict.domainsChecked,
+        // Written separately so mon_035's vacuous-truth check keeps reading the SENDING
+        // count. The brand floor is never empty, so the combined count can never be zero.
+        sending_domains_checked: verdict.sendingDomainsChecked,
+        brand_domains_checked: verdict.brandDomainsChecked,
         lists_total: verdict.listsTotal,
         lists_trusted: verdict.listsTrusted,
         listed_count: verdict.listedCount,

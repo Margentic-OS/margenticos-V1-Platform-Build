@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   BLOCKLISTS,
+  BRAND_DOMAINS,
+  brandDomainsFrom,
   CLEAN_CONTROL_DOMAIN,
   classifyAnswer,
   queryNameFor,
@@ -208,5 +210,58 @@ describe('Spamhaus DQS key swaps only the Spamhaus zone', () => {
     )!
     expect(classifyAnswer(swapped, ['127.0.1.2'])).toBe('listed')
     expect(classifyAnswer(swapped, ['127.255.255.254'])).toBe('refused')
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE BRAND-DOMAIN FLOOR
+//
+// margenticos.com has no mailboxes, so it can never come back from
+// sendingDomainsInUse(). Coverage of it depends entirely on this floor, which means the
+// failure mode to guard against is not "the wrong domain is checked" but "no domain is
+// checked and the monitor still says OK".
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('brandDomainsFrom: the floor cannot be configured away', () => {
+  it('includes the corporate domain when the env var is absent', () => {
+    expect(brandDomainsFrom(undefined)).toContain('margenticos.com')
+  })
+
+  it.each([
+    ['empty string', ''],
+    ['whitespace', '   '],
+    ['just separators', ' , ,, '],
+    ['junk that is not a domain', 'not a domain!, @@@, http://x.com'],
+    ['a bare word with no dot', 'localhost'],
+  ])('degrades to the floor rather than to empty: %s', (_label, raw) => {
+    // The point of the assertion: a mistyped or empty environment variable must not be able
+    // to reduce coverage to nothing. An empty result here would be a monitor reporting OK
+    // while asking about no domain at all.
+    expect(brandDomainsFrom(raw)).toEqual(['margenticos.com'])
+  })
+
+  it('adds extra domains without displacing the floor', () => {
+    const got = brandDomainsFrom('margenticos.co.uk, example.org')
+    expect(got).toContain('margenticos.com')
+    expect(got).toContain('margenticos.co.uk')
+    expect(got).toContain('example.org')
+  })
+
+  it('normalises case and whitespace, and de-duplicates', () => {
+    expect(brandDomainsFrom('  MARGENTICOS.COM , margenticos.com ')).toEqual(['margenticos.com'])
+  })
+
+  it('drops junk entries while keeping the valid ones in the same input', () => {
+    const got = brandDomainsFrom('good.example, !!!bad!!!, also-good.example')
+    expect(got).toContain('good.example')
+    expect(got).toContain('also-good.example')
+    expect(got.some(d => d.includes('!'))).toBe(false)
+  })
+
+  it('BRAND_DOMAINS itself is non-empty, which is what every guarantee above rests on', () => {
+    // If this list were ever emptied, every test above would still pass vacuously except
+    // this one. That is the whole reason it is asserted separately.
+    expect(BRAND_DOMAINS.length).toBeGreaterThan(0)
+    expect(BRAND_DOMAINS).toContain('margenticos.com')
   })
 })

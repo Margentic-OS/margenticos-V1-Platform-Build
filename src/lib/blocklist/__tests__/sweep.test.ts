@@ -303,3 +303,124 @@ describe('guards the guard', () => {
     expect(v.detail).not.toMatch(/^No listings\./)
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BRAND DOMAINS, AND THE GUARD THAT ADDING THEM COULD HAVE KILLED
+//
+// The corporate domain is checked every run even though it never sends. The dangerous part
+// of that change was never the query, it was the COUNT: mon_035 reads the sending-domain
+// count to decide whether anything was in scope, and the brand list is a non-empty
+// hardcoded floor. Folding the two counts together would have made that denominator
+// permanently non-zero and quietly retired the guard.
+//
+// The test named `does not inflate` below is the regression test for that, and it is the
+// most important one in this block.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const BRAND = ['margenticos.com']
+
+describe('blocklist sweep: brand domains', () => {
+  it('queries every brand domain on every list, alongside the sending domains', async () => {
+    const { resolve, asked } = fakeResolver(cleanAnswers([...DOMAINS, ...BRAND]))
+    const v = await runBlocklistSweep({ resolve, domains: DOMAINS, brandDomains: BRAND })
+
+    for (const list of BLOCKLISTS) {
+      expect(asked).toContain(queryNameFor(list, 'margenticos.com'))
+    }
+    expect(v.brandDomainsChecked).toBe(1)
+    expect(v.domainsChecked).toBe(3)
+  })
+
+  it('does not inflate the SENDING count, which is the denominator mon_035 reads', async () => {
+    // THE REGRESSION TEST. If brand domains are ever folded into the sending count, this
+    // fails, and the "sending-stats sync has stopped" guard in mon_035 stops working at the
+    // same moment. Deleting the separation must not be a silent change.
+    const { resolve } = fakeResolver(cleanAnswers([...DOMAINS, ...BRAND]))
+    const v = await runBlocklistSweep({ resolve, domains: DOMAINS, brandDomains: BRAND })
+
+    expect(v.sendingDomainsChecked).toBe(2)
+    expect(v.brandDomainsChecked).toBe(1)
+    expect(v.sendingDomainsChecked + v.brandDomainsChecked).toBe(v.domainsChecked)
+  })
+
+  it('finds a listing on the corporate domain and names it', async () => {
+    // The escalation this check exists for: the lookalike sending domains are clean and the
+    // brand domain is the one that got listed.
+    const answers = cleanAnswers([...DOMAINS, ...BRAND])
+    const surblList = BLOCKLISTS.find(l => l.code === 'SURBL')!
+    answers[queryNameFor(surblList, 'margenticos.com')] = ['127.0.0.64']
+
+    const { resolve } = fakeResolver(answers)
+    const v = await runBlocklistSweep({ resolve, domains: DOMAINS, brandDomains: BRAND })
+
+    expect(v.listedCount).toBe(1)
+    expect(v.listings[0]).toEqual({
+      domain: 'margenticos.com',
+      list: 'SURBL',
+      address: '127.0.0.64',
+    })
+    expect(v.detail).toContain('margenticos.com on SURBL (127.0.0.64)')
+  })
+
+  it('a brand domain that has started sending is counted once, as a sending domain', async () => {
+    const { resolve, asked } = fakeResolver(cleanAnswers(DOMAINS))
+    const v = await runBlocklistSweep({
+      resolve,
+      domains: DOMAINS,
+      brandDomains: [DOMAINS[0]],
+    })
+
+    expect(v.sendingDomainsChecked).toBe(2)
+    expect(v.brandDomainsChecked).toBe(0)
+    expect(v.domainsChecked).toBe(2)
+    // Queried once per list, not twice. 3 lists x (2 controls + 2 domains) = 12.
+    expect(asked.length).toBe(12)
+  })
+
+  it('reports the scope with BOTH denominators named separately', async () => {
+    const { resolve } = fakeResolver(cleanAnswers([...DOMAINS, ...BRAND]))
+    const v = await runBlocklistSweep({ resolve, domains: DOMAINS, brandDomains: BRAND })
+
+    expect(v.detail).toContain('2 sending domain(s)')
+    expect(v.detail).toContain('1 brand domain(s)')
+  })
+})
+
+describe('blocklist sweep: no sending domain, but a brand domain still checked', () => {
+  it('is NOT a pass, and says which half was missing', async () => {
+    const { resolve } = fakeResolver(cleanAnswers(BRAND))
+    const v = await runBlocklistSweep({ resolve, domains: [], brandDomains: BRAND })
+
+    expect(v.sendingDomainsChecked).toBe(0)
+    expect(v.brandDomainsChecked).toBe(1)
+    expect(v.detail).toContain('NO SENDING DOMAIN IN SCOPE')
+    expect(v.detail).toContain('not a pass')
+    expect(v.detail).not.toMatch(/^No listings\./)
+  })
+
+  it('still reports a brand-domain listing found during a sending-stats outage', async () => {
+    // Before the describe() split this case returned early and the listing it had just found
+    // was never mentioned in the detail line. mon_035 also reorders the listing check above
+    // the vacuous-truth branch for the same reason: a confirmed listing must not be masked
+    // by an empty scope.
+    const answers = cleanAnswers(BRAND)
+    const surblList = BLOCKLISTS.find(l => l.code === 'SURBL')!
+    answers[queryNameFor(surblList, 'margenticos.com')] = ['127.0.0.64']
+
+    const { resolve } = fakeResolver(answers)
+    const v = await runBlocklistSweep({ resolve, domains: [], brandDomains: BRAND })
+
+    expect(v.listedCount).toBe(1)
+    expect(v.detail).toContain('NO SENDING DOMAIN IN SCOPE')
+    expect(v.detail).toContain('margenticos.com on SURBL')
+  })
+
+  it('both lists empty is still the original all-empty message', async () => {
+    // The pre-existing behaviour, kept: this is what a sweep handed nothing at all reports.
+    const { resolve } = fakeResolver(cleanAnswers([]))
+    const v = await runBlocklistSweep({ resolve, domains: [], brandDomains: [] })
+
+    expect(v.domainsChecked).toBe(0)
+    expect(v.detail).toContain('not a pass')
+  })
+})

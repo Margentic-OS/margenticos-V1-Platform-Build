@@ -67,6 +67,7 @@ export type Database = {
       }
       blocklist_check_snapshot: {
         Row: {
+          brand_domains_checked: number | null
           computed_at: string
           control_failure_count: number
           control_failures: Json
@@ -79,8 +80,10 @@ export type Database = {
           lists_total: number
           lists_trusted: number
           refused_count: number
+          sending_domains_checked: number | null
         }
         Insert: {
+          brand_domains_checked?: number | null
           computed_at?: string
           control_failure_count: number
           control_failures?: Json
@@ -93,8 +96,10 @@ export type Database = {
           lists_total: number
           lists_trusted: number
           refused_count: number
+          sending_domains_checked?: number | null
         }
         Update: {
+          brand_domains_checked?: number | null
           computed_at?: string
           control_failure_count?: number
           control_failures?: Json
@@ -107,6 +112,7 @@ export type Database = {
           lists_total?: number
           lists_trusted?: number
           refused_count?: number
+          sending_domains_checked?: number | null
         }
         Relationships: []
       }

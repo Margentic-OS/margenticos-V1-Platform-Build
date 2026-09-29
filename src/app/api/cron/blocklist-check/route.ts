@@ -40,7 +40,7 @@ import * as Sentry from '@sentry/nextjs'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { asServiceRoleClient } from '@/lib/supabase/service-role'
-import { BLOCKLISTS, withSpamhausDqsKey } from '@/lib/blocklist/lists'
+import { BLOCKLISTS, brandDomainsFrom, withSpamhausDqsKey } from '@/lib/blocklist/lists'
 import { makeResolver, resolverAddressesFrom } from '@/lib/blocklist/resolver'
 import { runBlocklistSweep } from '@/lib/blocklist/sweep'
 import { sendingDomainsInUse, writeBlocklistSnapshot } from '@/lib/blocklist/store'
@@ -108,9 +108,13 @@ export async function POST(request: NextRequest) {
     const resolve = makeResolver(resolverAddresses)
 
     const domains = await sendingDomainsInUse(supabase, now)
+    // The corporate domain, checked every run whether or not it sends. It has no mailboxes,
+    // so it can never come back from sendingDomainsInUse(). Never empty: the floor lives in
+    // BRAND_DOMAINS and the environment variable can only add to it.
+    const brandDomains = brandDomainsFrom(process.env.BLOCKLIST_BRAND_DOMAINS)
     const lists = withSpamhausDqsKey(BLOCKLISTS, process.env.SPAMHAUS_DQS_KEY)
 
-    const verdict = await runBlocklistSweep({ resolve, domains, lists })
+    const verdict = await runBlocklistSweep({ resolve, domains, brandDomains, lists })
 
     await writeBlocklistSnapshot(supabase, verdict, now)
 
@@ -122,6 +126,8 @@ export async function POST(request: NextRequest) {
 
     logger.info('blocklist-check: run complete', {
       domains_checked: verdict.domainsChecked,
+      sending_domains_checked: verdict.sendingDomainsChecked,
+      brand_domains_checked: verdict.brandDomainsChecked,
       lists_trusted: verdict.listsTrusted,
       lists_total: verdict.listsTotal,
       listed: verdict.listedCount,
