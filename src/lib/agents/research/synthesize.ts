@@ -8,6 +8,7 @@
 import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
 import type { MessageCreateParamsNonStreaming, Message } from '@anthropic-ai/sdk/resources/messages'
 import { createClient } from '@supabase/supabase-js'
+import { absenceAboutThem } from '@/lib/style/absence-about-them'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
@@ -796,6 +797,45 @@ export function findProspectReasonFaults(reason: string): string[] {
  * the main event and the supporting event cannot drift apart: a second hand-written copy of
  * this list is how a candidate too weak to be chosen gets stapled to one that was.
  */
+/**
+ * A CANDIDATE THAT NAMES WHAT THE PROSPECT LACKS IS NOT A HOOK. Added 2026-09-28.
+ *
+ * WHY IN ELIGIBILITY AND NOT IN A PROSE GATE. Brian Murphy's chosen fact was "All five blog
+ * posts published in 2026 are personal lifestyle content covering vacations, family, and
+ * moving, with no IT, business development, or client-facing content visible." The absence IS
+ * the candidate. A gate on the written sentence only teaches the writer to paraphrase the same
+ * absence, because the material it was given contains nothing else. The fix has to remove the
+ * candidate from selection, not police the prose.
+ *
+ * IT ALSO OPENS COLD. "You have not published about your own work" is a verdict on the reader
+ * delivered by a stranger, and it is the one opening that cannot be recovered by good phrasing.
+ *
+ * findEvidenceAbsences IS IMPORTED, NOT RESTATED. It is the trigger gate's own detector and
+ * its own doc comment says "Report only: nothing acts on these" — this is the change that makes
+ * something act. A second copy of those patterns is a second list to keep in step.
+ *
+ * MEASURED against real candidate text before it was written: it flags Brian Murphy's and
+ * Aubrey Edwards's absence candidates, and flags NEITHER John McCarthy's 15 September post nor
+ * Richard Spilsbury's blog post, both of which stay eligible.
+ *
+ * REACH IS PARTIAL AND THAT IS NOT HIDDEN. This runs inside synthesis, so a FRESH run excludes
+ * the candidate from selection. A REUSE run reads selected_candidate_id off the row and does
+ * not re-select, so it does not retroactively fix a prospect already researched. What a reuse
+ * run does get is hasUsableCandidate, which routes through selectCandidate and therefore
+ * through this predicate, so a prospect whose ONLY eligible candidate was an absence now
+ * correctly declines to write rather than writing an absence hook.
+ */
+export function namesAnAbsence(
+  c: ObservationCandidate,
+  about?: { companyName?: string | null; firstName?: string | null },
+): boolean {
+  return absenceAboutThem({
+    observation: c.observation ?? '',
+    companyName: about?.companyName ?? null,
+    firstName: about?.firstName ?? null,
+  }) !== null
+}
+
 export function isHookEligible(c: ObservationCandidate): boolean {
   // ── READABILITY IS NOT A REASON TO DISQUALIFY A CANDIDATE. Removed 2026-09-24. ──
   //
@@ -821,6 +861,7 @@ export function isHookEligible(c: ObservationCandidate): boolean {
   return c.passes_all
     && c.inference_direction !== 'ambiguous_unhandled'
     && !isReshareWrittenAsTheirOwn(c)
+    && !namesAnAbsence(c)
 }
 
 export function isReshareWrittenAsTheirOwn(c: ObservationCandidate): boolean {
