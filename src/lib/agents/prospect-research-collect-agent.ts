@@ -354,6 +354,11 @@ export async function runProspectResearchCollect({
       // field existed carries no key at all and reads back undefined, which resolveBuyer
       // treats as absent and falls through, never as a value.
       icpBuyerTitle: entry.client_context?.buyerTitle ?? null,
+      // Off the SAME snapshot as everything else here, so the need-match check reads the
+      // positioning document phase 1 planned against rather than whatever is live now. An
+      // entry written before this field existed carries no key at all and reads back
+      // undefined, which turns the check off for that entry, never asserts an empty document.
+      positioningText: entry.client_context?.positioningText ?? null,
       // No batch-uniqueness registry: it is scoped to one in-process batch run and this
       // phase processes one prospect per job.
       //

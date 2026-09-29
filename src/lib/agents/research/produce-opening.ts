@@ -16,6 +16,7 @@ import { assignVariantDeterministically } from '@/lib/composition/variant-assign
 import { writeAndJudgeOpening, buildFindingsBlock, buildFindingsEvidence, type OpeningResult, type AttemptObservation, type NotWrittenReason } from './write-opening'
 import { writeFollowups, type FollowupResult } from './write-followups'
 import { factCheckOpening } from './fact-check-opening'
+import { checkNeedMatchesOffer } from './need-matches-offer'
 import { fingerprintEmail1 } from '@/lib/composition/followup-assignment'
 import {
   buildFollowupReference,
@@ -81,6 +82,19 @@ export interface ProduceOpeningInput {
    * field existed, so an older entry reads back as undefined rather than null.
    */
   icpBuyerTitle?: string | null
+  /**
+   * The client's positioning document, flattened. When present, every need Email 1 and the
+   * follow-ups name must be one a line of that document says the service meets.
+   *
+   * ABSENT MEANS THE CHECK DOES NOT RUN, and that is the only switch there is. It follows
+   * the shape `factCheck` already uses in the writer: a gate that cannot be left out would
+   * make every offline test and the template arm impossible to run.
+   *
+   * Optional at the type level because the batch snapshot is JSONB written before the field
+   * existed, so an older entry reads back as undefined rather than null. Same story as
+   * icpBuyerTitle above, and the same reason.
+   */
+  positioningText?: string | null
   /** Batch-scoped. Absent on a single-prospect run, where there is nothing to collide with. */
   uniqueness?: BatchUniquenessRegistry
   /**
@@ -267,6 +281,7 @@ export async function produceOpening({
   messagingContent,
   variantId,
   icpBuyerTitle,
+  positioningText,
   uniqueness,
   onAttempt,
   writeFollowupEmails = false,
@@ -385,7 +400,39 @@ export async function produceOpening({
         prospectId: ctx.id,
         companyName: ctx.company_name ?? null,
       })
-      return fc.failures
+
+      // ═══ THE NEED-MATCH CHECK, SECOND, AND ONLY ON COPY THE FIRST ONE ACCEPTED ═══
+      //
+      // TWO DIFFERENT QUESTIONS, ONE BEHIND THE OTHER. The fact-check asks whether a claim
+      // about the PROSPECT is carried by the findings: the left-hand side of the bridge.
+      // This asks whether the NEED the sentence points at is work the client actually does:
+      // the right-hand side. A sentence can pass the first and fail the second, which is
+      // how a closing question came to offer work nobody sells.
+      //
+      // ORDER IS COST, the same rule write-followups.ts applies to its own fact-check. An
+      // attempt the first check rejected is going to be rewritten whatever this says, so
+      // paying a second Sonnet call to describe it buys nothing. Returning early is
+      // therefore the cheap branch AND the correct one, and they cannot drift apart.
+      if (fc.failures.length > 0) return fc.failures
+
+      // NO DOCUMENT, NO CHECK. Not a silent pass dressed as one: without the client's
+      // positioning document there is nothing to check a need against, and a verifier
+      // guessing at what the service does is worse than no verifier.
+      if (!positioningText) return []
+
+      const needs = await checkNeedMatchesOffer({
+        apiKey,
+        positioningText,
+        // The bridge and the question, labelled as the fact-check labels them, and nothing
+        // else. The observation is a finding quoted back and names no need; the offer line
+        // is fixed template text the writer never sees and is the client's own words.
+        sections: [
+          { email: 1, label: 'Email 1, the paragraph that gives the reason to reply', text: bridge },
+          { email: 1, label: 'Email 1, the closing question', text: question },
+        ],
+        prospectId: ctx.id,
+      })
+      return needs.failures
     },
   })
 
@@ -485,6 +532,10 @@ export async function produceOpening({
     // clock of its own, and inventing one here would be a second source of "today" beside
     // the one Email 1's gate uses, which is the shape that produced the wrong figures.
     reference,
+    // THE SAME DOCUMENT EMAIL 1 WAS CHECKED AGAINST, so a need legal in Email 1 is legal in
+    // its follow-ups and the two cannot demand different things. Undefined turns the check
+    // off there exactly as it does above.
+    positioningText,
     prospectId: ctx.id,
   })
 

@@ -517,6 +517,7 @@ async function runOne(
     messagingContent: messaging.content,
     variantId,
     icpBuyerTitle: clientCtx.buyerTitle,
+    positioningText: clientCtx.positioningText,
     uniqueness,
     onAttempt: o => attempts.push(o),
     writeFollowupEmails: writeFollowups,

@@ -46,6 +46,7 @@ import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { EMAIL_WORD_LIMITS } from '@/agents/messaging-generation-agent'
 import { factCheckFollowups, type FactCheckResult, type CheckedClaim } from './fact-check-followups'
+import { checkNeedMatchesOffer, type NeedMatchResult } from './need-matches-offer'
 import { countWords } from '@/lib/composition/personalization'
 import { checkFollowupGates, checkFollowupPairGates, reformatParagraphs } from '@/lib/style/followup-gates'
 import {
@@ -315,6 +316,14 @@ export interface WriteFollowupsParams {
   /** The gates' evidence corpus, which is narrower than the prompt block. */
   findingsEvidence: string
   reference: FollowupReference
+  /**
+   * The client's positioning document, flattened. When present, every need emails 2 and 3
+   * name must be one a line of that document says the service meets.
+   *
+   * ABSENT MEANS THE CHECK DOES NOT RUN. Optional for the same reason it is optional on
+   * ProduceOpeningInput: the batch snapshot is JSONB written before the field existed.
+   */
+  positioningText?: string | null
   prospectId: string
   /**
    * The prospect's first name, for the third-person gate. REQUIRED, null when unknown.
@@ -502,6 +511,53 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
 
     const fail2 = [...outcome.email2.failures, ...fc2, ...fcBoth]
     const fail3 = [...outcome.email3.failures, ...fc3, ...fcBoth]
+
+    // ── THE NEED-MATCH CHECK, PER EMAIL, ON WHAT SURVIVED EVERYTHING BEFORE IT ──
+    //
+    // A DIFFERENT QUESTION FROM THE FACT-CHECK ABOVE. That one asks whether a claim about
+    // the PROSPECT is carried by the findings. This asks whether the NEED the email argues
+    // from is work the client actually does. A follow-up can be true of the reader in every
+    // particular and still argue toward something nobody sells.
+    //
+    // PER EMAIL, NOT PER PAIR, and that is not a detail. The fact-check runs on the pair
+    // because its prompt reads both at once, and its pair-level failures fail both. Judging
+    // NEEDS as a pair would be the mistake that cost 31 of 44 fallbacks on 2026-09-25: an
+    // email discarded because its sibling failed. So only the emails still un-banked AND
+    // clean of every earlier failure are sent, and each one's verdict lands on itself.
+    //
+    // THAT CONDITION IS ALSO THE CHEAP ONE. An email already failing something is going to
+    // be rewritten whatever this says, and a banked email is never asked for again, so
+    // neither is worth a second Sonnet call. Correct and cheap are the same branch.
+    const positioningText = params.positioningText
+    const needSections: Array<{ email: number; label: string; text: string }> = []
+    if (positioningText) {
+      if (kept2 === null && outcome.email2.prose !== null && fail2.length === 0) {
+        needSections.push({ email: 2, label: 'Email 2', text: outcome.email2.prose })
+      }
+      if (kept3 === null && outcome.email3.prose !== null && fail3.length === 0) {
+        needSections.push({ email: 3, label: 'Email 3', text: outcome.email3.prose })
+      }
+    }
+    if (positioningText && needSections.length > 0) {
+      const needMatch: NeedMatchResult = await checkNeedMatchesOffer({
+        apiKey: params.apiKey,
+        positioningText,
+        sections: needSections,
+        prospectId: params.prospectId,
+      })
+      usage = addTokenUsage(usage, needMatch.usage)
+      // Attributed by the same rule the fact-check's failures are, and with the same
+      // catch-all: a failure naming neither email is charged to both, because there is
+      // nothing in it saying which half is wrong. Every failure this check produces does
+      // name one, so the catch-all should stay empty; it is here because a silently
+      // DROPPED failure is the one outcome a filter pair can produce and nobody can see.
+      const nmAll = needMatch.failures
+      fail2.push(...nmAll.filter(f => /\bemail 2\b/.test(f)))
+      fail3.push(...nmAll.filter(f => /\bemail 3\b/.test(f)))
+      const nmBoth = nmAll.filter(f => !/\bemail [23]\b/.test(f))
+      fail2.push(...nmBoth)
+      fail3.push(...nmBoth)
+    }
 
     attempts.push({
       attempt: i,

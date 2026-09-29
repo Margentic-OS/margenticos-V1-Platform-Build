@@ -19,6 +19,7 @@ import {
   FIT_CHECKS, FIT_CHECK_RESULTS, unknownFitChecks, readTokenUsage, addTokenUsage,
 } from './types'
 import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
+import { flattenPositioningText } from './positioning-text'
 import { rankCandidates, byTriggerPositionOnly, type RankedCandidate } from './rank-candidates'
 import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
 import { fleschKincaidGrade, MAX_READING_GRADE } from '@/lib/style/reading-grade'
@@ -207,6 +208,21 @@ export interface ClientDocContext {
    * every snapshot written before this field existed lacks it. Absent reads as none.
    */
   fitDimensions?:     FitDimension[] | null
+  /**
+   * The client's WHOLE positioning document, flattened to one labelled line per string
+   * leaf. Distinct from positioningSummary and valuePropContext above, which are two
+   * SUMMARIES built for the synthesis prompt to reason over; this is a CORPUS, built so a
+   * verifier can cite a numbered line of it and code can check the citation.
+   *
+   * SYNTHESIS NEVER READS IT. PromptContext in prompts/synthesis-prompt.ts names each field
+   * it renders, so a field added here reaches that prompt only if someone adds it there
+   * too. That is what keeps this addition off the cached synthesis prefix.
+   *
+   * OPTIONAL for the reason fitDimensions is: the batch path snapshots this object onto
+   * synthesis_batch_entries, and every snapshot written before this field existed lacks it.
+   * Absent reads as "the check does not run", never as an empty document.
+   */
+  positioningText?:   string | null
 }
 
 /**
@@ -392,6 +408,15 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     })
   }
 
+  // THE WHOLE POSITIONING DOCUMENT, alongside the two summaries built above from three of
+  // its fields. Built here rather than at the point of use because this is the one place
+  // that reads the document at all, and a second read would be a second version of it.
+  //
+  // Null when there is no positioning document, which is the same signal the check's
+  // absence gives: without the document there is nothing to check a need against, and
+  // guessing would be worse than not checking.
+  const positioningText = posDoc ? flattenPositioningText(posDoc) : null
+
   // TOV rules: writing_rules is object[] with shape {rule, why, example_correct, example_violation}.
   let tovRules = 'No TOV guide available yet.'
   if (tovDoc) {
@@ -418,6 +443,7 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     clientName, buyerTitle, triggers: triggerList,
     icpSummary, positioningSummary, valuePropContext, tovRules,
     fitDimensions: storedDimensions.dimensions,
+    positioningText,
   }
 }
 

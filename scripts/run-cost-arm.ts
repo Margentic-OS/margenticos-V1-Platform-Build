@@ -210,6 +210,7 @@ async function main() {
         messagingContent: messaging.content,
         variantId,
         icpBuyerTitle: clientCtx.buyerTitle,
+        positioningText: clientCtx.positioningText,
         uniqueness,
       })
 

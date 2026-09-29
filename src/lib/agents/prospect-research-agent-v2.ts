@@ -970,6 +970,10 @@ export async function runProspectResearchAgentV2({
       messagingContent: messaging.content,
       variantId,
       icpBuyerTitle: clientCtx.buyerTitle,
+      // The client's whole positioning document, off the SAME read as the buyer title. Every
+      // need Email 1 names is checked against it. Null when the client has no positioning
+      // document, which turns the check off rather than guessing at what the service does.
+      positioningText: clientCtx.positioningText,
       uniqueness,
     })
 
