@@ -2732,14 +2732,28 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
   const maxAttempts = baseAttempts + (extraGranted ? 1 : 0)
   // Every attempt used. The approved template ships, which is the correct outcome.
   const retries = maxAttempts - 1
+  // ONE BRANCH PER KIND, AND 'factchecked' WAS THE MISSING ONE. Added 2026-09-29.
+  //
+  // The comment on the Attempt type says a fourth variant was chosen over more strings in
+  // `gates` so that the compiler would name every place that has to learn about it, and it
+  // lists this one. It did not, because a ternary chain ending in a default compiles
+  // happily over a kind it does not mention. So an attempt that completed, was verified and
+  // was rejected by the verifier reported `No attempt completed.`, and the operator's list
+  // showed the one rejection shape with no reason attached.
+  //
+  // It matters more now than it did: a second verifier runs in that same closure, and the
+  // A/B's pass bar requires every new rejection to be quoted with its cause, so that
+  // over-tightening is visible. A cause of "No attempt completed" makes it invisible.
   const reason =
     last?.kind === 'gated'
       ? `Failed deterministic gates on the final attempt: ${last.gates.join('; ')}`
-      : last?.kind === 'floored'
-        ? `Disqualified by the floor on the final attempt: ${last.floor.reason}`
-        : last?.kind === 'compared'
-          ? last.c.reason
-          : 'No attempt completed.'
+      : last?.kind === 'factchecked'
+        ? `Rejected by a verifier on the final attempt: ${last.failures.join('; ')}`
+        : last?.kind === 'floored'
+          ? `Disqualified by the floor on the final attempt: ${last.floor.reason}`
+          : last?.kind === 'compared'
+            ? last.c.reason
+            : 'No attempt completed.'
 
   // Nothing from this prospect ships, so it must not be holding any batch reservation.
   params.uniqueness?.release(params.prospectId)

@@ -131,6 +131,42 @@ describe('the Email 1 fact-check gates, retries and falls back', () => {
     expect(r.opening ?? '').not.toContain(BRIDGE)
   })
 
+  /**
+   * AND SAYS WHY IT FELL BACK. Until 2026-09-29 this returned "No attempt completed." for a
+   * verifier rejection, because the exhaustion reason was a ternary chain with no branch for
+   * the 'factchecked' kind and a default at the end. An attempt that completed, was verified
+   * and was rejected reported that nothing had run, and judge_reasoning is what the
+   * operator's list shows.
+   */
+  it('and says WHY, naming the verifier and quoting it', async () => {
+    const r = await run(async () => [FAILURE])
+    expect(r.judge_reasoning).toContain('Rejected by a verifier on the final attempt')
+    expect(r.judge_reasoning).toContain(FAILURE)
+    expect(r.judge_reasoning).not.toContain('No attempt completed')
+  })
+
+  it('CONTROL: a gate rejection still reports the gates, not the verifier', async () => {
+    // The branch above must not have swallowed its neighbour. A bridge naming the prospect
+    // is a deterministic gate failure, so the writer never reaches the fact-check at all.
+    createMock.mockImplementation(async (args: { system: unknown; messages: { content: string }[] }) => {
+      if (Array.isArray(args.system)) {
+        return say([
+          `OBSERVATION: ${OBSERVATION}`,
+          'BRIDGE: The filling of them is the part Robin carries alone.',
+          `QUESTION: ${QUESTION}`,
+          'SUBJECT: two locations, four roles',
+        ].join('\n'))
+      }
+      const content = String(args.messages[0].content)
+      if (!content.includes('VERSION A')) return FLOOR_PASS
+      return say('CHOICE: B\nREASON: it reads faster.')
+    })
+    const r = await run(async () => [])
+    expect(r.written_won).toBe(false)
+    expect(r.judge_reasoning).toContain('Failed deterministic gates on the final attempt')
+    expect(r.judge_reasoning).not.toContain('Rejected by a verifier')
+  })
+
   it('is given the BRIDGE and the QUESTION, and nothing else', async () => {
     const seen: { bridge: string; question: string }[] = []
     await run(async copy => { seen.push(copy); return [] })
