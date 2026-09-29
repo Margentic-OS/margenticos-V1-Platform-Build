@@ -11,16 +11,22 @@ a real name in a worked example is the exact mistake CI caught on this branch's 
 
 ## 1. Branch state
 
-Branch `copy-writing`, cut from `main`. Both commits are PUSHED; `local == remote` was confirmed
+Branch `copy-writing`, cut from `main`. Every commit is PUSHED; `local == remote` was confirmed
 by SHA after each push.
 
 | SHA | what it does |
 | --- | --- |
 | `5acb2ea3e9b06a5d4b7f2b0afe551d4e9747fbfa` | Item 1. The Email 1 writer's PROMPT carries only the chosen candidate plus a supporting event. The gate corpus stays wide. |
 | `e3cae9d363b6cd71fc372712ff235fc233ebf797` | Item 2. A candidate whose content is an absence ABOUT THE PROSPECT is not eligible to be a hook. |
+| `7faa48fd4dfea719d4da0745b14b48ea35a4e1a3` | Item 3. The corpus and the verifier, wired to nothing. |
+| `b62257a8b6a6b1e507b63a21a42d7e1336d40b6b` | Item 3. Wired into Email 1 and the follow-ups. |
+| `ea1c72cdb36735baaa7fdb0c80d7b28309d179dd` | Item 3. 22 controls on the code half. |
+| `cf1795ce90d3f3e773939e7bfaaea3266b34d733` | Item 3. The seam tests, both halves. |
+| `7f66b9e109fb9838bf3c92c7a80080708914ab48` | A verifier rejection now says so, instead of "No attempt completed." |
+| `d21ee5c92bae8d40dcd8052b80d266c1f646e54a` | Item 3. Controls that both production callers pass the document. |
 
-`e3cae9d` is the branch tip. Nothing is merged, and nothing should be merged until the operator
-has read the item 6 A/B.
+Nothing is merged, and nothing should be merged until the operator has read the item 6 A/B.
+Derive the tip from `git`, never from this table: `git rev-parse origin/copy-writing`.
 
 **MAIN MOVES UNDER YOU.** It moved four times during this work, twice mid-merge. Always
 `git fetch origin` and read `git rev-parse origin/main` rather than trusting a SHA written
@@ -85,28 +91,61 @@ routes through this predicate, so a prospect whose only eligible candidate was a
 declines to write rather than writing an absence hook. The item 6 harness re-synthesises, so the
 test WILL show the full effect; production reuse runs will not.
 
+### Item 3 — the need must match the offer
+
+`need-matches-offer.ts` asks a verifier to POINT: for each need the copy names, the numbered
+line of the client's positioning document that names work meeting it, quoted exactly. Code then
+checks the line exists, the quote is a real substring OF THAT LINE, and the quote is long enough
+to be a sentence.
+
+`positioning-text.ts` builds the corpus: the whole document, one labelled line per string leaf.
+`loadClientContext` carries it as `positioningText`, optional for the reason `fitDimensions` is.
+
+**Citing a LINE rather than the document is the part that is not optional,** and it is stronger
+than the precedent in `scripts/derive-trigger-reasons.ts`. Measured on the live active document:
+`competitive_alternatives` and `competitive_landscape` are 4,175 of 17,848 characters, 23%, and
+they describe WHAT OTHER PROVIDERS DO. A whole-document quote search credits a competitor's
+capability as support. The path label on each line is what makes that readable in a rejection.
+
+**Where it runs.** Email 1: inside the `factCheck` closure `produce-opening.ts` already injects,
+so `write-opening.ts` needed no change for it. Only when the fact-check returned nothing, which is
+both the cheap branch and the correct one. Follow-ups: PER EMAIL, never per pair, on emails still
+un-banked and clean of everything before it.
+
+**Two different questions, one behind the other.** The fact-check asks whether a claim about the
+PROSPECT is carried by the findings. This asks whether the NEED the sentence points at is work
+the client does. Copy can pass the first and fail the second, which is how a closing question
+came to offer work nobody sells.
+
+**An empty verdict is REPORTED, never gated,** and this is the one deliberate asymmetry with the
+fact-check. That one can detect in code that a sentence NAMES the reader, so it can tell a
+suspicious empty verdict from a clean one. There is no equivalent detector for "this sentence
+names a need": a need is a meaning, not a shape, and the only instrument that could judge it is
+the one being checked.
+
+**Controls.** 22 on the code half (`need-matches-offer.test.ts`), 11 on the Email 1 seam
+(`need-match-reaches-the-writer.test.ts`, including source-scan controls that both production
+callers pass the document), 3 on the follow-up seam. Mutation-proved, 10 mutations, all caught,
+each run with a control proving the harness ran at the right test count. The one that matters:
+reverting the line check to a whole-document search turns 2 red.
+
+**MEASURED: the prompt size.** 71 lines and ~6,060 tokens for the live document, five active
+documents ranging 5,247 to 6,426. Comfortably over Sonnet's 1,024-token cacheable floor, and the
+document is in the system block with a breakpoint, so every prospect after the first in the
+window reads it. Uncached that is about $0.023 a call; cached about $0.006.
+
+**NOT MEASURED, and it is the thing to do before item 6:** the rejection rate on real copy.
+Nobody has yet run this verifier over the stored Email 1s. About $1 to $2 for the 105. Do it
+before the A/B, so the A/B is not the first time anyone sees the rate.
+
+**ALSO LANDED, and separable (`7f66b9e`):** `writeAndJudgeOpening`'s exhaustion reason had no
+branch for the `factchecked` kind, so an attempt that completed and was rejected by a verifier
+reported `No attempt completed.` in `judge_reasoning`, which is what the operator's list shows.
+It matters for item 6: the pass bar requires every new rejection to be quoted with its cause.
+
 ---
 
 ## 3. Still to do, in order
-
-### Item 3 — the need must match the offer
-
-A check that the need an email names (Email 1's bridge and its question; the follow-up arguments)
-is one the client's POSITIONING document says the service addresses, citing the supporting line.
-Code verifies the cite is a real substring. Failures retry, then fall back to template.
-
-- Positioning lives in `strategy_documents`, `document_type='positioning'`, `status='active'`,
-  `content` jsonb. The live active document has 9 top-level keys and **71 string leaves**. There is
-  no TypeScript type for it; every reader casts.
-- `loadClientContext` (`synthesize.ts`) currently reduces it to TWO strings. Add a
-  `positioningText` built by flattening all leaves, and mark it optional for the same reason
-  `fitDimensions` is: batch rows written before the field read back undefined.
-- Model the verifier on `scripts/derive-trigger-reasons.ts`, which already exports
-  `checkQuotesAreReal`. Do NOT copy its bare `JSON.parse`; wrap in the never-throws shape of
-  `fact-check-opening.ts` so a verifier outage cannot take copy down.
-- Wire it into the existing closure in `produce-opening.ts` that already injects the Email 1
-  fact-check. No edit to `write-opening.ts` is needed.
-- **It must cover the QUESTION, not only the bridge.** The operator's failing example was a CTA.
 
 ### Item 4 — guess detectors on Email 1: MEASURE FIRST, DO NOT SWITCH ON
 
@@ -250,6 +289,12 @@ Two dead ends found in THIS session and recorded in code comments rather than No
 7. **`git stash -u` / `pop` IS SHARED ACROSS WORKTREES.** It pulled another session's stash into this
    tree. Two untracked files, `architecture.md` and `docs/Archive.zip`, belong to that session and
    must be LEFT ALONE. Commit by explicit path, never `git add -A`.
+8. **`Array.isArray(args.system)` NO LONGER IDENTIFIES THE WRITER.** Several suites route a mocked
+   Anthropic by asking whether the system block is an array, because for a long time only the
+   Email 1 writer sent one. Three calls now do: that writer, the follow-up writer, and the
+   need-match check, all of which pass an array so they can carry a `cache_control` breakpoint.
+   Route on a SENTENCE FROM THE PROMPT instead. The existing suites are safe only because none of
+   them passes `positioningText`, which is luck rather than design, and the next one will not be.
 
 ---
 
