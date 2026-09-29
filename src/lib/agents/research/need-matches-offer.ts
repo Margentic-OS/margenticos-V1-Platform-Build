@@ -1,0 +1,340 @@
+// THE NEED AN EMAIL NAMES MUST BE ONE THE CLIENT'S SERVICE MEETS.
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// WHY THIS EXISTS, AND WHY NO EXISTING CHECK REACHES IT.
+//
+// The fact-check asks whether a claim ABOUT THE PROSPECT is carried by the findings. That is
+// a question about the left-hand side of the bridge. Nothing asks about the right-hand side:
+// whether the need the sentence points at is work THIS CLIENT ACTUALLY DOES.
+//
+// So a bridge and a question can be true of the prospect in every particular, pass every
+// deterministic gate, pass the fact-check, pass the floor, beat the template, and promise
+// something nobody is selling. Three shapes of that were read off the live batch:
+//
+//   a closing question offering to put the prospect's own article in front of more people
+//   a closing question offering to follow up the people who did not attend their event
+//   a bridge naming a need about the prospect's existing audience
+//
+// Each one describes work the positioning document does not describe. A reply to any of them
+// is a call that opens with a correction.
+//
+// THE CHECK IS A SECOND MODEL CALL, AND ADR-018 IS WHY THAT IS ALLOWED. "Is this need met by
+// the work this document describes" is reading comprehension over two texts. It is not
+// counting, filtering, routing or pattern matching, and the three examples above share no
+// token, no shape and no vocabulary.
+//
+// ═══ THE CODE HALF IS WHAT BINDS. ADR-028. ═══
+//
+// The model is asked to POINT: for each need, the numbered line of the client's own
+// positioning document that names work meeting it. Code then checks THREE things the model
+// cannot talk its way past: the line number exists, the quoted sentence is a real substring
+// of THAT LINE, and the quote is long enough to be a sentence rather than a word.
+//
+// Citing a LINE and not just the document is stronger than the precedent in
+// scripts/derive-trigger-reasons.ts, which checks a quote against the whole document. It has
+// to be: 23% of the live document describes COMPETITORS AND ALTERNATIVES, measured, so a
+// quote can be entirely real and describe work somebody else does. The line number carries
+// the path label, so a rejection names where the support was claimed from.
+//
+// ═══ WHAT IT DELIBERATELY DOES NOT DO ═══
+//
+// AN EMPTY VERDICT IS NOT A FAILURE HERE, unlike in the fact-check. The fact-check can tell a
+// suspicious empty verdict from a clean one, because it can detect in code that a sentence
+// NAMES the reader. There is no equivalent detector for "this sentence names a need": a need
+// is a meaning, not a shape, and the one instrument that could judge it is the instrument
+// being checked. Treating empty as a failure would therefore reject copy whenever the
+// verifier was unhelpful, and nothing downstream could tell that apart from real copy that
+// names no need. It is reported instead, so the rate is readable.
+//
+// NO CLIENT, MARKET OR SERVICE IS NAMED, and the worked examples are abstract for that
+// reason. The obvious concrete pair, "reaching buyers who have not heard of them" against
+// "converting the audience they already have", is one client's service shape and is already
+// on the Rule Zero fix list for appearing hardcoded elsewhere. The rule here is about WHOSE
+// PEOPLE and WHAT IS DONE TO THEM, which can be said without naming either.
+
+import Anthropic from '@anthropic-ai/sdk'
+import { logger } from '@/lib/logger'
+import { throwIfFatal } from '@/lib/agents/fatal-api-error'
+import { buildPositioningCorpus, positioningLines } from './positioning-text'
+import { ZERO_TOKEN_USAGE, readTokenUsage, type TokenUsage } from './types'
+
+const NEED_MATCH_MODEL = 'claude-sonnet-4-6'
+
+/**
+ * A quote shorter than this is not a sentence, and a two-word quote matches almost any
+ * document. The same floor scripts/derive-trigger-reasons.ts uses, for the same reason.
+ */
+export const MIN_QUOTE_CHARS = 20
+
+/** One need the verifier found in the copy, and the line it says meets it. */
+export interface CheckedNeed {
+  /** 1, 2 or 3: which email the need was read from. */
+  email: number
+  /** The need, quoted or paraphrased from the copy in one line. */
+  need: string
+  /** The 1-based positioning line cited, or null when the verifier found none. */
+  line: number | null
+  /** The sentence quoted from that line. Empty when nothing was cited. */
+  quote: string
+  supported: boolean
+  /** The verifier's one-line reason. */
+  why: string
+}
+
+export interface NeedMatchResult {
+  needs: CheckedNeed[]
+  /** Every reason this copy must not ship. Empty means it may. */
+  failures: string[]
+  usage: TokenUsage
+  /** The raw reply, kept so a verdict can be read rather than inferred. */
+  raw: string
+}
+
+function normalise(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[‐-―]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * THE RULES, shared by Email 1 and the follow-ups and parameterised rather than copied, for
+ * the reason buildFactCheckPrompt is: a second prompt holding the same rules is a second
+ * thing to keep in step, and the rules are the expensive part.
+ *
+ * THE POSITIONING DOCUMENT IS IN THE SYSTEM MESSAGE, not the user message, and that is a
+ * cost decision rather than a stylistic one. It is identical for every prospect of one
+ * client, so a cache_control breakpoint on the system block makes it a cache read on every
+ * prospect after the first within the window. At ~4,000 tokens it clears Sonnet's
+ * 1,024-token minimum cacheable prefix several times over. The copy being checked, which is
+ * the only part that changes, is the user message.
+ */
+export function buildNeedMatchPrompt(opts: {
+  /** How the copy is described, e.g. 'one email' or 'two emails'. */
+  emailsShown: string
+  /** The email number used in the output example, so the model returns a number that parses. */
+  exampleEmail: number
+  /** The client's positioning document, flattened. */
+  positioningText: string
+}): string {
+  return `You check whether the NEEDS an email names are needs the sender's own service meets.
+You are not writing, editing, fact-checking or judging quality. One question only.
+
+You are shown the sender's POSITIONING DOCUMENT as numbered lines, and ${opts.emailsShown}.
+
+A NEED is anything the copy says the reader now wants, lacks, has to do, or would get from
+replying. It appears in two places and you must read both:
+
+  the sentence giving the reason to reply
+  the closing question, which usually names the need as the thing being offered
+
+For each need, find the LINE of the positioning document that names the work meeting it,
+and quote that line's sentence EXACTLY as it appears. Copy it character for character. Do
+not paraphrase it, do not join two lines, and do not quote a line you cannot find.
+
+If no line names work that meets the need, it is UNSUPPORTED. Say so, and explain in one
+sentence what the need asks for that the document does not offer.
+
+JUDGE THE WORK, NOT THE SITUATION. Your only question is whether the document describes work
+that MEETS the need. It does not matter whether the document mentions the event that created
+the need, that kind of company, or that moment in a company's life. An email is sent because
+something happened; the document is not expected to list what.
+
+BE STRICT ABOUT TWO THINGS AND INDIFFERENT TO EVERYTHING ELSE:
+
+  WHOSE PEOPLE. A need about people the reader already has a relationship with is a
+  different need from one about people who have never heard of them. So is a need about the
+  reader's own staff. If the document describes work done to one group, it does not support
+  a need about another.
+
+  WHAT IS DONE TO THEM. Finding people, contacting people, qualifying people, converting
+  people, keeping people and distributing something to people are different work. Matching
+  the group is not enough if the action differs.
+
+If you find yourself rejecting a need because the document does not mention the trigger, the
+award, the launch, the hire or the industry, you are judging the situation, and the answer is
+SUPPORTED.
+
+THE LINE NUMBER IS CHECKED IN CODE. A quote that does not appear on the line you name counts
+as no quote at all, and the need is treated as unsupported. Each line is labelled with where
+in the document it came from: lines about ALTERNATIVES, COMPETITORS or what OTHER providers
+do describe work the sender does NOT do, and must never be quoted as support.
+
+A need the copy does not name is not yours to invent. If the copy names none, return an
+empty list.
+
+Return ONLY this JSON, no prose around it:
+
+{"needs":[{"email":${opts.exampleEmail},"need":"<in one line>","line":12,"quote":"the sentence, exactly","supported":true,"why":"<one line>"}]}
+
+line is the NUMBER of the positioning line, or null when nothing supports the need.
+
+## The sender's positioning document
+
+${buildPositioningCorpus(opts.positioningText)}`
+}
+
+/** Splits the JSON out of the reply. Absent or malformed reads as "checked nothing". */
+export function parseNeedMatchResponse(raw: string, allowedEmails: readonly number[]): CheckedNeed[] {
+  const match = raw.match(/\{[\s\S]*\}/)
+  if (!match) return []
+  try {
+    const parsed = JSON.parse(match[0]) as { needs?: unknown }
+    if (!Array.isArray(parsed.needs)) return []
+    return parsed.needs.flatMap(n => {
+      if (!n || typeof n !== 'object') return []
+      const o = n as Record<string, unknown>
+      const email = Number(o.email)
+      if (!allowedEmails.includes(email)) return []
+      const line = o.line === null || o.line === undefined ? null : Number(o.line)
+      return [{
+        email,
+        need: typeof o.need === 'string' ? o.need : '',
+        line: line !== null && Number.isFinite(line) ? line : null,
+        quote: typeof o.quote === 'string' ? o.quote : '',
+        supported: o.supported === true,
+        why: typeof o.why === 'string' ? o.why : '',
+      }]
+    })
+  } catch {
+    return []
+  }
+}
+
+/**
+ * THE CODE HALF. Every failure is derived from the verifier's own output plus the document,
+ * never from trusting its verdict.
+ *
+ * Each failure ENDS WITH ITS OWN INSTRUCTION, because the writer's retry feedback appends a
+ * general sentence about the fact-check after whatever it is given. A need-mismatch needs
+ * different advice from an unsupported claim, and the advice next to the fault is the one
+ * that has to be unambiguous.
+ */
+export function checkNeedCitations(
+  needs: readonly CheckedNeed[],
+  positioningText: string,
+): string[] {
+  const lines = positioningLines(positioningText)
+  const failures: string[] = []
+
+  for (const n of needs) {
+    const label = n.email === 1 ? 'Email 1' : `email ${n.email}`
+
+    if (!n.supported) {
+      failures.push(
+        `${label} names the need ${JSON.stringify(n.need)}, which the positioning document ` +
+        `does not describe the service meeting` + (n.why ? `: ${n.why}` : '') +
+        `. Name a need this service does meet, or drop it.`,
+      )
+      continue
+    }
+
+    // A CITATION TO A LINE THAT DOES NOT EXIST. A need resting on an invented citation is
+    // unsupported whatever the verdict says.
+    if (n.line === null || n.line < 1 || n.line > lines.length) {
+      failures.push(
+        `${label} names the need ${JSON.stringify(n.need)}, said to be met by positioning ` +
+        `line ${n.line ?? 'none'}, which does not exist: the document has ${lines.length} lines. ` +
+        `Name a need this service does meet, or drop it.`,
+      )
+      continue
+    }
+
+    const cited = lines[n.line - 1]
+    const quote = normalise(n.quote)
+    if (quote.length < MIN_QUOTE_CHARS) {
+      failures.push(
+        `${label} names the need ${JSON.stringify(n.need)} and quotes nothing long enough to ` +
+        `be a sentence in support of it. Name a need this service does meet, or drop it.`,
+      )
+      continue
+    }
+    if (!normalise(cited.text).includes(quote)) {
+      failures.push(
+        `${label} names the need ${JSON.stringify(n.need)}, cited to positioning line ` +
+        `${n.line} [${cited.path}], which does not contain the sentence quoted as support: ` +
+        `${JSON.stringify(n.quote)}. Name a need this service does meet, or drop it.`,
+      )
+    }
+  }
+
+  return failures
+}
+
+export interface NeedMatchParams {
+  apiKey: string
+  /** The client's positioning document, flattened by flattenPositioningText. */
+  positioningText: string
+  /** The copy to read, already labelled by email. */
+  sections: ReadonlyArray<{ email: number; label: string; text: string }>
+  prospectId: string
+}
+
+/**
+ * Run the need-match check. Never throws for a model fault: a verifier that cannot run must
+ * not take the email down with it, so an API failure returns no needs and no failures and
+ * says so in the log. The copy has already passed every rule that is not this one.
+ */
+export async function checkNeedMatchesOffer(params: NeedMatchParams): Promise<NeedMatchResult> {
+  const sections = params.sections.filter(s => s.text.trim().length > 0)
+  if (sections.length === 0 || !params.positioningText.trim()) {
+    return { needs: [], failures: [], usage: ZERO_TOKEN_USAGE, raw: '' }
+  }
+
+  const emails = [...new Set(sections.map(s => s.email))].sort()
+  const client = new Anthropic({ apiKey: params.apiKey })
+  const user = sections.map(s => `## ${s.label}\n\n${s.text}`).join('\n\n')
+
+  let raw = ''
+  let usage: TokenUsage = ZERO_TOKEN_USAGE
+  try {
+    const res = await client.messages.create({
+      model: NEED_MATCH_MODEL,
+      max_tokens: 2000,
+      temperature: 0,
+      system: [{
+        type: 'text',
+        text: buildNeedMatchPrompt({
+          emailsShown: emails.length === 1 ? 'one email' : `${emails.length} emails`,
+          exampleEmail: emails[0],
+          positioningText: params.positioningText,
+        }),
+        // Identical for every prospect of one client, so every prospect after the first in
+        // a batch reads it from cache. See the prompt builder's note.
+        cache_control: { type: 'ephemeral' },
+      }],
+      messages: [{ role: 'user', content: user }],
+    })
+    usage = readTokenUsage(res.usage)
+    raw = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('')
+  } catch (err) {
+    throwIfFatal(err, 'need-matches-offer')
+    logger.warn('need-matches-offer: the verifier did not run, the copy is not blocked on it', {
+      prospect_id: params.prospectId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return { needs: [], failures: [], usage, raw: '' }
+  }
+
+  const needs = parseNeedMatchResponse(raw, emails)
+  const failures = checkNeedCitations(needs, params.positioningText)
+
+  logger.info('need-matches-offer: checked', {
+    prospect_id: params.prospectId,
+    emails,
+    needs: needs.length,
+    unsupported: needs.filter(n => !n.supported).length,
+    failures: failures.length,
+    // REPORTED, NEVER GATED. See the header: there is no code-side detector for "this
+    // sentence names a need", so an empty verdict cannot be told from copy that names none.
+    // The rate is the only way to see the verifier going quiet.
+    empty_verdict: needs.length === 0,
+    rejected: failures,
+  })
+
+  return { needs, failures, usage, raw }
+}
+
