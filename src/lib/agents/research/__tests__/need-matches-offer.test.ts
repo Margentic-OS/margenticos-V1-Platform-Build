@@ -113,11 +113,12 @@ describe('buildNeedMatchPrompt', () => {
     // verdict able to disagree with the citation, which is what this change removed.
     expect(prompt).not.toContain('"supported"')
     expect(prompt).toContain('YOU RETURN A CITATION, NOT A VERDICT')
-    // THE REASONING FIELD COMES FIRST, and that ordering is load-bearing. With `line` ahead
-    // of `why` the model committed to a null line and then reasoned its way to a citation in
-    // the prose it emitted afterwards, ending one reply "Citing line 6." with line null.
-    expect(prompt.indexOf('"why"')).toBeLessThan(prompt.indexOf('"line"'))
-    expect(prompt).toContain('WRITE THE FIELDS IN THAT ORDER')
+    // THE ANSWER FIELDS COME BEFORE THE REASONING FIELD, and that ordering is load-bearing
+    // in the direction opposite to the obvious one. Measured over the same 56 stored Email 1s:
+    // with `why` first, rejections fell from 17 to 5 and BOTH must-catch controls started
+    // passing, because a model given room to deliberate talks itself into a citation.
+    expect(prompt.indexOf('"line"')).toBeLessThan(prompt.indexOf('"why"'))
+    expect(prompt).toContain('KEEP "why" TO ONE LINE')
     // The instruction the code half actually enforces, so a reader of the prompt is not
     // surprised by a rejection. See checkNeedCitations.
     expect(prompt).toContain('THE LINE NUMBER IS CHECKED IN CODE')

@@ -201,12 +201,10 @@ nothing for it.
 
 Return ONLY this JSON, no prose around it:
 
-{"needs":[{"id":${opts.exampleId},"need":"<in one line>","why":"<work it out here, one line>","line":12,"quote":"the sentence, exactly"}]}
+{"needs":[{"id":${opts.exampleId},"need":"<in one line>","line":12,"quote":"the sentence, exactly","why":"<one line, only when line is null>"}]}
 
-WRITE THE FIELDS IN THAT ORDER AND DO YOUR THINKING IN "why". Settle there which line comes
-closest, then put that line's number in "line" and that line's sentence in "quote". Do not
-write "why" as a justification of an answer you have already given: it comes first because it
-is where the answer is worked out.
+KEEP "why" TO ONE LINE. It records what the need asks for that the document does not offer,
+when there is no line to cite. It is not a place to deliberate.
 
 line is the NUMBER of the positioning line, or null when no line names work that meets it.
 
