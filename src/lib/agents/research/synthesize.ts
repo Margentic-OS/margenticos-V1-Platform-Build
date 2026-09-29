@@ -9,6 +9,7 @@ import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
 import type { MessageCreateParamsNonStreaming, Message } from '@anthropic-ai/sdk/resources/messages'
 import { createClient } from '@supabase/supabase-js'
 import { absenceAboutThem } from '@/lib/style/absence-about-them'
+import { characterisesTheirContent } from '@/lib/style/content-characterisation'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
@@ -851,6 +852,33 @@ export function findProspectReasonFaults(reason: string): string[] {
  * through this predicate, so a prospect whose ONLY eligible candidate was an absence now
  * correctly declines to write rather than writing an absence hook.
  */
+/**
+ * A CANDIDATE THAT CHARACTERISES THEIR CONTENT AS A WHOLE IS NOT A HOOK.
+ *
+ * The same shape as namesAnAbsence one line below, and deliberately a SEPARATE predicate
+ * rather than more patterns inside that one: an absence is about what is missing, this is
+ * about what a body of content IS, and folding them together would make either rejection
+ * unreadable in the log.
+ *
+ * WHAT IT ADDS OVER namesAnAbsence, measured over the 601 stored candidates of the uploaded
+ * cohort on 2026-09-29: ONE candidate. All three hooks named as controls already came out
+ * correctly without it, two excluded on their omission and one dated publication burst left
+ * eligible. The gap it closes is the case that characterises by TOPIC OR MIX and names no
+ * omission at all, which nothing else sees. No prospect loses every candidate.
+ *
+ * NO NAMES ARE NEEDED. absenceAboutThem takes the prospect's name and firm because an absence
+ * has to be shown to be about THEM rather than about a third party. A proportion over "the
+ * last five posts" is about the owner of those posts by construction, so there is nothing to
+ * anchor and nothing to pass in.
+ *
+ * REACH IS PARTIAL, exactly as it is for namesAnAbsence: a FRESH run excludes the candidate
+ * from selection, a REUSE run reads selected_candidate_id off the row and does not re-select.
+ * Both A/B arms re-synthesise, so both see this.
+ */
+export function readsTheirContentAsABody(c: ObservationCandidate): boolean {
+  return characterisesTheirContent(c.observation ?? '') !== null
+}
+
 export function namesAnAbsence(
   c: ObservationCandidate,
   about?: { companyName?: string | null; firstName?: string | null },
@@ -888,6 +916,7 @@ export function isHookEligible(c: ObservationCandidate): boolean {
     && c.inference_direction !== 'ambiguous_unhandled'
     && !isReshareWrittenAsTheirOwn(c)
     && !namesAnAbsence(c)
+    && !readsTheirContentAsABody(c)
 }
 
 export function isReshareWrittenAsTheirOwn(c: ObservationCandidate): boolean {

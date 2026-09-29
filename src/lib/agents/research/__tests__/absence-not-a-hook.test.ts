@@ -14,7 +14,7 @@
 // observation is real, which is the part under test.
 
 import { describe, it, expect } from 'vitest'
-import { isHookEligible, namesAnAbsence } from '../synthesize'
+import { isHookEligible, namesAnAbsence, readsTheirContentAsABody } from '../synthesize'
 import { absenceAboutThem } from '@/lib/style/absence-about-them'
 import type { ObservationCandidate } from '../types'
 
@@ -115,5 +115,51 @@ describe('an absence is not a hook', () => {
   it('CONTROL: an empty observation does not throw and is not called an absence', () => {
     // Nothing to read is not the same as reading an absence; passes_all would exclude it anyway.
     expect(namesAnAbsence(cand(''))).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ITEM B, WIRED: a candidate that reads their content as a body is not a hook either.
+//
+// The seam, not the predicate. content-characterisation.test.ts owns which sentences match;
+// these assert that isHookEligible ACTS on the verdict, which is the half this project keeps
+// losing. Measured over 601 stored candidates before wiring: it removes exactly one, and no
+// prospect loses every candidate.
+//
+// RULE ZERO. Every fixture is invented and industry-neutral.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('item B reaches isHookEligible', () => {
+  const candidate = (observation: string): ObservationCandidate => ({
+    id: 'cB', observation, source: 'linkedin', provenance: 'https://example.com/post',
+    date: '2026-09-15', is_composite: false,
+    scores: { specific: true, verifiable: true, inferential: true, relevant: true, useful: true, non_judgemental: true },
+    passes_all: true, score_total: 6, model_readable_claim: true,
+    opposite_reading: 'It could mean something else.', inference_direction: 'compatible_with_both',
+    readability: { hard_fail: false, penalty: 0, max_sentence_words: 9, hedges: [], nominalisation_density: 0, nominalisation_over_threshold: false, reasons: [] },
+    demoted: false, rejection_reason: null,
+  } as unknown as ObservationCandidate)
+
+  it('EXCLUDES a proportion of their content, characterised', () => {
+    expect(readsTheirContentAsABody(candidate('Four of the last five posts are retreat promotion or venue scouting.'))).toBe(true)
+    expect(isHookEligible(candidate('Four of the last five posts are retreat promotion or venue scouting.'))).toBe(false)
+  })
+
+  it('KEEPS a dated publication burst, which is the operator control', () => {
+    const obs = 'Kestrel Works published at least twelve articles in six days, 12 to 17 September 2026, covering scheduling and staffing.'
+    expect(readsTheirContentAsABody(candidate(obs))).toBe(false)
+    expect(isHookEligible(candidate(obs))).toBe(true)
+  })
+
+  it('CONTROL: an ordinary dated event is still eligible, so this is not rejecting everything', () => {
+    expect(isHookEligible(candidate('You opened a second workshop in March.'))).toBe(true)
+  })
+
+  it('leaves the other disqualifications doing their own work', () => {
+    // A candidate failing on its scores is excluded for THAT reason, not this one, so a
+    // future edit here cannot quietly become the only thing rejecting it.
+    const weak = { ...candidate('You opened a second workshop in March.'), passes_all: false }
+    expect(readsTheirContentAsABody(weak)).toBe(false)
+    expect(isHookEligible(weak)).toBe(false)
   })
 })
