@@ -427,9 +427,11 @@ export async function produceOpening({
         // else. The observation is a finding quoted back and names no need; the offer line
         // is fixed template text the writer never sees and is the client's own words.
         sections: [
-          { email: 1, label: 'Email 1, the paragraph that gives the reason to reply', text: bridge },
-          { email: 1, label: 'Email 1, the closing question', text: question },
+          { id: 1, heading: 'Email 1, the paragraph that gives the reason to reply', text: bridge },
+          { id: 1, heading: 'Email 1, the closing question', text: question },
         ],
+        shown: 'one email',
+        labelOf: () => 'Email 1',
         prospectId: ctx.id,
       })
       return needs.failures

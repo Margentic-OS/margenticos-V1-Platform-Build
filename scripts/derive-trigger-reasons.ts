@@ -21,6 +21,8 @@ import { createClient } from '@supabase/supabase-js'
 import Anthropic from '@anthropic-ai/sdk'
 import { writeFileSync } from 'node:fs'
 import { findEvidenceFaults, evidenceFaultFeedback, TRIGGER_REASON_MAX_WORDS } from '@/agents/trigger-evidence-gate'
+import { flattenPositioningText } from '@/lib/agents/research/positioning-text'
+import { checkNeedMatchesOffer, type CheckedNeed } from '@/lib/agents/research/need-matches-offer'
 
 const MODEL = 'claude-opus-4-6'
 
@@ -35,7 +37,7 @@ function arg(n: string): string | undefined {
  * any client's reasons are, and it carries no example, because an example in a prompt is
  * lifted verbatim into output often enough that this project bans them outright.
  */
-const SYSTEM = `You are given a client's own strategy documents and the trigger list from their
+export const SYSTEM = `You are given a client's own strategy documents and the trigger list from their
 ICP. Each trigger is one thing that happens at a prospect company and is visible from outside.
 
 Your job is to write, for each trigger, ONE short principle saying why that event creates a
@@ -61,11 +63,9 @@ Every reason must be:
   document describes that service. Read what the service does and name a need it does. Do
   not assume it does anything the document does not say.
 
-  THE COMMONEST WAY TO BREAK THIS is to name a need about the prospect's OWN AUDIENCE: their
-  readers, listeners, attendees, followers, subscribers or site visitors. Unless the
-  positioning document says this client contacts a prospect's existing audience, a reason
-  about converting that audience describes work nobody is offering, and the copy written
-  from it promises it.
+  BE PRECISE ABOUT WHOSE PEOPLE THE NEED IS ABOUT, and about what is done to them. Two needs
+  can name the same people and different work, or the same work and different people, and
+  only one of them may be the work this client does. The document decides, not you.
 
   ABOUT THE PROSPECT'S NEED, NEVER ABOUT THE SENDER'S OFFER. Say what the event leaves the
   company needing. Do not say what this client's service does, why it works, or what it
@@ -76,10 +76,9 @@ Every reason must be:
 
   FREE OF ANY JUDGEMENT ON WHAT THEY HAVE DONE. Not wasted, not missed, not squandered.
 
-  PLAIN WORDS, SHORT ONES. It must read at a reading grade of 6 or below. Strategy vocabulary
-  fails that on its own: pipeline generation, inbound interest, credibility anchor,
-  conversion, systematic, qualified conversations, revenue expectations. Prefer one-syllable
-  and two-syllable words and keep the sentence short.
+  PLAIN WORDS, SHORT ONES. It must read at a reading grade of 6 or below. Multi-syllable
+  business abstractions fail that on their own, and a noun built out of a verb is the usual
+  culprit. Prefer one-syllable and two-syllable words and keep the sentence short.
 
 You must also return the trigger SENTENCE with any inference clause removed. A trigger
 sentence names the event only. Clauses beginning "signalling", "suggesting", "leaving",
@@ -90,116 +89,6 @@ happened.
 Return ONLY this JSON, with one entry per trigger, in the order given:
 
 {"triggers":[{"index":1,"trigger":"the event, with no inference clause","reason":"under ${TRIGGER_REASON_MAX_WORDS} words"}]}`
-
-/**
- * THE POSITIONING DOCUMENT AS PLAIN TEXT, every string value in it, so a quoted sentence can
- * be checked against the whole document rather than one field somebody remembered to include.
- */
-function flattenStrings(value: unknown, out: string[] = []): string[] {
-  if (typeof value === 'string') out.push(value)
-  else if (Array.isArray(value)) for (const v of value) flattenStrings(v, out)
-  else if (value && typeof value === 'object') for (const v of Object.values(value)) flattenStrings(v, out)
-  return out
-}
-
-function normalise(text: string): string {
-  return text.toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/\s+/g, ' ').trim()
-}
-
-export interface ReasonVerdict {
-  index: number
-  supported: boolean
-  /** The sentence from the positioning document that names the work meeting this need. */
-  quote: string
-  /** Why it is unsupported. Empty when supported. */
-  explanation: string
-}
-
-/**
- * A REASON MUST POINT AT THE WORK THAT MEETS IT.
- *
- * The syntactic gates cannot tell "a need this service meets" from "a need something else
- * would meet": word count, reading grade and the capacity patterns all pass a reason
- * describing work nobody is offering. Three reasons survived every one of them while
- * describing follow-up of the prospect's own audience, which this client does not do.
- *
- * So the check is a second model call that has to POINT: for each reason, quote the sentence
- * of the client's own positioning document that names the work meeting that need. A reason it
- * cannot point for is rejected.
- *
- * THE QUOTE IS VERIFIED IN CODE. A verifier that can invent its evidence is not a verifier,
- * so a quote that does not appear in the positioning document counts as no quote at all.
- */
-export function checkQuotesAreReal(
-  verdicts: ReasonVerdict[],
-  positioningText: string,
-): ReasonVerdict[] {
-  const haystack = normalise(positioningText)
-  return verdicts.map(v => {
-    if (!v.supported) return v
-    const quote = normalise(v.quote ?? '')
-    if (quote.length >= 20 && haystack.includes(quote)) return v
-    return {
-      ...v,
-      supported: false,
-      explanation: v.quote
-        ? `the sentence quoted as support does not appear in the positioning document: "${v.quote}"`
-        : 'marked supported but quoted no sentence',
-    }
-  })
-}
-
-
-const VERIFIER_SYSTEM = `You are checking whether each REASON describes a need that this
-client's service actually meets.
-
-You are given the client's positioning document and a list of reasons. For each reason, find
-the SENTENCE in the positioning document that names the work meeting that need, and quote it
-EXACTLY as it appears. Copy it character for character. Do not paraphrase it, do not join two
-sentences, and do not quote a sentence you cannot find.
-
-If no sentence in the document names work that meets the need, the reason is UNSUPPORTED.
-Say so and explain in one sentence what the reason asks for that the document does not offer.
-
-JUDGE THE WORK, NOT THE SITUATION. The reason names a NEED. Your only question is whether the
-document describes work that MEETS that need. It does not matter whether the document mentions
-the event that created the need, that kind of company, or that moment in a company's life: a
-trigger is a reason to call NOW, and the document is not expected to list them.
-
-  SUPPORTED: the need is "reach buyers who have not heard of them" and the document says the
-  client reaches new buyers. Same work, whatever prompted the need.
-
-  UNSUPPORTED: the need is "convert the people who already follow them" and the document says
-  the client reaches new buyers. Different work: one starts conversations with strangers, the
-  other follows up an audience the prospect already built.
-
-So be strict about WHOSE PEOPLE the need is about, and about what is done to them, and
-indifferent to everything else. If you find yourself rejecting a reason because the document
-does not mention the trigger, the award, the launch or the hire, you are judging the
-situation, and the answer is SUPPORTED.
-
-Return ONLY this JSON:
-
-{"verdicts":[{"index":1,"supported":true,"quote":"the sentence, exactly","explanation":""}]}`
-
-export async function verifyReasons(
-  client: Anthropic,
-  positioningText: string,
-  reasons: Array<{ index: number; trigger: string; reason: string }>,
-): Promise<ReasonVerdict[]> {
-  const res = await client.messages.create({
-    model: MODEL, max_tokens: 3000, temperature: 0,
-    system: VERIFIER_SYSTEM,
-    messages: [{ role: 'user', content: [
-      `THE CLIENT'S POSITIONING DOCUMENT:\n${positioningText}`,
-      `THE REASONS:\n${JSON.stringify(reasons, null, 2)}`,
-    ].join('\n\n') }],
-  })
-  const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('')
-  const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)
-  const parsed = JSON.parse(json) as { verdicts: ReasonVerdict[] }
-  return checkQuotesAreReal(parsed.verdicts ?? [], positioningText)
-}
 
 async function main() {
   const docId = arg('doc')
@@ -280,14 +169,25 @@ async function main() {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, timeout: 300_000, maxRetries: 2 })
 
-  const positioningText = flattenStrings(
+  // ═══ THE SAME CORPUS AND THE SAME CHECK THE COPY GATES USE ═══
+  //
+  // flattenPositioningText numbers and labels each leaf, and checkNeedMatchesOffer requires
+  // the model to CITE one. This file used to carry its own whole-document quote search, and
+  // two implementations of "does the document support this" are two things to keep in step.
+  // The line-scoped one is also strictly stronger: a quote can be genuine and lifted from a
+  // line describing what OTHER providers do.
+  //
+  // FIXING IT HERE IS THE POINT. A reason is written once per client and every email that
+  // client sends argues from it, so a reason naming work nobody does is the SOURCE of the
+  // fault the copy gates were catching one email at a time.
+  const positioningText = flattenPositioningText(
     (others ?? []).find(d => d.document_type === 'positioning')?.content ?? {},
-  ).join('\n')
+  )
   if (!positioningText.trim()) {
     throw new Error('no ACTIVE positioning document for this organisation: a reason cannot be verified against nothing')
   }
 
-  let verdictsForOutput: ReasonVerdict[] = []
+  let verdictsForOutput: CheckedNeed[] = []
   let feedback: string | null = null
   // SEVEN ATTEMPTS, quoting the offending items each time. The same shape the ICP generator's
   // own gate uses: the rule is already in the system prompt, and what the model has not been
@@ -332,26 +232,41 @@ async function main() {
     const faults = findEvidenceFaults(merged)
     console.log(`attempt ${attempt + 1}: ${faults.length} gate fault(s)`)
     if (faults.length === 0) {
-      // ── THE SECOND CHECK: does the service actually do this? ──────────────
-      const verdicts = await verifyReasons(client, positioningText,
-        rewritten.map((t, i) => ({ index: [...(only ?? [])][i] ?? i + 1, trigger: t.trigger, reason: t.reason })))
-      const unsupported = verdicts.filter(v => !v.supported)
-      for (const v of verdicts) {
-        console.log(`  reason ${v.index}: ${v.supported ? 'SUPPORTED' : 'UNSUPPORTED'}`)
-        if (v.supported) console.log(`     quote: "${v.quote}"`)
-        else console.log(`     why:   ${v.explanation}`)
+      // ── THE SECOND CHECK: does the client's own document say they do this? ──
+      //
+      // The reason is the TEXT, the trigger only the heading. The need lives in the reason;
+      // the trigger is the event, and the prompt's own rule is to judge the work rather than
+      // the situation, so putting the event in front of the model as content invites the
+      // mistake the rule exists to stop.
+      const positions = rewritten.map((_t, i) => (only ? [...only][i] : i + 1))
+      const nm = await checkNeedMatchesOffer({
+        apiKey: process.env.ANTHROPIC_API_KEY!,
+        positioningText,
+        sections: rewritten.map((t, i) => ({
+          id: positions[i],
+          heading: `Trigger ${positions[i]}: ${t.trigger}`,
+          text: t.reason,
+        })),
+        shown: `${rewritten.length} trigger reason${rewritten.length === 1 ? '' : 's'}`,
+        labelOf: id => `reason ${id}`,
+        prospectId: `icp-${docId}`,
+      })
+      for (const n of nm.needs) {
+        const cited = n.line !== null
+        console.log(`  reason ${n.id}: ${cited ? `cites line ${n.line}` : 'NO CITATION'}`)
+        console.log(cited ? `     quote: "${n.quote}"` : `     why:   ${n.why}`)
       }
-      if (unsupported.length > 0) {
+      if (nm.failures.length > 0) {
         feedback = [
-          `${unsupported.length} reason(s) describe work this client's positioning document does not say they do.`,
-          'Rewrite those so the need is one the service meets, as the document describes it.',
+          `${nm.failures.length} reason(s) name a need this client's positioning document does not`,
+          'support. Rewrite those so the need is one the document names work for.',
           '',
-          ...unsupported.map(v => `  reason ${v.index}: ${v.explanation}`),
+          ...nm.failures.map(f => `  ${f}`),
         ].join('\n')
         console.log(`\n${feedback}\n`)
         continue
       }
-      verdictsForOutput = verdicts
+      verdictsForOutput = nm.needs
     }
     if (faults.length === 0) {
       writeFileSync(out, JSON.stringify({ document_id: docId, version: doc.version, triggers: merged, verdicts: verdictsForOutput }, null, 2))
@@ -368,9 +283,8 @@ async function main() {
   process.exit(1)
 }
 
-// ONLY WHEN RUN AS A SCRIPT. Importing this file to reuse verifyReasons or
-// checkQuotesAreReal must not start a derivation, which is what it did the first time a
-// test tried to import it.
+// ONLY WHEN RUN AS A SCRIPT. Importing this file must not start a derivation, which is what
+// it did the first time a test tried to import it.
 if (process.argv[1] && process.argv[1].includes('derive-trigger-reasons')) {
   main().catch(e => { console.error(e instanceof Error ? e.message : e); process.exit(1) })
 }

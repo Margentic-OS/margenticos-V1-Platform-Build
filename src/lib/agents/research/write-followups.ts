@@ -529,13 +529,13 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
     // be rewritten whatever this says, and a banked email is never asked for again, so
     // neither is worth a second Sonnet call. Correct and cheap are the same branch.
     const positioningText = params.positioningText
-    const needSections: Array<{ email: number; label: string; text: string }> = []
+    const needSections: Array<{ id: number; heading: string; text: string }> = []
     if (positioningText) {
       if (kept2 === null && outcome.email2.prose !== null && fail2.length === 0) {
-        needSections.push({ email: 2, label: 'Email 2', text: outcome.email2.prose })
+        needSections.push({ id: 2, heading: 'Email 2', text: outcome.email2.prose })
       }
       if (kept3 === null && outcome.email3.prose !== null && fail3.length === 0) {
-        needSections.push({ email: 3, label: 'Email 3', text: outcome.email3.prose })
+        needSections.push({ id: 3, heading: 'Email 3', text: outcome.email3.prose })
       }
     }
     if (positioningText && needSections.length > 0) {
@@ -543,6 +543,11 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
         apiKey: params.apiKey,
         positioningText,
         sections: needSections,
+        shown: needSections.length === 1 ? 'one email' : 'two emails',
+        // The EXACT strings the routing below matches on. Passed rather than defaulted, so
+        // the two cannot drift: a label change here is a compile-visible edit next to the
+        // regexes that read it.
+        labelOf: id => `email ${id}`,
         prospectId: params.prospectId,
       })
       usage = addTokenUsage(usage, needMatch.usage)

@@ -74,8 +74,16 @@ export const MIN_QUOTE_CHARS = 20
  * verdict able to disagree with the first, which is exactly what it did.
  */
 export interface CheckedNeed {
-  /** 1, 2 or 3: which email the need was read from. */
-  email: number
+  /**
+   * WHICH SECTION the need was read from. An opaque number the caller chooses: the email
+   * position for copy, the trigger's place in the list for an ICP reason.
+   *
+   * NOT `email`. The check is "does this text name a need the document supports", and that
+   * question is the same whether the text is an email, a trigger reason or anything else a
+   * client's own words have to back. Naming it `email` is what would have produced a second
+   * copy of this file the day a non-email caller arrived.
+   */
+  id: number
   /** The need, quoted or paraphrased from the copy in one line. */
   need: string
   /** The 1-based positioning line cited, or null when the verifier found none. */
@@ -136,23 +144,21 @@ export function citationHolds(
  * the only part that changes, is the user message.
  */
 export function buildNeedMatchPrompt(opts: {
-  /** How the copy is described, e.g. 'one email' or 'two emails'. */
-  emailsShown: string
-  /** The email number used in the output example, so the model returns a number that parses. */
-  exampleEmail: number
+  /** How the text is described to the model, e.g. 'one email' or '9 trigger reasons'. */
+  shown: string
+  /** An id used in the output example, so the model returns a number that parses. */
+  exampleId: number
   /** The client's positioning document, flattened. */
   positioningText: string
 }): string {
-  return `You check whether the NEEDS an email names are needs the sender's own service meets.
-You are not writing, editing, fact-checking or judging quality. One question only.
+  return `You check whether the NEEDS a piece of text names are needs the sender's own service
+meets. You are not writing, editing, fact-checking or judging quality. One question only.
 
-You are shown the sender's POSITIONING DOCUMENT as numbered lines, and ${opts.emailsShown}.
+You are shown the sender's POSITIONING DOCUMENT as numbered lines, and ${opts.shown}.
 
-A NEED is anything the copy says the reader now wants, lacks, has to do, or would get from
-replying. It appears in two places and you must read both:
-
-  the sentence giving the reason to reply
-  the closing question, which usually names the need as the thing being offered
+A NEED is anything the text says the reader now wants, lacks, has to do, or would get from
+replying. Read every part of each section you are given, including any closing question,
+which usually names the need as the thing being offered.
 
 YOU RETURN A CITATION, NOT A VERDICT. For each need, give the ONE line of the positioning
 document that comes closest to naming work that meets it, and quote that line's sentence
@@ -167,8 +173,8 @@ citation against the document, so the only question you are answering is WHICH L
 
 JUDGE THE WORK, NOT THE SITUATION. Your only question is whether the document describes work
 that MEETS the need. It does not matter whether the document mentions the event that created
-the need, that kind of company, or that moment in a company's life. An email is sent because
-something happened; the document is not expected to list what.
+the need, that kind of company, or that moment in a company's life. Text like this is written
+because something happened; the document is not expected to list what.
 
 BE STRICT ABOUT TWO THINGS AND INDIFFERENT TO EVERYTHING ELSE:
 
@@ -190,12 +196,17 @@ as no quote at all. Each line is labelled with where in the document it came fro
 about ALTERNATIVES, COMPETITORS or what OTHER providers do describe work the sender does NOT
 do, and must never be quoted as support.
 
-A need the copy does not name is not yours to invent. If the copy names none, return an
-empty list.
+A need the text does not name is not yours to invent. If a section names none, return
+nothing for it.
 
 Return ONLY this JSON, no prose around it:
 
-{"needs":[{"email":${opts.exampleEmail},"need":"<in one line>","line":12,"quote":"the sentence, exactly","why":"<one line, only when line is null>"}]}
+{"needs":[{"id":${opts.exampleId},"need":"<in one line>","why":"<work it out here, one line>","line":12,"quote":"the sentence, exactly"}]}
+
+WRITE THE FIELDS IN THAT ORDER AND DO YOUR THINKING IN "why". Settle there which line comes
+closest, then put that line's number in "line" and that line's sentence in "quote". Do not
+write "why" as a justification of an answer you have already given: it comes first because it
+is where the answer is worked out.
 
 line is the NUMBER of the positioning line, or null when no line names work that meets it.
 
@@ -205,7 +216,7 @@ ${buildPositioningCorpus(opts.positioningText)}`
 }
 
 /** Splits the JSON out of the reply. Absent or malformed reads as "checked nothing". */
-export function parseNeedMatchResponse(raw: string, allowedEmails: readonly number[]): CheckedNeed[] {
+export function parseNeedMatchResponse(raw: string, allowedIds: readonly number[]): CheckedNeed[] {
   const match = raw.match(/\{[\s\S]*\}/)
   if (!match) return []
   try {
@@ -214,13 +225,13 @@ export function parseNeedMatchResponse(raw: string, allowedEmails: readonly numb
     return parsed.needs.flatMap(n => {
       if (!n || typeof n !== 'object') return []
       const o = n as Record<string, unknown>
-      const email = Number(o.email)
-      if (!allowedEmails.includes(email)) return []
+      const id = Number(o.id)
+      if (!allowedIds.includes(id)) return []
       const line = o.line === null || o.line === undefined ? null : Number(o.line)
       // `supported` is IGNORED if the model sends one anyway. It is no longer in the schema,
       // and reading it back would quietly restore the second verdict this change removed.
       return [{
-        email,
+        id,
         need: typeof o.need === 'string' ? o.need : '',
         line: line !== null && Number.isFinite(line) ? line : null,
         quote: typeof o.quote === 'string' ? o.quote : '',
@@ -245,6 +256,12 @@ export function parseNeedMatchResponse(raw: string, allowedEmails: readonly numb
 export function checkNeedCitations(
   needs: readonly CheckedNeed[],
   positioningText: string,
+  /**
+   * How a failure names the section it came from. NO DEFAULT, deliberately: a default would
+   * mean a new caller silently inherits the email wording, and the follow-up writer routes
+   * failures by matching "email 2" and "email 3" in this very string.
+   */
+  labelOf: (id: number) => string,
 ): string[] {
   const lines = positioningLines(positioningText)
   const failures: string[] = []
@@ -252,7 +269,7 @@ export function checkNeedCitations(
   for (const n of needs) {
     if (citationHolds(n, lines)) continue
 
-    const label = n.email === 1 ? 'Email 1' : `email ${n.email}`
+    const label = labelOf(n.id)
     // WHY IT DID NOT HOLD, so a rejection can be read rather than counted. The four reasons
     // are distinguishable in code and each one means something different about what went
     // wrong: no line offered, a line that is not there, a quote too short to be a sentence,
@@ -279,8 +296,16 @@ export interface NeedMatchParams {
   apiKey: string
   /** The client's positioning document, flattened by flattenPositioningText. */
   positioningText: string
-  /** The copy to read, already labelled by email. */
-  sections: ReadonlyArray<{ email: number; label: string; text: string }>
+  /**
+   * The text to read. `id` is the caller's own numbering, `heading` is what the model sees
+   * above that section.
+   */
+  sections: ReadonlyArray<{ id: number; heading: string; text: string }>
+  /** How a failure names a section. See checkNeedCitations. */
+  labelOf: (id: number) => string
+  /** How the whole input is described to the model, e.g. 'one email' or '9 trigger reasons'. */
+  shown: string
+  /** For the log line only. A prospect id for copy, a document id for an ICP reason. */
   prospectId: string
 }
 
@@ -295,9 +320,9 @@ export async function checkNeedMatchesOffer(params: NeedMatchParams): Promise<Ne
     return { needs: [], failures: [], usage: ZERO_TOKEN_USAGE, raw: '' }
   }
 
-  const emails = [...new Set(sections.map(s => s.email))].sort()
+  const ids = [...new Set(sections.map(s => s.id))].sort((a, b) => a - b)
   const client = new Anthropic({ apiKey: params.apiKey })
-  const user = sections.map(s => `## ${s.label}\n\n${s.text}`).join('\n\n')
+  const user = sections.map(s => `## ${s.heading}\n\n${s.text}`).join('\n\n')
 
   let raw = ''
   let usage: TokenUsage = ZERO_TOKEN_USAGE
@@ -309,8 +334,8 @@ export async function checkNeedMatchesOffer(params: NeedMatchParams): Promise<Ne
       system: [{
         type: 'text',
         text: buildNeedMatchPrompt({
-          emailsShown: emails.length === 1 ? 'one email' : `${emails.length} emails`,
-          exampleEmail: emails[0],
+          shown: params.shown,
+          exampleId: ids[0],
           positioningText: params.positioningText,
         }),
         // Identical for every prospect of one client, so every prospect after the first in
@@ -330,12 +355,12 @@ export async function checkNeedMatchesOffer(params: NeedMatchParams): Promise<Ne
     return { needs: [], failures: [], usage, raw: '' }
   }
 
-  const needs = parseNeedMatchResponse(raw, emails)
-  const failures = checkNeedCitations(needs, params.positioningText)
+  const needs = parseNeedMatchResponse(raw, ids)
+  const failures = checkNeedCitations(needs, params.positioningText, params.labelOf)
 
   logger.info('need-matches-offer: checked', {
     prospect_id: params.prospectId,
-    emails,
+    ids,
     needs: needs.length,
     uncited: needs.filter(n => n.line === null).length,
     failures: failures.length,

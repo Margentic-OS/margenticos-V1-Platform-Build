@@ -105,8 +105,8 @@ const say = (text: string) => ({ content: [{ type: 'text', text }], usage: { inp
 
 const FACT_CHECK_CLEAN = say('{"claims":[]}')
 const FACT_CHECK_FAILS = say('{"claims":[{"email":1,"claim":"the next set of buyers","finding":null,"why":"no finding names their buyers"}]}')
-const NEED_UNSUPPORTED = say('{"needs":[{"email":1,"need":"putting their own article in front of more people","line":null,"quote":"","why":"the document describes contacting new people, not distributing their content"}]}')
-const NEED_SUPPORTED = say('{"needs":[{"email":1,"need":"first conversations outside the network","line":2,"quote":"A steady flow of first conversations","why":"same work"}]}')
+const NEED_UNSUPPORTED = say('{"needs":[{"id":1,"need":"putting their own article in front of more people","line":null,"quote":"","why":"the document describes contacting new people, not distributing their content"}]}')
+const NEED_SUPPORTED = say('{"needs":[{"id":1,"need":"first conversations outside the network","line":2,"quote":"A steady flow of first conversations","why":"same work"}]}')
 
 /** The need-match call is the one whose system block carries this sentence. */
 const isNeedMatch = (args: { system: unknown }) =>

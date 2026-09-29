@@ -64,13 +64,13 @@ const FACT_CHECK_CLEAN = say(JSON.stringify({ claims: [
 
 /** Email 2's need is not work this document describes; email 3's is. */
 const NEEDS_SPLIT = say(JSON.stringify({ needs: [
-  { email: 2, need: 'putting their own posts in front of more people', line: null, quote: '', why: 'the document describes contacting new people, not distributing their content' },
-  { email: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
+  { id: 2, need: 'putting their own posts in front of more people', line: null, quote: '', why: 'the document describes contacting new people, not distributing their content' },
+  { id: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
 ] }))
 
 const NEEDS_BOTH_FINE = say(JSON.stringify({ needs: [
-  { email: 2, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
-  { email: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
+  { id: 2, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
+  { id: 3, need: 'first conversations outside the network', line: 2, quote: 'A steady flow of first conversations', why: 'same work' },
 ] }))
 
 const systemOf = (args?: { system?: unknown }) =>
