@@ -145,6 +145,48 @@ It matters for item 6: the pass bar requires every new rejection to be quoted wi
 
 ---
 
+### Decisions of 2026-09-29, after the first measurement
+
+**THE NEED-MATCH CHECK IS STILL NOT SWITCHED ON.** It is built, wired and measured, and
+nothing gates on it.
+
+**The code decides, the model only points.** The verifier returned a citation AND a verdict
+and the two could disagree: one reply's reasoning ended "so this is SUPPORTED" while the
+boolean said otherwise. The boolean is gone from the schema. A need is met if and only if
+`citationHolds` passes. No need and no category of need is pre-approved anywhere in code.
+
+**MEASURED, same 56 stored Email 1s, one variable at a time:**
+
+| configuration | Email 1 rejected | must-catch | must-pass |
+| --- | --- | --- | --- |
+| model returns a verdict | 31 of 56 | 2 of 2 | 1 of 5 |
+| citation only, `line` before `why` | 17 of 56 | 2 of 2 | 4 of 5 |
+| citation only, `why` first | 5 of 56 | **0 of 2** | 5 of 5 |
+
+**`why` FIRST IS A DEAD END, and it is the obvious idea.** Given room to deliberate before
+committing, the model talks itself INTO a citation: rejections fall to 5 and both must-catch
+controls start passing. A checker that reasons first is not more careful, it is more
+agreeable. `why` stays last and stays one line. Recorded in the file, not deleted.
+
+**THE SOURCE FIX FOUND NOTHING AT THE SOURCE.** `derive-trigger-reasons.ts` now calls the
+same check, and its own whole-document quote search is deleted. Run over the live ICP: **11
+of 11 reasons pass**, so nothing was regenerated and there is no ICP suggestion to land. A
+negative control with three invented reasons for work nobody here does failed all three and
+passed two known-good ones, so the 11 of 11 is a real pass rather than a vacuous one.
+
+**So the content-distribution fault is the WRITER'S, not the reason's.** The trigger reason
+behind it names a legitimate need. The writer turns that into an offer to distribute the
+prospect's content, which is a different thing. Fixing the reason cannot fix it.
+
+**assumed-capacity BLOCKS Email 1 from this date**, on 7 of 56, all true positives, across
+the observation, the bridge and the question. Its recall was the unmeasured half: it scored
+zero on the operator's own hand-picked example while its positive controls fired. Three
+division-of-time shapes were added and caught one more.
+
+**If both blocked, worst case, no retry recovering anything: 32 of 105 personalised, 30.5%,
+against 53.3% today.** A 23-point drop against a 10-point bar. The true figure is lower
+because a rejection retries first, and nothing has measured how often a retry clears.
+
 ## 3. Still to do, in order
 
 ### Item 4 — guess detectors on Email 1: MEASURE FIRST, DO NOT SWITCH ON
