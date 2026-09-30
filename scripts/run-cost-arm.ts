@@ -200,7 +200,7 @@ async function main() {
       const messaging = await messagingFor(ctx.segment_id)
       // THE SAME THREE ARGUMENTS PRODUCTION PASSES. An arm that assigned variants differently
       // from the baseline would be comparing copy written against different frames.
-      const variantId = resolveVariantId(ctx.id, extras.variant_id, messaging.content)
+      const variantId = resolveVariantId(ctx.id, extras.variant_id, messaging.content).variantId
 
       const opening = await produceOpening({
         apiKey,

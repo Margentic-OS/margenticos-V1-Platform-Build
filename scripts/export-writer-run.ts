@@ -503,7 +503,7 @@ async function runOne(
   }
 
   const messaging = await loadMessaging(supabase, clientId, ctx.segment_id, pinnedDocId)
-  const variantId = resolveVariantId(ctx.id, (p.variant_id ?? null) as string | null, messaging.content)
+  const variantId = resolveVariantId(ctx.id, (p.variant_id ?? null) as string | null, messaging.content).variantId
   const clientCtx = await loadClientContext(clientId, ctx.segment_id)
 
   const writerInput = await writerInputForStored(stored, ctx, clientId)

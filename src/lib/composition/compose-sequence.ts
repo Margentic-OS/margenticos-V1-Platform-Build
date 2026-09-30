@@ -32,6 +32,7 @@ import { generateBridge, countWords } from './personalization'
 import { OPT_OUT_FOOTER } from './opt-out-footer'
 import { checkComposedQuestionCount } from '@/lib/style/composed-question-count'
 import { assignVariantDeterministically } from './variant-assignment'
+import type { OfferAngleCandidate } from './offer-angle'
 
 // Private type alias derived from getServiceClient (defined at bottom of file).
 // Using the actual inferred return type avoids generic parameter conflicts with createClient overloads.
@@ -186,6 +187,13 @@ interface StoredEmail {
   subject_char_count: number
   body: string
   word_count: number
+  /**
+   * EMAIL 1 ONLY. The pain this variant's offer line answers, or null when it names none.
+   *
+   * ABSENT on every document written before 2026-09-30, and that is permanent rather than a
+   * migration waiting to happen. See offer-angle.ts.
+   */
+  offer_angle?: string | null
 }
 
 interface VariantDoc {
@@ -816,6 +824,32 @@ export const EMAIL1_FRAME_SLOT_PARAGRAPHS = [1, 2] as const
  * before writeAndJudgeOpening is called, so the writer is never invoked and cannot be
  * briefed with a wrong offer line. That ordering is the point and is pinned by a test.
  */
+/**
+ * Every variant's declared offer angle, as the selector's input.
+ *
+ * READS EMAIL 1 AND NOTHING ELSE, because the offer line this is about is Email 1's. A
+ * variant whose Email 1 is missing is skipped rather than defaulted: it cannot supply an
+ * offer line, so it is not a candidate to supply one.
+ *
+ * A VARIANT WITH NO TAG COMES BACK AS NEUTRAL, which is the same value a variant that
+ * deliberately declares none comes back as. That collapse is intended and is the reason the
+ * selector distinguishes 'no_tags' from 'neutral' by looking at whether ANY variant is
+ * tagged: per variant the two cases are indistinguishable and must be, because an untagged
+ * document has to behave exactly as it did before the field existed.
+ */
+export function variantOfferAngles(messagingDoc: MessagingContent): OfferAngleCandidate[] {
+  const variants = messagingDoc.variants
+  if (!variants) return []
+  return Object.keys(variants)
+    .sort()
+    .flatMap(variantId => {
+      const email1 = variants[variantId]?.emails?.find(e => e.sequence_position === 1)
+      if (!email1) return []
+      const angle = email1.offer_angle
+      return [{ variantId, offerAngle: angle === undefined ? null : angle }]
+    })
+}
+
 export function getVariantEmail1Frame(
   messagingDoc: MessagingContent,
   variantId: string,

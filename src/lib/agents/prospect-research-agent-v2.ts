@@ -415,6 +415,28 @@ export async function updateProspect(
    * three columns are written NULL, which ships the approved template follow-ups.
    */
   followups?: { email2: string | null; email3: string | null; email1Fingerprint: string | null } | null,
+  /**
+   * The variant this run's opening was written for, when this run CHOSE it rather than
+   * reading it off the row.
+   *
+   * ─── WHY THIS IS WRITTEN HERE AND NOT LEFT TO COMPOSITION ────────────────
+   *
+   * Composition used to derive the variant with the same hash over the same prospect id, so
+   * both sides always agreed without either storing anything. Choosing by which offer line
+   * answers the hook breaks that: the writer must choose before it writes, and composition
+   * can only see the finished trigger, which is a different string from the candidate
+   * observation the choice was made on. Two sides deriving from two different inputs is the
+   * producer-and-consumer-disagree shape, and the consequence here is a researched opening
+   * shipped above an offer line it was not written for, with correct word counts and nothing
+   * to notice.
+   *
+   * IN THE SAME OBJECT LITERAL as personalisation_trigger, for the reason the follow-up
+   * comment below gives: the variant and the copy written for it move together or not at all.
+   *
+   * Omitted, or null, writes nothing and leaves whatever the row holds, which is correct for
+   * a prospect who already had a variant and for every caller that does not choose one.
+   */
+  chosenVariantId?: string | null,
 ): Promise<void> {
   const supabase = getServiceClient()
 
@@ -466,6 +488,13 @@ export async function updateProspect(
     followup_email1_fingerprint:
       opening.written_won ? (followups?.email1Fingerprint ?? null) : null,
   }
+
+  // THE VARIANT THE OPENING WAS WRITTEN FOR, when this run chose it. Set unconditionally
+  // rather than under `written_won`: the choice is about which template this prospect belongs
+  // to, and it stays correct whether or not the judge sent the opening. A prospect held on
+  // HOLD still ships that variant's authored Email 1, and that is the variant whose offer
+  // line best answered their hook, which is a better template for them than the hash's.
+  if (chosenVariantId) update.variant_id = chosenVariantId
 
   // Auto-suppress on disqualification.
   if (synthesis.qualification_status === 'disqualified') {
@@ -946,7 +975,26 @@ export async function runProspectResearchAgentV2({
     // document moments before writing, and phase 2 reads a snapshot taken up to 24 hours
     // earlier. Both then run identical code over it.
     const messaging = await fetchApprovedMessagingDoc(supabase, client_id, ctx.segment_id)
-    const variantId = resolveVariantId(ctx.id, extras.variant_id, messaging.content)
+    // ═══ THE VARIANT IS NOW CHOSEN BY WHICH OFFER LINE ANSWERS THIS HOOK ═══
+    //
+    // The hook is the SELECTED CANDIDATE'S OBSERVATION, not the written opening, which does
+    // not exist yet: the writer has to be briefed with the offer line it is leading into.
+    // Falls back to the detected signal, and then to nothing, in which case resolveVariantId
+    // hashes exactly as it always did.
+    const selectedCandidate = synthesis.candidates?.find(c => c.id === synthesis.selected_candidate_id)
+    const hookForOfferLine = selectedCandidate?.observation ?? synthesis.signal_observation ?? null
+    const variantChoice = resolveVariantId(ctx.id, extras.variant_id, messaging.content, hookForOfferLine)
+    const variantId = variantChoice.variantId
+    logger.info('prospect-research-v2: variant chosen', {
+      prospect_id: ctx.id,
+      variant_id: variantId,
+      // WHY, not just WHAT. The operator's complaint about mismatched offer lines was
+      // invisible for weeks because nothing recorded which line a prospect got or how it was
+      // picked. 'no_tags' means this client's messaging document predates offer_angle and
+      // the hash decided, which is the state every client is in until their document is next
+      // regenerated.
+      basis: variantChoice.basis,
+    })
 
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) throw new Error('prospect-research-v2: ANTHROPIC_API_KEY not set')
@@ -1047,6 +1095,11 @@ export async function runProspectResearchAgentV2({
     await updateProspect(
       ctx, synthesis, resultId, opening,
       stored ? (stored.synthesized_at ?? stored.created_at) : null,
+      null,
+      // Only when THIS run chose it. 'assigned' means the row already carried one and there
+      // is nothing to write; every other basis means this run decided, and composition has to
+      // be told or it will hash and land the opening above a different offer line.
+      variantChoice.basis === 'assigned' ? null : variantId,
     )
 
     const summaryLine =

@@ -43,7 +43,7 @@ import { assessSourceIntegrity, ResearchIncompleteError } from './research/sourc
 import { buildSynthesisRequest } from './research/synthesize'
 import { buildSourceTracking, loadStoredFindings, runProspectResearchAgentV2 } from './prospect-research-agent-v2'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
-import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
+import { resolveVariantId } from './research/produce-opening'
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -227,13 +227,33 @@ export async function runProspectResearchSources({
       .eq('id', messaging.doc_id)
       .single()
 
-    const availableVariants = messaging.content.variants
-      ? Object.keys(messaging.content.variants).sort()
-      : ['A', 'B', 'C', 'D']
     // Snapshotted because composition may run for this prospect during the wait and write
     // a variant_id. Phase 2 would otherwise retarget, and the opening would be written
     // for one variant's P3 and CTA while landing in another's email.
-    const variantId = extras.variant_id ?? assignVariantDeterministically(ctx.id, availableVariants)
+    //
+    // ═══ AND CHOSEN BY WHICH OFFER LINE ANSWERS THE SIGNAL, NOT BY THE HASH ═══
+    //
+    // The hook here is the DETECTED SIGNAL, because this runs BEFORE synthesis: the
+    // candidates do not exist yet, they are produced inside the batch. The detected signal is
+    // the same material synthesis will build a candidate from, so it is the right input at
+    // this point and the only one available.
+    //
+    // A WEAKER INPUT THAN THE INLINE PATH USES, and worth saying so. The inline path chooses
+    // on the SELECTED candidate's observation, which is what the writer builds on. Here the
+    // choice is made a step earlier, from the raw signal, so a batch prospect can land on a
+    // variant the eventual candidate answers slightly less well. That is the cost of choosing
+    // before the wait, and choosing after it is not available: the entry's variant is what the
+    // writer is briefed with when the batch returns.
+    const variantChoice = resolveVariantId(
+      ctx.id,
+      extras.variant_id ?? null,
+      messaging.content,
+      detectedSignal.signal_observation,
+    )
+    const variantId = variantChoice.variantId
+    logger.info('prospect-research-sources: variant chosen', {
+      prospect_id: ctx.id, variant_id: variantId, basis: variantChoice.basis,
+    })
 
     const { data: org } = await supabase
       .from('organisations').select('name').eq('id', client_id).single()

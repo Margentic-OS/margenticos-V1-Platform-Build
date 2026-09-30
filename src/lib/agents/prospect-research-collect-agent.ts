@@ -329,7 +329,13 @@ export async function runProspectResearchCollect({
         { path: 'collect', synthesisBatched: true },
         synthesizedAt,
       )
-      await updateProspect(ctx, synthesis, resultId, noOpening, synthesizedAt)
+      await updateProspect(
+        ctx, synthesis, resultId, noOpening, synthesizedAt, null,
+        // The variant this entry was submitted against. Written even with no opening: it is
+        // which template this prospect belongs to, and the authored Email 1 that ships is
+        // that variant's. See resolveVariantId.
+        entry.variant_id,
+      )
       await markEntryCollected(supabase, entry.id, false)
       await reportBatchRepetition(supabase, entry.batch_id)
 
@@ -427,7 +433,12 @@ export async function runProspectResearchCollect({
       email2: opening.email2?.prose ?? null,
       email3: opening.email3?.prose ?? null,
       email1Fingerprint: opening.followup_email1_fingerprint ?? null,
-    })
+    },
+    // THE VARIANT THIS ENTRY WAS SUBMITTED AGAINST, written to the row so composition ships
+    // the offer line the writer was briefed with. The submission chose it by which offer line
+    // answered the detected signal, and composition's own hash would land somewhere else.
+    entry.variant_id,
+    )
 
     // Reported, never acted on. The snapshot is used regardless: that decision is made,
     // not deferred. This column is how often the decision mattered, and MON-021 surfaces

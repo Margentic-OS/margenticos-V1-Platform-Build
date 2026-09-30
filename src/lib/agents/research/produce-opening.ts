@@ -13,6 +13,9 @@ import {
   getVariantEmail1Frame,
 } from '@/lib/composition/compose-sequence'
 import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
+import { chooseOfferLineVariant, type OfferLineChoice } from '@/lib/composition/offer-angle'
+import { contentOverlap } from './synthesize'
+import { variantOfferAngles } from '@/lib/composition/compose-sequence'
 import { writeAndJudgeOpening, buildFindingsBlock, buildFindingsEvidence, type OpeningResult, type AttemptObservation, type NotWrittenReason } from './write-opening'
 import { writeFollowups, type FollowupResult } from './write-followups'
 import { factCheckOpening } from './fact-check-opening'
@@ -264,20 +267,64 @@ function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningWithF
 /**
  * Resolve which variant this prospect's opening is written for.
  *
- * Read from the prospect row when composition has already assigned one, otherwise
- * resolved with the same deterministic hash composition uses, so the writer targets the
- * variant that will actually ship. Nothing is written back: assignment stays
- * composition's job.
+ * Read from the prospect row when one has already been assigned. Otherwise chosen by which
+ * variant's OFFER LINE answers this prospect's hook, falling back to the same deterministic
+ * hash composition uses.
+ *
+ * ─── WHY THE HOOK NOW DECIDES, AND WHAT THAT CHANGED ─────────────────────────
+ *
+ * It used to be the hash alone, and the hash knows nothing about the prospect beyond their
+ * id. The offer line is the paragraph a personalised Email 1 KEEPS, so pairing it with the
+ * hook by chance meant the two halves of the email were about different things as often as
+ * not. Six of twenty blind-marked emails drew exactly that complaint from the operator, in
+ * both arms of the A/B, which is the most frequent single fault in that review. See
+ * offer-angle.ts for the measurement and for why the tag cannot be derived from the text.
+ *
+ * ─── THE CHOICE IS WRITTEN BACK, WHICH IT NEVER USED TO BE ───────────────────
+ *
+ * This function's contract used to end "Nothing is written back: assignment stays
+ * composition's job", and that was safe only because both sides computed the SAME hash from
+ * the SAME prospect id. An angle-based choice cannot work that way: the writer must choose
+ * before it writes, and composition can only see the finished trigger, which is a different
+ * string from the candidate observation the choice was made on. Two sides deriving from two
+ * different strings is the producer-and-consumer-disagree shape, and here it would ship a
+ * researched opening above an offer line it was not written for, with nothing to notice.
+ *
+ * So the caller persists the answer and composition honours prospects.variant_id, which it
+ * already did. The `assignedVariantId ?? ` precedence is what keeps that safe on a RE-RESEARCH:
+ * the second run reads the variant the first run stored and does not choose again, so the
+ * writer and composition stay on one variant for the life of the prospect.
  */
 export function resolveVariantId(
   prospectId: string,
   assignedVariantId: string | null,
   messagingContent: MessagingContent,
-): string {
+  /**
+   * The hook this opening will be built on: the selected candidate's observation, NOT the
+   * written opening, which does not exist yet.
+   *
+   * Omitted by callers that have no hook in hand, and omitting it falls straight through to
+   * the hash, which is the behaviour every caller had before this parameter existed.
+   */
+  hookText?: string | null,
+): { variantId: string; basis: OfferLineChoice['basis'] | 'assigned' } {
   const availableVariants = messagingContent.variants
     ? Object.keys(messagingContent.variants).sort()
     : ['A', 'B', 'C', 'D']
-  return assignedVariantId ?? assignVariantDeterministically(prospectId, availableVariants)
+
+  if (assignedVariantId) return { variantId: assignedVariantId, basis: 'assigned' }
+
+  const hashed = assignVariantDeterministically(prospectId, availableVariants)
+  if (!hookText?.trim()) return { variantId: hashed, basis: 'no_tags' }
+
+  const choice = chooseOfferLineVariant(
+    hookText,
+    hashed,
+    variantOfferAngles(messagingContent),
+    prospectId,
+    contentOverlap,
+  )
+  return { variantId: choice.variantId, basis: choice.basis }
 }
 
 /** Read the organisation's name, used as the client name the writer is briefed with. */

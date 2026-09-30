@@ -194,7 +194,7 @@ async function main() {
     // The variant composition WILL assign. Resolved with the same shared function
     // composition uses, so the Email 1 fingerprinted here is the one that ships. These
     // prospects have variant_id NULL because variant assignment happens at composition.
-    const variantId = resolveVariantId(id, (p.variant_id ?? null) as string | null, content)
+    const variantId = resolveVariantId(id, (p.variant_id ?? null) as string | null, content).variantId
     const reference = buildFollowupsFor(content, variantId, (p.company_name ?? null) as string | null)
     if (!reference) { console.log('  no usable follow-up reference, skipping'); skipped++; continue }
 

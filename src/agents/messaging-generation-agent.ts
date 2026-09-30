@@ -198,6 +198,22 @@ export interface EmailRecord {
   body: string
   word_count: number
   suggestion_reason?: string
+  /**
+   * EMAIL 1 ONLY. The pain this variant's offer line answers, in the client's own language,
+   * or null when the line names no specific pain.
+   *
+   * WHAT IT IS FOR. On the researched path the offer line is the paragraph a personalised
+   * Email 1 keeps, and nothing chose it for fit: the variant comes from a hash of the
+   * prospect id and the hook comes from what the prospect actually did. Six of twenty
+   * blind-marked emails drew the same operator complaint, that the offer line named a pain
+   * the email was not about. This field is what lets composition pick the line that answers
+   * the hook. See src/lib/composition/offer-angle.ts.
+   *
+   * OPTIONAL, PERMANENTLY. Documents written before this field exists carry no tag and keep
+   * today's behaviour. Code deploys globally and documents are per-client data, so requiring
+   * the tag would strand every client until their next regeneration.
+   */
+  offer_angle?: string | null
 }
 
 interface VariantFailure {
@@ -1371,7 +1387,29 @@ Each email object must contain exactly these fields:
   subject_char_count: integer for email 1, 0 for emails 2, 3 and 4
   body: full email body from {{first_name}} through the sign-off name
   word_count: integer (count the whole body, including the {{first_name}} line and the sign-off name)
-  suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)`
+  suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)
+  offer_angle: EMAIL 1 ONLY. For emails 2, 3 and 4 omit it or set it to null.
+
+EMAIL 1's offer_angle names the ONE problem this variant's offer line answers, in ten words
+or fewer, in the language the client's own documents use. It is not a summary of the email
+and not the offer: it is the problem the reader must have for that line to be worth reading.
+
+Write it as the problem, not as the solution, and take the problem from THIS client's own
+documents. The test is grammatical: an angle is something the reader could be suffering from,
+so it reads as a difficulty. If what you wrote reads as something the sender provides, you
+have written the offer line again instead of the problem it answers.
+
+ONE VARIANT'S EMAIL 1 MUST SET offer_angle TO null, and its offer line must name no specific
+problem at all. It says what the sender does and what changes, in terms that hold whatever
+the reader's situation is. That line is what a prospect receives when nothing else fits, and
+without it they receive a line about a problem that is not theirs.
+
+WHY THIS FIELD EXISTS, so the tag is written to be useful rather than to be filled in. A
+personalised Email 1 replaces the opening paragraph with a researched observation about this
+one prospect. The offer line survives. If it answers a problem the observation is not about,
+the email reads as two unrelated halves, and that was the single most frequent fault in the
+last operator review. The tag is how the platform matches the surviving line to the
+observation.`
 }
 
 // Subject lines and Email 1 openers already used by variants that have passed the gate.
@@ -1599,7 +1637,29 @@ Each email object must contain exactly these fields:
   subject_char_count: integer for email 1, 0 for emails 2, 3 and 4
   body: full email body from {{first_name}} through the sign-off name
   word_count: integer (count the whole body, including the {{first_name}} line and the sign-off name)
-  suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)`
+  suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)
+  offer_angle: EMAIL 1 ONLY. For emails 2, 3 and 4 omit it or set it to null.
+
+EMAIL 1's offer_angle names the ONE problem this variant's offer line answers, in ten words
+or fewer, in the language the client's own documents use. It is not a summary of the email
+and not the offer: it is the problem the reader must have for that line to be worth reading.
+
+Write it as the problem, not as the solution, and take the problem from THIS client's own
+documents. The test is grammatical: an angle is something the reader could be suffering from,
+so it reads as a difficulty. If what you wrote reads as something the sender provides, you
+have written the offer line again instead of the problem it answers.
+
+ONE VARIANT'S EMAIL 1 MUST SET offer_angle TO null, and its offer line must name no specific
+problem at all. It says what the sender does and what changes, in terms that hold whatever
+the reader's situation is. That line is what a prospect receives when nothing else fits, and
+without it they receive a line about a problem that is not theirs.
+
+WHY THIS FIELD EXISTS, so the tag is written to be useful rather than to be filled in. A
+personalised Email 1 replaces the opening paragraph with a researched observation about this
+one prospect. The offer line survives. If it answers a problem the observation is not about,
+the email reads as two unrelated halves, and that was the single most frequent fault in the
+last operator review. The tag is how the platform matches the surviving line to the
+observation.`
 }
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
