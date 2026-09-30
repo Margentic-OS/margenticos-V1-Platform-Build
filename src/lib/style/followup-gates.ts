@@ -24,6 +24,7 @@ import { splitIntoSentences } from './sentence-count'
 import { findYearCountFaults } from './year-count'
 import { findRelativeTimeFaults, relativeTimeFeedback } from './relative-time'
 import { findShortRelativePhrases, shortRelativeFeedback } from './short-relative'
+import { findDateGranularityFaults, dateGranularityFeedback } from './date-granularity'
 import { missingEventYears, eventYearGateMessage } from '@/lib/agents/research/event-year'
 import {
   findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, isSenderSide,
@@ -609,6 +610,20 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
 
   for (const fault of findRelativeTimeFaults(text, datedCandidates, now, sentencesOf)) {
     failures.push(`${label}: ${relativeTimeFeedback(fault)}`)
+  }
+
+  // A DAY OF THE MONTH, AND THE CURRENT YEAR BESIDE A MONTH, ARE BOTH BANNED.
+  //
+  // The register complaint the operator raised four times in one blind read of twenty
+  // emails, in their words: "when we always list the exact date and don't use abbreviations
+  // of months, it seems robotic and AI-generated". Follow-ups carry dates as readily as
+  // Email 1 does, and a callback naming a day is the same tell in a later position.
+  //
+  // This cannot contradict the year rule twenty lines above it: that one demands a year
+  // that is NOT the current one, this one rejects only the current one. See
+  // date-granularity.ts for why that separation is the whole design.
+  for (const fault of findDateGranularityFaults(text, now, sentencesOf)) {
+    failures.push(`${label}: ${dateGranularityFeedback(fault)}`)
   }
 
   // ── A COUNT OF YEARS IS ARITHMETIC ─────────────────────────────────────────

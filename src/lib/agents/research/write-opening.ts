@@ -24,6 +24,7 @@ import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, EMAIL1_RAW_BLOCKING_KINDS } from '@/lib/style/assumed-capacity'
 import { findShortRelativePhrases, shortRelativeFeedback } from '@/lib/style/short-relative'
+import { findDateGranularityFaults, dateGranularityFeedback } from '@/lib/style/date-granularity'
 import { companyNameForms } from '@/lib/style/followup-gates'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
@@ -2570,6 +2571,39 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     // resembles, and the year comes from that candidate's stored date exactly as before.
     for (const owedYear of observation ? missingEventYears(observation, params.candidates, params.now) : []) {
       gates.push(eventYearGateMessage(owedYear))
+    }
+
+    // ═══ AND THE GRANULARITY OF ANY DATE THAT IS NAMED. THIS BLOCKS. ═══
+    //
+    // DIRECTLY BELOW THE EVENT-YEAR GATE ON PURPOSE. The two rules both speak about years
+    // and they must never demand and refuse the same one. The gate above demands a year that
+    // is NOT the current one; this one refuses the current one and nothing else. Keeping them
+    // adjacent is the cheapest way to make a future edit to either notice the other, because
+    // the failure mode is not a wrong answer, it is a writer with no legal move burning every
+    // remaining attempt. Email 1's word floor cost seven model calls to that shape in
+    // September.
+    //
+    // MEASURED 2026-09-30 over 221 stored personalised openings. 25 named a day of the month
+    // and all 25 are the fault, zero false positives. 17 named the current year beside a
+    // month and 16 are the fault; the one cost is a date range, "from June 2025 to June
+    // 2026", which reads better with both ends and now has to lose one.
+    //
+    // WHY IT IS WORTH A REGENERATION. The operator raised this four separate times in one
+    // blind read of twenty emails, more often than any other single complaint in that file:
+    // "when we always list the exact date and don't use abbreviations of months, it seems
+    // robotic and AI-generated". It is the same register fault as a trademark symbol or a
+    // revenue figure, and the rewrite is deleting a word.
+    //
+    // THE WHOLE BLOCK, not per part, because a date in the closing question is the same tell
+    // as a date in the observation, and one prospect's stored copy carries the same day in
+    // both.
+    for (const fault of findDateGranularityFaults(
+      `${opening} ${question}`, params.now ?? new Date(), splitIntoSentences,
+    )) {
+      logger.info('writer-date-granularity: gated', {
+        prospect_id: params.prospectId, kind: fault.kind, matched: fault.match,
+      })
+      gates.push(dateGranularityFeedback(fault))
     }
 
     // A COUNT OF YEARS IS ARITHMETIC AND THE MODEL MUST NOT DO IT. One prospect's subject
