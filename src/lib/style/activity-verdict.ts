@@ -156,8 +156,13 @@ const ALREADY_ACQUAINTED_PATTERNS: ReadonlyArray<RegExp> = [
  * The brief's WORKING shape, which rule 2 must never claim. An audience defined by NOT
  * knowing them is the permitted destination for a gap, and it is the most common bridge in
  * the corpus, so this exclusion is what keeps the rule usable at all.
+ *
+ * EXPORTED 2026-09-30 for stranger-group.ts, which needs the same vocabulary to tell the
+ * PERMITTED form of a stranger line from the one that asserts a market's awareness. Two
+ * copies of this list would be two things to keep in step, and this one has already been
+ * widened once after a subset let a shipped sentence through.
  */
-const NEVER_HEARD = new RegExp(
+export const NEVER_HEARD = new RegExp(
   // MIRRORS THE ACQUAINTANCE VERBS ABOVE, negated. It listed a subset once and rule 3 then
   // fired on "prospects who have never READ your posts do not know the firm exists", which
   // is the permitted shape and had shipped. An exclusion narrower than the thing it

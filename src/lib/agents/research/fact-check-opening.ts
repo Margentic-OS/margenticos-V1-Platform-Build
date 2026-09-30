@@ -39,6 +39,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { logger } from '@/lib/logger'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { splitIntoSentences } from '@/lib/style/sentence-count'
+import { isStrangerGroupStatement } from '@/lib/style/stranger-group'
 import { companyNameForms } from '@/lib/style/followup-gates'
 import { ZERO_TOKEN_USAGE, readTokenUsage, type TokenUsage } from './types'
 import {
@@ -93,6 +94,31 @@ function sentencesAboutThem(text: string, companyName: string | null): string[] 
   })
 }
 
+/**
+ * The sentences of the copy that a quoted claim could have come from.
+ *
+ * MATCHED LOOSELY ON PURPOSE. The verifier paraphrases and re-punctuates, so an exact
+ * substring test finds nothing more than half the time. A claim is attributed to a sentence
+ * when they share enough distinctive words for it not to be a coincidence, and to EVERY
+ * sentence that qualifies rather than the best one: the caller only asks whether any of them
+ * is the permitted shape, and guessing wrong in the narrowing direction would reinstate the
+ * false positive this exists to remove.
+ */
+function sentenceCarrying(claim: string, bridge: string, question: string): string[] {
+  const words = (t: string) =>
+    new Set(t.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3))
+  const c = words(claim)
+  if (c.size === 0) return []
+  return splitIntoSentences(`${bridge}\n${question}`)
+    .map(s => s.trim())
+    .filter(s => {
+      const w = words(s)
+      let shared = 0
+      for (const x of c) if (w.has(x)) shared++
+      return shared / c.size >= 0.5
+    })
+}
+
 export interface OpeningFactCheckParams {
   apiKey: string
   /** Email 1's second paragraph: the sentence carrying the reason to reply. */
@@ -131,6 +157,23 @@ export function checkOpeningCitations(
       continue
     }
     if (!c.supported) {
+      // ═══ THE PERMITTED STRANGER LINE IS NOT A CLAIM. Suppressed 2026-09-30. ═══
+      //
+      // "Buyers who have never heard of <firm> won't find this on their own" DEFINES a group
+      // and says what that group will not do. It is true by construction, needs no finding,
+      // and is still true if the group is empty. The asserting form, "Buyers have not heard
+      // of <firm> yet", is a statement about a market nobody has measured and keeps failing.
+      //
+      // The verifier cannot tell them apart and rejects both. Measured 2026-09-28: five
+      // prospects were templated on stranger lines, four on the asserting form and ONE on
+      // the permitted form, and the permitted form is the most common bridge in the corpus.
+      // So this is not a rare false positive, it is a false positive on the working shape.
+      //
+      // JUDGED ON THE SENTENCE, NOT THE CLAIM. The verifier quotes fragments, and a fragment
+      // of a relative clause loses the very syntax the test depends on. isStrangerGroupStatement
+      // needs both halves present to say yes.
+      if (sentenceCarrying(c.claim, bridge, question).some(isStrangerGroupStatement)) continue
+
       failures.push(
         `Email 1 states ${JSON.stringify(c.claim)}, which the findings do not support` +
         (c.why ? `: ${c.why}` : ''),

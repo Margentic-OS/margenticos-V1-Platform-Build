@@ -194,3 +194,64 @@ describe('what counts as a sentence the verifier should have checked', () => {
     expect(f.some(x => x.includes('empty verdict'))).toBe(true)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE PERMITTED STRANGER LINE IS NOT A CLAIM. Added 2026-09-30.
+//
+// stranger-group.test.ts owns which sentences are the permitted shape. These assert the
+// FACT-CHECK acts on that, because the fact-check is what was rejecting it: of five prospects
+// templated on stranger lines on 2026-09-28, four were the asserting form and one was the
+// permitted form, and the permitted form is the most common bridge in the corpus.
+//
+// RULE ZERO. Every fixture is invented.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('a stranger line defined by a relative clause survives the fact-check', () => {
+  const EVIDENCE = '1. The firm opened a second workshop in March.\n   source: web | a listings page'
+  const unsupported = (claim: string) => [{
+    email: 1, claim, finding: null, supported: false, why: 'no finding establishes this',
+  }]
+
+  it('does NOT fail the permitted form', () => {
+    const bridge = "Buyers who have never heard of Kestrel Works won't find the second workshop on their own."
+    const failures = checkOpeningCitations(
+      unsupported('Buyers who have never heard of Kestrel Works'), EVIDENCE, bridge, 'Worth a look?', 'Kestrel Works',
+    )
+    expect(failures).toEqual([])
+  })
+
+  it('STILL fails the asserting form, which is the control', () => {
+    // Without this the test above would pass just as happily if the suppression swallowed
+    // every unsupported claim, which is an outage rather than a fix.
+    const bridge = 'Buyers have not heard of Kestrel Works yet.'
+    const failures = checkOpeningCitations(
+      unsupported('Buyers have not heard of Kestrel Works yet'), EVIDENCE, bridge, 'Worth a look?', 'Kestrel Works',
+    )
+    expect(failures.length).toBeGreaterThan(0)
+    expect(failures[0]).toContain('the findings do not support')
+  })
+
+  it('suppresses only the claim carried by that sentence, not the rest of the email', () => {
+    const bridge = "Buyers who have never heard of Kestrel Works won't find it on their own."
+    const question = 'Is replacing the revenue that role was carrying something you are working on?'
+    const failures = checkOpeningCitations(
+      [
+        ...unsupported('Buyers who have never heard of Kestrel Works'),
+        ...unsupported('the revenue that role was carrying'),
+      ],
+      EVIDENCE, bridge, question, 'Kestrel Works',
+    )
+    expect(failures).toHaveLength(1)
+    expect(failures[0]).toContain('revenue')
+  })
+
+  it('does not suppress a claim that merely shares a word with the stranger sentence', () => {
+    // The attribution is on shared distinctive words, so a claim about something else in the
+    // same email must not inherit the exemption.
+    const bridge = "Buyers who have never heard of Kestrel Works won't find it on their own."
+    const failures = checkOpeningCitations(
+      unsupported('Kestrel Works doubled its workshop capacity last year'), EVIDENCE, bridge, 'Worth a look?', 'Kestrel Works',
+    )
+    expect(failures.length).toBeGreaterThan(0)
+  })
+})
