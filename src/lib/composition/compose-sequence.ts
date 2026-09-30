@@ -420,7 +420,26 @@ export async function composeSequence({
   // word count is right, and only the recipient sees an email signed by nobody.
   //
   // Caught by a test, not by reading. See followup-composition.test.ts.
-  const withFooter = appendOptOutFooter(composedEmails)
+  //
+  // ═══ AND IT STRIPS, BECAUSE THE FINGERPRINT BELOW IS TAKEN OVER THIS BODY ═══
+  //
+  // This used to call appendOptOutFooter alone while the SHIPPED body, built further down,
+  // also had its trademark symbols removed. The comment below said this was "the last point
+  // at which Email 1 exists in the form the prospect receives it", and from 2026-09-25 that
+  // was no longer true: the form the prospect receives is the stripped one.
+  //
+  // WHY IT MATTERS HERE AND NOT ANYWHERE ELSE ON THIS PATH. produceOpening fingerprints the
+  // Email 1 it wrote the follow-ups against by calling composeEmail1WithOpening, which now
+  // shares this same tail. Both sides must hash the same string or the follow-up gate fails
+  // closed. Leaving one side unstripped would mean every prospect whose copy carries a
+  // symbol silently loses their generated follow-ups and ships the approved template ones,
+  // with the right word counts, no error, and nothing to attribute it to.
+  //
+  // KNOWN ONE-TIME CONSEQUENCE, accepted: a fingerprint stored before this change, for a
+  // prospect whose copy carries a symbol, no longer matches. Those prospects ship approved
+  // template follow-ups, which is the documented fail-closed behaviour, and re-running
+  // research restores them. Four of the 104 cohort carry a symbol at all.
+  const withFooter = finaliseForReading(composedEmails)
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Step 5a. THE GENERATED FOLLOW-UPS, IF THEY ARE STILL THE RIGHT ONES
@@ -511,11 +530,7 @@ export async function composeSequence({
   //
   // Bodies AND subjects. The subject is where it is least excusable and easiest to forget:
   // it is the first thing seen and the shortest piece of text in the email.
-  const emailsWithFooter = appendOptOutFooter(applied.emails).map(e => ({
-    ...e,
-    body: stripSymbols(e.body),
-    subject_line: e.subject_line === null ? null : stripSymbols(e.subject_line),
-  }))
+  const emailsWithFooter = finaliseForReading(applied.emails)
 
   // THE OUTCOME, not the intent, and per position. A frame that could not be read is its
   // own reason: the copy existed and cleared every gate, and the template it had to be
@@ -706,7 +721,7 @@ export function composeEmail1WithOpening(
   const withQuestion = question ? applyQuestionToEmail1(withOpening, question) : withOpening
   const withSubject = subject ? applySubjectToEmail1(withQuestion, subject) : withQuestion
   const counted = withSubject.map(email => ({ ...email, word_count: countWords(email.body) }))
-  const withFooter = appendOptOutFooter(counted)
+  const withFooter = finaliseForReading(counted)
 
   const email1 = withFooter.find(e => e.sequence_position === 1)
   if (!email1) {
@@ -853,6 +868,44 @@ export function getVariantEmail1Frame(
 // Word budgets are measured on footer-free bodies: this runs after applyPersonalization
 // has computed word_count, and the spread below carries that count through unchanged.
 // The footer is a legal notice, not copy, so it must never eat an email's word budget.
+
+/**
+ * THE LAST TWO STEPS EVERY READABLE EMAIL PASSES THROUGH, IN ONE PLACE.
+ *
+ * The opt-out footer, then the trademark strip. Both are properties of the text a HUMAN
+ * receives rather than of any one pipeline, so both belong to whichever function hands an
+ * email to a reader.
+ *
+ * ─── WHY THIS IS ONE FUNCTION AND NOT TWO CALLS IN TWO PLACES ────────────────
+ *
+ * Two functions in this file build a complete Email 1: composeSequence, which builds what
+ * is sent, and composeEmail1WithOpening, which builds what the research judge and every
+ * offline read see. The second exists specifically so a reader sees the real artifact
+ * rather than an approximation, and its own comment says that anything changing on
+ * composeSequence's researched path must change here too.
+ *
+ * IT DRIFTED ANYWAY, WITHIN FIVE DAYS. The strip was added to composeSequence on
+ * 2026-09-25 and not here. Measured 2026-09-30 on the A/B read: one prospect's Email 1
+ * carried "THRIVE Futures Architecture(tm)" three times, in the observation, the bridge and
+ * the closing question, and was failed on it by the operator. The email that would have
+ * SHIPPED was clean, because composeSequence strips. So the defect was invisible from
+ * production and visible only to every human who read the copy, which is the worst
+ * available split: the reviewer distrusts copy the pipeline would have fixed, and nothing
+ * in the pipeline can tell them so.
+ *
+ * A COMMENT ASKING THE NEXT PERSON TO REMEMBER IS NOT A CONTROL. One function is. The
+ * paired test asserts appendOptOutFooter has exactly one call site, so a third path cannot
+ * take the footer without also taking the strip.
+ */
+function finaliseForReading(emails: ComposedEmail[]): ComposedEmail[] {
+  // Bodies AND subjects. The subject is where a symbol is least excusable and easiest to
+  // forget: it is the first thing seen and the shortest piece of text in the email.
+  return appendOptOutFooter(emails).map(e => ({
+    ...e,
+    body: stripSymbols(e.body),
+    subject_line: e.subject_line === null ? null : stripSymbols(e.subject_line),
+  }))
+}
 
 function appendOptOutFooter(emails: ComposedEmail[]): ComposedEmail[] {
   return emails.map(email => {
