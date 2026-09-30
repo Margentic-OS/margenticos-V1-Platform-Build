@@ -18,16 +18,32 @@ const idsFor = (position: number) =>
   HARD_FAIL_CATEGORIES.filter(c => (c.positions as readonly number[]).includes(position)).map(c => c.id)
 
 describe('the rubric is the operator\'s, and it is asked per position', () => {
-  it('carries all seven hard-fail categories', () => {
+  it('carries the operator\'s hard-fail list, in order', () => {
     expect(HARD_FAIL_CATEGORIES.map(c => c.id)).toEqual([
       'invented_fact',
       'guess_about_them',
+      // ITS OWN CATEGORY from 2026-09-30. It was a phrase inside guess_about_them, and the
+      // marks showed that buries it: where the work comes from is the guess that keeps
+      // being made, and a category about diaries is the wrong place to report it.
+      'guess_about_their_clients',
       'audience_claim',
       'wrong_or_mismatched_fact',
       'third_person',
       'followup_about_a_different_fact',
       'need_the_offer_does_not_serve',
+      // MOVED FROM SOFT on 2026-09-30. See the note beside it in the module.
+      'bridge_does_not_follow',
     ])
+  })
+
+  it('asks about where their CLIENTS come from, not only about their diary', () => {
+    const clients = HARD_FAIL_CATEGORIES.find(c => c.id === 'guess_about_their_clients')!
+    expect(clients.question.toLowerCase()).toContain('referral')
+    // And the diary category no longer carries it, or one fault would be reported twice
+    // under two names and the count would stop meaning anything.
+    const them = HARD_FAIL_CATEGORIES.find(c => c.id === 'guess_about_them')!
+    expect(them.question.toLowerCase()).not.toContain('customers')
+    expect(them.question.toLowerCase()).not.toContain('clients')
   })
 
   it('does not ask Email 1 whether it argues from a different fact than Email 1', () => {
@@ -37,12 +53,12 @@ describe('the rubric is the operator\'s, and it is asked per position', () => {
     expect(idsFor(3)).toContain('followup_about_a_different_fact')
   })
 
-  it('keeps the soft category out of the hard list entirely', () => {
-    // Scored separately by instruction: it judges how well an argument lands, not whether a
-    // statement is true, and a count mixing the two means two things at once.
-    expect(SOFT_CATEGORIES.map(c => c.id)).toEqual(['bridge_does_not_follow'])
-    for (const s of SOFT_CATEGORIES) {
-      expect(HARD_FAIL_CATEGORIES.map(c => c.id)).not.toContain(s.id)
+  it('has no soft category now, and no id may sit in both lists', () => {
+    // bridge_does_not_follow moved to the hard list on 2026-09-30. The soft machinery stays
+    // for the next category of its kind; an empty list is a readable state.
+    expect(SOFT_CATEGORIES).toEqual([])
+    for (const soft of SOFT_CATEGORIES) {
+      expect(HARD_FAIL_CATEGORIES.map(c => c.id)).not.toContain(soft.id)
     }
   })
 
@@ -50,6 +66,7 @@ describe('the rubric is the operator\'s, and it is asked per position', () => {
     const p2 = buildReviewPrompt(2)
     for (const id of idsFor(2)) expect(p2).toContain(id)
     expect(p2).toContain('bridge_does_not_follow')
+    expect(p2).toContain('guess_about_their_clients')
     const p1 = buildReviewPrompt(1)
     expect(p1).not.toContain('followup_about_a_different_fact')
   })
@@ -66,8 +83,9 @@ describe('parsing a verdict', () => {
     ]), 1)
     expect(hardFails.invented_fact.failed).toBe(true)
     expect(hardFails.third_person.failed).toBe(false)
-    expect(softNotes.bridge_does_not_follow.failed).toBe(true)
-    expect(hardFails).not.toHaveProperty('bridge_does_not_follow')
+    // A FAIL IN THE REPORT, not a score beside it. Moved 2026-09-30 on the operator's marks.
+    expect(hardFails.bridge_does_not_follow.failed).toBe(true)
+    expect(softNotes).toEqual({})
   })
 
   it('TREATS AN UNQUOTED FAULT AS NO FAULT', () => {

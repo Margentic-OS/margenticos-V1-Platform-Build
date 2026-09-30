@@ -12,10 +12,11 @@
 // fails AND the passes, and that number cannot exist until the two have read the same copy.
 // A reviewer that agrees only on fails is a reviewer that rejects everything.
 //
-// THE SOFT CATEGORY IS SEPARATE BY INSTRUCTION. "The bridge does not follow from the fact" is
-// a judgement about how well an argument lands, not about whether a statement is true. It is
-// recorded on its own and is never counted as a failure, because a count mixing the two means
-// two different things at once and stops being readable.
+// THERE IS CURRENTLY NO SOFT CATEGORY. "The bridge does not follow from the fact" was one
+// until 2026-09-30 and is now a hard fail on the operator's marks: an argument merely attached
+// to a fact reads as a non-sequitur to the person receiving it, whatever else is correct. The
+// soft list and its column remain, because the distinction is real and the next category of
+// its kind should not have to reintroduce the machinery.
 //
 // RULE ZERO. Nothing below names a client, a market, a service or a buyer. The rubric is a
 // list of ways a sentence can be wrong about a stranger, and it is the same list whoever is
@@ -47,9 +48,30 @@ export const HARD_FAIL_CATEGORIES = [
     id: 'guess_about_them',
     positions: [1, 2, 3],
     question:
-      'Does it assert how their time, money, clients or selling are arranged? How busy they are, ' +
-      'what they earn or hold, who their customers are, or who does their selling. None of that ' +
-      'is visible from outside.',
+      'Does it assert how their time, money or selling are arranged? How busy they are, what ' +
+      'they earn or hold, or who does their selling. None of that is visible from outside.',
+  },
+  {
+    // ═══ ITS OWN CATEGORY, ADDED 2026-09-30 ON THE OPERATOR'S MARKS ═══
+    //
+    // It was inside guess_about_them as the phrase "who their customers are", and that turned
+    // out to be the wrong question. WHERE THE WORK COMES FROM is the guess that keeps being
+    // made: by referral, by network, by repeat business, by one big account. Naming it
+    // separately is the difference between a reviewer that reports the fault and one that
+    // buries it in a category about diaries.
+    //
+    // A TENSION WITH CLAUDE.md, STATED RATHER THAN RESOLVED HERE. Its style rules list
+    // "Most of the pipeline comes from referrals" as copy that SURVIVES BEING WRONG, against
+    // "no outreach running" which does not, on the reasoning that the first is a pattern a
+    // reader can recognise themselves in. This rubric counts it a fault. Both can hold while
+    // the reviewer is REPORT ONLY, because nothing is rejected either way; they cannot both
+    // hold the day it gates. That decision is the operator's and is not taken here.
+    id: 'guess_about_their_clients',
+    positions: [1, 2, 3],
+    question:
+      'Does it assert where their clients or their work come from? By referral, by network, ' +
+      'by repeat business, from one account, from a particular channel. Who pays them and how ' +
+      'those people found them is not visible from outside.',
   },
   {
     id: 'audience_claim',
@@ -81,18 +103,43 @@ export const HARD_FAIL_CATEGORIES = [
       'sender doing? Judge the WORK and the PEOPLE it is done to, not the situation that ' +
       'prompted the email.',
   },
+  {
+    // ═══ MOVED FROM SOFT TO HARD, 2026-09-30, ON THE OPERATOR'S MARKS ═══
+    //
+    // It was scored separately and never failed, on the earlier instruction that a judgement
+    // about how well an argument lands is a different kind of thing from whether a statement
+    // is true. The marks say otherwise: an email whose reason-to-reply is merely ATTACHED to
+    // the fact rather than following from it reads as a non-sequitur to the person receiving
+    // it, whatever else is correct about it.
+    //
+    // THE REVERSAL IS RECORDED RATHER THAN TIDIED AWAY, because the earlier reasoning was not
+    // wrong about the KIND of judgement; it was wrong about the consequence. Anyone reading
+    // the rubric later needs to know the question was asked and answered, or they will move
+    // it back.
+    id: 'bridge_does_not_follow',
+    positions: [1, 2, 3],
+    question:
+      'Does the reason-to-reply FOLLOW from the fact, or is it merely attached to it? A reason ' +
+      'that would read the same beneath any other fact does not follow from this one.',
+  },
 ] as const
 
 export type HardFailCategoryId = (typeof HARD_FAIL_CATEGORIES)[number]['id']
 
-/** SCORED, NEVER FAILED. See the header. */
-export const SOFT_CATEGORIES = [
-  {
-    id: 'bridge_does_not_follow',
-    positions: [1, 2, 3],
-    question: 'Does the reason-to-reply follow from the fact, or is it attached to it?',
-  },
-] as const
+/**
+ * SCORED, NEVER FAILED. Currently EMPTY.
+ *
+ * It held bridge_does_not_follow until 2026-09-30, when the operator's marks moved that to
+ * the hard list; see the note beside it there. The array and the soft_notes column stay,
+ * because the distinction is real and the next category of its kind should not have to
+ * reintroduce the machinery. An empty list here means "nothing is currently scored without
+ * counting", which is a state worth being able to read.
+ */
+export const SOFT_CATEGORIES = [] as ReadonlyArray<{
+  id: string
+  positions: readonly number[]
+  question: string
+}>
 
 export interface CategoryVerdict {
   failed: boolean
