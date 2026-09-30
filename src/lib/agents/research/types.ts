@@ -168,6 +168,15 @@ export interface ObservationCandidate {
   provenance: string
   /** ISO date or approximate date string. null when the observation is undated. */
   date: string | null
+  /**
+   * How the date was worked out, when it is not exact. Prose, never parsed.
+   *
+   * Added 2026-09-30 so `date` can be ISO-or-null. The schema used to accept "approximate
+   * description" in `date` itself, and 32 of 491 dated findings carried prose that every
+   * date check was blind to. The hedge is real information and is kept; it is just kept
+   * somewhere nothing tries to subtract from.
+   */
+  date_note?: string | null
   /** True when the candidate combines several smaller items into one pattern. */
   is_composite: boolean
   /**

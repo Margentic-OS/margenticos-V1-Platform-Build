@@ -18,6 +18,11 @@
 // ═════════════════════════════════════════════════════════════════════════════
 
 import { contentOverlap } from '@/lib/agents/research/synthesize'
+// MOVED OUT 2026-09-30 so synthesize.ts can use it without closing an import cycle: this
+// file already imports contentOverlap from there. See finding-date.ts.
+import { parseFindingDate } from './finding-date'
+
+export { parseFindingDate }
 
 /**
  * How far back each phrase claims the event was, as an inclusive window in MONTHS.
@@ -37,42 +42,6 @@ const RELATIVE_WINDOWS: Array<{ re: RegExp; label: string; minMonths: number; ma
   { re: /\bearlier this year\b/i,    label: 'earlier this year',  minMonths: 0, maxMonths: 12 },
   { re: /\bin the last few months\b/i, label: 'in the last few months', minMonths: 0, maxMonths: 6 },
 ]
-
-/**
- * A finding's date, parsed ONLY from the forms we know we wrote: YYYY, YYYY-MM, YYYY-MM-DD,
- * optionally with a time. Anything else is null.
- *
- * ═══ WHY THIS REFUSES WHAT new Date() WOULD ACCEPT ═══════════════════════════
- *
- * Handing a free-text date to new Date() does not fail loudly; it guesses, and the guess can
- * be years out. Measured 2026-09-30 on the uploaded cohort:
- *
- *     new Date("September 12-17, 2026")  ->  2017-09-12
- *
- * It reads the "-17" as the year and discards the 2026. One prospect's chosen finding carries
- * exactly that string, so the copy "ran twelve new articles in six days last month" was
- * measured against an event nine years old and reported as 108 MONTHS out. The copy was
- * right, the gate was wrong, and it was wrong in the direction that costs a personalised
- * email.
- *
- * A DATE THAT LOOKS PARSEABLE AND IS NOT is worse than one that plainly is not: it produces a
- * confident wrong answer instead of a fail-open. So the shape is checked first, and anything
- * outside it reads as "no usable date", which every caller here already handles by leaving
- * the sentence alone.
- *
- * THE COST, STATED: a finding whose date is a free-text range is invisible to every check
- * built on this. That is a synthesis problem, not a parsing one, and it has its own Backlog
- * row; guessing at the range here would reintroduce exactly the fault above.
- */
-export function parseFindingDate(date: string | null | undefined): Date | null {
-  if (!date) return null
-  const raw = String(date).trim()
-  const m = raw.match(/^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?(?:[T\s].*)?$/)
-  if (!m) return null
-  const iso = `${m[1]}-${m[2] ?? '01'}-${m[3] ?? '01'}T00:00:00Z`
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? null : d
-}
 
 /** Whole months between a stored date and the run date, or null when it carries no date. */
 export function monthsAgo(date: string | null | undefined, now: Date): number | null {

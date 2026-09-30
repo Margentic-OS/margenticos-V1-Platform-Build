@@ -815,13 +815,20 @@ ${ctx.fitDimensions?.length ? `  "fit_dimensions": {
     "runs_the_business":    { "result": "yes" or "no" or "unknown", "evidence": "one sentence" },
     "reachable_by_channel": { "result": "yes" or "no" or "unknown" or "not_applicable", "evidence": "one sentence" }
   },
+  DATES ARE MACHINE-READABLE OR NULL. "date" takes YYYY-MM-DD, YYYY-MM, YYYY or null and
+  NOTHING ELSE: no ranges, no words, no qualifiers. Every check that reasons about when an
+  event happened reads that field, and a date it cannot read is a finding those checks cannot
+  protect. If the real answer is a range, a season or an inference, put the exact part in
+  "date" and the rest in "date_note", or use null and explain in "date_note".
+
   "candidates": [
     {
       "id": "c1",
       "observation": "The observation as it would be referenced, one sentence.",
       "source": "linkedin" or "apollo" or "website" or "web_search" or "composite",
       "provenance": "URL, or exact location a human can check in 30 seconds",
-      "date": "YYYY-MM-DD" or "approximate description" or null,
+      "date": "YYYY-MM-DD" or "YYYY-MM" or "YYYY" or null,
+      "date_note": "how the date was worked out, when it is not exact" or null,
       "is_composite": false,
       "scores": {
         "specific": true, "verifiable": true, "inferential": true,

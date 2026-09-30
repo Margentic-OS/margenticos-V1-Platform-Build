@@ -21,6 +21,7 @@ import {
 } from './types'
 import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
 import { flattenPositioningText } from './positioning-text'
+import { isMachineReadableDate } from '@/lib/style/finding-date'
 import { rankCandidates, byTriggerPositionOnly, type RankedCandidate } from './rank-candidates'
 import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
 import { fleschKincaidGrade, MAX_READING_GRADE } from '@/lib/style/reading-grade'
@@ -703,7 +704,25 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
     observation,
     source,
     provenance,
-    date: typeof o.date === 'string' && o.date.trim() ? o.date.trim() : null,
+    // ═══ ISO OR NULL, WITH THE PROSE KEPT SEPARATELY. Changed 2026-09-30. ═══
+    //
+    // The schema ASKED for "approximate description" as an alternative to a date, and got
+    // it: measured on the uploaded cohort, 32 of 491 dated findings carry prose such as
+    // "approximate: August-September 2026" or "ongoing since 2018-02-01". Every check that
+    // reasons about WHEN an event happened reads this field, so those findings were
+    // unprotected, and before parseFindingDate was tightened they were actively MISREAD.
+    //
+    // ENFORCED HERE AND NOT ONLY ASKED FOR, per ADR-028. A prompt instruction is advisory;
+    // this is the half that binds, and it keeps working on a model that ignores the schema.
+    // Prose is preserved in date_note rather than discarded, because it is real information
+    // about how the date was reached and a human reading a candidate wants it.
+    date: typeof o.date === 'string' && isMachineReadableDate(o.date) ? o.date.trim() : null,
+    date_note:
+      typeof o.date_note === 'string' && o.date_note.trim()
+        ? o.date_note.trim()
+        : typeof o.date === 'string' && o.date.trim() && !isMachineReadableDate(o.date)
+          ? o.date.trim()
+          : null,
     is_composite: asBool(o.is_composite) || source === 'composite',
     // POSITION, never the trigger's text. See ObservationCandidate.matched_trigger: the list
     // is per client and per ICP version, so the text would be meaningless once it changes.
