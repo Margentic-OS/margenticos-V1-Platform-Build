@@ -15,6 +15,8 @@
 // it describes is deliberately nobody's.
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   flattenPositioningText,
   positioningLines,
@@ -302,5 +304,65 @@ describe('checkNeedCitations: the citation is the whole of the verdict', () => {
     expect(failures.some(f => f.includes('"two"'))).toBe(true)
     expect(failures.some(f => f.includes('"three"'))).toBe(false)
     expect(failures.some(f => f.includes('"four"'))).toBe(true)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE THREE SHAPES THIS CHECK WAS BUILT FOR MUST STAY ASKABLE.
+//
+// Added 2026-09-30 on an explicit operator instruction to KEEP "getting the prospect's
+// content in front of buyers" as a need-match fault. It is the first of the three shapes read
+// off the live batch that motivated this module, and it is the easiest of the three to lose:
+// it reads as a helpful thing to offer, the copy that carries it is fluent, and it passes
+// every other gate in the system.
+//
+// WHAT CAN AND CANNOT BE PINNED HERE. The VERDICT is the model's, so no assertion can prove
+// the check catches this shape without paying for a call. What can be pinned is that the
+// prompt still asks the question that distinguishes it, and that question is WHOSE PEOPLE: a
+// need about the reader's existing audience is a different need from one about people who have
+// never heard of them. Delete that distinction and the shape becomes unaskable, whatever the
+// model does.
+//
+// GENERIC BY CONSTRUCTION. The assertions below match the RULE, never a market or a service.
+// The module's own header says why: the obvious concrete pair names one client's service shape.
+// ═════════════════════════════════════════════════════════════════════════════
+describe('the shapes this check exists for stay askable', () => {
+  const prompt = buildNeedMatchPrompt({
+    shown: 'one email',
+    exampleId: 1,
+    positioningText: 'positioning.summary: The sender finds buyers who do not yet know the client.',
+  })
+
+  it('still asks WHOSE PEOPLE a need is about', () => {
+    // The distinction that makes "put your article in front of more people" answerable at all.
+    // Without it the verifier has no reason to separate the reader's own audience from buyers
+    // who have never heard of them, and a need about the first is supported by a document
+    // describing work on the second.
+    expect(prompt).toContain('WHOSE PEOPLE')
+    expect(prompt).toMatch(/people the reader already has a relationship with/i)
+    expect(prompt).toMatch(/never heard of them/i)
+  })
+
+  it('still asks WHAT IS DONE to those people, not only who they are', () => {
+    // Two needs can name the same people and ask for opposite work. Promoting the reader's
+    // content and finding the reader new buyers can both be about "buyers", and only the
+    // action separates them.
+    expect(prompt).toContain('WHAT IS DONE')
+    expect(prompt).toMatch(/names the action as well as the people/i)
+  })
+
+  it('names the three motivating shapes in the module, so none is lost to a rewrite', () => {
+    // A guard on the REASONING rather than on behaviour. These three are why the module exists;
+    // a rewrite that drops one has changed what the check is for, and that should be a visible
+    // change rather than a silent one.
+    const source = readFileSync(
+      join(process.cwd(), 'src/lib/agents/research/need-matches-offer.ts'),
+      'utf8',
+    )
+    // GUARD THE GUARD: the scan must find the block at all.
+    expect(source).toContain('WHY THIS EXISTS')
+    expect(source).toMatch(/own article in front of more people/i)
+    expect(source).toMatch(/did not attend their event/i)
+    expect(source).toMatch(/prospect's existing audience/i)
   })
 })
