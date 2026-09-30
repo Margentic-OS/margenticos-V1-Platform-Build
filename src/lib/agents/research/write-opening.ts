@@ -589,6 +589,21 @@ follow-up. He probably has people. Claiming to know their CAPACITY, or what thei
 and is not getting to, is the same error as claiming to know their pipeline. Say what tends
 to happen. Never say who is or is not doing it.
 
+NAME WHAT IS THEIRS. NEVER EXPLAIN IT TO THEM.
+They know what their own product does. They know who their colleague is and what that
+person's job title means. They know what their own company does and what happened in their
+own history. Every clause spent telling them any of it is a clause telling them you are not
+sure which of you is the expert, out of the two or three sentences you have.
+
+Name the thing and move on.
+  This shipped: a whole job title written out in full, for a person the reader had just
+  spoken to. She knows who he is.
+  This shipped: an explanation of the reader's own newly launched product, to the person
+  who launched it.
+The fault is never the reference. Naming their product, their colleague or their event is
+what makes the email theirs rather than anyone's. The fault is the clause after the name
+that describes it.
+
 THE ABSENCE BAN, COVERING THE OBSERVATION AND THE BRIDGE BOTH. Never name what they lack:
 no "there is no", no "nothing about", no lists of what is missing. Notice something that IS
 there instead. The fault is DELIVERING A VERDICT ON THE READER, so the same test applies to

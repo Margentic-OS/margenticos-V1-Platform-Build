@@ -28,6 +28,10 @@ describe('the rubric is the operator\'s, and it is asked per position', () => {
       // being made, and a category about diaries is the wrong place to report it.
       'guess_about_their_clients',
       'audience_claim',
+      // ADDED 2026-09-30, on two marks in one read: the reader's own product explained back
+      // to them, and a colleague's whole job title written out for someone who had just
+      // spoken to him. Naming the thing is correct; describing it to them is the fault.
+      'explains_their_own_thing',
       'wrong_or_mismatched_fact',
       'third_person',
       'followup_about_a_different_fact',
@@ -35,6 +39,16 @@ describe('the rubric is the operator\'s, and it is asked per position', () => {
       // MOVED FROM SOFT on 2026-09-30. See the note beside it in the module.
       'bridge_does_not_follow',
     ])
+  })
+
+  it('asks whether the email explains the reader their own thing, at every position', () => {
+    // The fault is the EXPLANATION, not the reference, and the question has to say so or the
+    // reviewer flags every mention of the reader's own product as a fault.
+    const category = HARD_FAIL_CATEGORIES.find(c => c.id === 'explains_their_own_thing')
+    expect(category, 'the category is gone: update this test').toBeDefined()
+    expect(category!.positions).toEqual([1, 2, 3])
+    expect(category!.question).toMatch(/NAMING it is\s+correct/)
+    expect(category!.question.toLowerCase()).toContain('job title')
   })
 
   it('asks about where their CLIENTS come from, not only about their diary', () => {

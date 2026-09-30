@@ -104,6 +104,34 @@ export const HARD_FAIL_CATEGORIES = [
     question: 'Does it claim something about who sees, follows or reads their content?',
   },
   {
+    // ═══ ADDED 2026-09-30 ON THE OPERATOR'S MARKS, TWICE IN ONE READ ═══
+    //
+    //   "if her company or their company is [X], I don't need to explain to her what her new
+    //    product is"
+    //   "listing [his] whole title is overly formal. If she spoke with him, she knows who he is"
+    //
+    // WHY IT IS ITS OWN FAULT AND NOT A STYLE PREFERENCE. Explaining a reader's own product,
+    // colleague, title or history back to them is not merely redundant. It tells them the
+    // sender does not know which of them is the expert, and it spends the two or three
+    // sentences an opening has on information the reader supplied. The fault is the EXPLANATION,
+    // never the reference: naming the thing is what makes the email specific to them, and the
+    // rule is to name it and move on.
+    //
+    // JUDGEMENT, NOT A REGEX, PER ADR-018. Whether a clause tells the reader something they
+    // already know depends entirely on whose thing it is, and no pattern distinguishes "You
+    // published a guide to X" from "You published a guide to X, which helps firms measure
+    // their reach". The second sentence is the fault and it differs only in what it goes on
+    // to do.
+    id: 'explains_their_own_thing',
+    positions: [1, 2, 3],
+    question:
+      'Does it explain back to the reader something that is already theirs? What their own ' +
+      'product or service does, who a colleague of theirs is or what that person\'s job title ' +
+      'means, what their own company does, or what happened in their own history. NAMING it is ' +
+      'correct and is what makes the email theirs. Describing it to them is the fault.',
+  },
+
+  {
     id: 'wrong_or_mismatched_fact',
     positions: [1, 2, 3],
     question:
