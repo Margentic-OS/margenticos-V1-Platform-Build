@@ -1242,12 +1242,12 @@ verified, so it must be offered as a pattern they can recognise themselves in, n
 finding about them. The difference is whether a wrong guess costs you the reply.
 
 GOOD, from a variant that framed it correctly. Note that this is a pattern statement about
-a group, which the reader either joins or does not:
+a group, which the reader either joins or does not, and that it asserts nothing about where
+their work comes from:
 
-  "Most B2B consulting founders at your stage are in the same spot: delivery is solid,
-   close rate is fine, but conversations are rare and almost all of them come from
-   referrals they can't control. One warm intro every few weeks keeps the lights on and
-   removes the urgency to build anything else."
+  "Most owner-led firms at this size are in the same spot: the work gets delivered well
+   and the close rate is fine, but the next conversation is never scheduled. The quiet
+   weeks only show up later, once the current job is finished."
 
 FAILING, from a variant that asserted it. Every clause is a claim about this specific
 reader's business, stated flat:
@@ -1255,18 +1255,37 @@ reader's business, stated flat:
   "A project ends and the diary empties. No referrals lined up, no outreach running,
    nothing queued. The business that looked healthy last month is suddenly exposed."
 
+ALSO FAILING, and this one is the harder case because it LOOKS like pattern framing:
+
+  "...conversations are rare and almost all of them come from referrals they can't
+   control."
+
+That was the GOOD example here until 2026-09-30. It says where their work comes from, which
+is not visible from outside, and the group framing does not make it less of a guess.
+
 Write like the first. Do not copy either one: they are here to show the difference between
 describing a group and pronouncing on a person, and both will be recognisable if reused.
 Reach for your own framing. "Most founders we speak to find...", "The pattern with firms
 at this size tends to be...", "Where this usually shows up is..." are all openings into
 pattern framing, and there are many more.
 
-NEVER ASSERT EXCLUSIVITY. "Most of the pipeline comes from referrals" survives being
-wrong. "No outreach running" does not. The prospect may well have three channels with two
-of them broken, and an email that denies those channels exist reads as not having looked
-before writing. Words like no, none, nothing, never, only and zero, applied to what the
-prospect does or has, are the ones to watch. Say most, usually, or the bulk of, and the
-sentence still lands if you guessed wrong about the details.
+NEVER ASSERT EXCLUSIVITY. "No outreach running" is a verdict about them and may simply be
+wrong: they may have three channels with two of them broken, and an email that denies those
+channels exist reads as not having looked before writing. Words like no, none, nothing,
+never, only and zero, applied to what the prospect does or has, are the ones to watch.
+
+AND NEVER ASSERT WHERE THEIR WORK COMES FROM, EVEN AS A PATTERN. This is the one place a
+pattern framing does NOT rescue a guess. Who pays them, and how those people found them, is
+not visible from outside, and "most firms like yours" is still a sentence about them to the
+person reading it. Every traceable opt-out so far replied to a template making a claim of
+this kind.
+
+ASK IT INSTEAD, and it is the better sentence anyway:
+
+  "Is most of your new work still coming through referrals?"
+
+A question invites a correction. The same sentence as a statement invites a reply that opens
+with one.
 
 WORD PRESSURE, READ THIS. Pattern framing costs more words than assertion, and Email 1 is
 ${EMAIL_WORD_LIMITS.email1MinWords} to ${EMAIL_WORD_LIMITS.email1TargetMaxWords} words

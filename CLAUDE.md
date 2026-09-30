@@ -983,10 +983,26 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
   Ampersands:        none in prose; write "and". Fine inside a company's own name.
   Internal jargon:   never send ICP, top of funnel, buyer persona, value prop, or
                      go-to-market to a prospect. Enforced in code via BANNED_JARGON.
-  Exclusivity:       never assert what the prospect does NOT have. "Most of the pipeline
-                     comes from referrals" survives being wrong; "no outreach running"
-                     does not. The problem is framed as a pattern they can recognise
-                     themselves in, never as a verdict about them.
+  Exclusivity:       never assert what the prospect does NOT have. "No outreach running"
+                     is a verdict about them and may simply be wrong: they may have three
+                     channels with two of them broken, and an email denying those channels
+                     exist reads as not having looked. Words like no, none, nothing, never,
+                     only and zero, applied to what the prospect does or has, are the ones
+                     to watch.
+  Where their work
+  comes from:        NEVER ASSERT IT, AND A PATTERN FRAMING DOES NOT RESCUE IT. Changed
+                     2026-09-30. "Most of the pipeline comes from referrals" was permitted
+                     here, on the reasoning that a statement about a group survives being
+                     wrong where a verdict about a person does not. The evidence says
+                     otherwise: EVERY TRACEABLE OPT-OUT SO FAR REPLIED TO A TEMPLATE MAKING
+                     A CLAIM OF THIS KIND. Who pays them, and how those people found them,
+                     is not visible from outside, and "most firms like yours" is still a
+                     sentence about them to the person reading it.
+                     ASK IT INSTEAD. "Is most of your new work still coming through
+                     referrals?" is allowed and is the better sentence anyway: a question
+                     invites a correction, where a statement invites a reply that opens
+                     with one. Reported by the copy reviewer as guess_about_their_clients.
+                     The same rule is stated to the messaging agent; change both together.
 
 Word counts include the {{first_name}} line and BOTH sign-off lines, and exclude the
 opt-out footer. word_count and subject_char_count are RECOMPUTED by the agent from the body
