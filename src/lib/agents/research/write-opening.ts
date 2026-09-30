@@ -18,11 +18,12 @@ import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
 import { checkSentenceInitialNames, acronymNumberVariants } from '@/lib/style/sentence-initial-names'
-import { countSentences } from '@/lib/style/sentence-count'
+import { countSentences, splitIntoSentences } from '@/lib/style/sentence-count'
 import { collapseVerbatimQuotes } from '@/lib/style/quoted-span'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, EMAIL1_RAW_BLOCKING_KINDS } from '@/lib/style/assumed-capacity'
+import { findShortRelativePhrases, shortRelativeFeedback } from '@/lib/style/short-relative'
 import { companyNameForms } from '@/lib/style/followup-gates'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
@@ -1665,6 +1666,28 @@ export function checkOpeningGates(
     failures.push(...checkActivityVerdict(
       params.observation, params.bridge, { prospectId: context?.prospectId ?? 'unknown' },
     ))
+
+    // ═══ A SHORT RELATIVE TIME PHRASE. BANNED OUTRIGHT, from 2026-09-30. ═══
+    //
+    // Not checked against a clock, banned. There is no single moment this copy is read: the
+    // four emails go out on days 0, 3, 10 and 17, so a phrase can be true when written and
+    // false when read, and no one clock can guard all four. A month or a date is true
+    // whenever it lands. See short-relative.ts.
+    //
+    // "last month" and "this month" SURVIVE, and are still checked against the findings by
+    // the relative-time gate: a month is the unit the sequence cannot cross in seventeen days.
+    for (const [part, text] of [
+      ['observation', params.observation],
+      ['bridge', params.bridge],
+      ['question', params.question],
+    ] as const) {
+      for (const hit of findShortRelativePhrases(text, splitIntoSentences)) {
+        logger.info('writer-short-relative: gated', {
+          prospectId: context?.prospectId ?? 'unknown', part, matched: hit.matched,
+        })
+        failures.push(`${part}: ${shortRelativeFeedback(hit)}`)
+      }
+    }
 
     // ═══ GUESSING HOW THE READER'S WEEK GOES. THIS BLOCKS, from 2026-09-29. ═══
     //

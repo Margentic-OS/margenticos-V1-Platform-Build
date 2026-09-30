@@ -785,7 +785,13 @@ describe('a weekday is not the name of a thing', () => {
     // Measured 2026-09-25: applying this gate to 122 stored follow-ups failed 6, and one was
     // "Tuesday" in "Is a Tuesday call this week worth 20 minutes?". Clearing that email would
     // have forced a rewrite to fix nothing.
-    expect(pass('You posted a role in March. A call sets the week up. Is a Tuesday call this week worth 20 minutes?', {
+    //
+    // "THIS WEEK" REMOVED FROM THE FIXTURE 2026-09-30, and the reason is a finding rather
+    // than a tidy-up. The short-relative ban now rejects that phrase in every email, and it
+    // is right to: email 2 sends three days after the upload, so a call proposed "this week"
+    // is being read in a different week from the one the writer meant. The weekday is what
+    // this test is about; the relative phrase was scenery, and the scenery was wrong.
+    expect(pass('You posted a role in March. A call sets the week up. Is a Tuesday call worth 20 minutes?', {
       findingsEvidence: CORPUS,
     })).toEqual([])
   })

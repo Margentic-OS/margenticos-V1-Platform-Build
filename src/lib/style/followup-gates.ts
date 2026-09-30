@@ -23,6 +23,7 @@ import { findFirmographicFigures } from './firmographic'
 import { splitIntoSentences } from './sentence-count'
 import { findYearCountFaults } from './year-count'
 import { findRelativeTimeFaults, relativeTimeFeedback } from './relative-time'
+import { findShortRelativePhrases, shortRelativeFeedback } from './short-relative'
 import { missingEventYears, eventYearGateMessage } from '@/lib/agents/research/event-year'
 import {
   findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, isSenderSide,
@@ -599,6 +600,13 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
   for (const owedYear of missingEventYears(text, datedCandidates, now)) {
     failures.push(`${label}: ${eventYearGateMessage(owedYear)}`)
   }
+  // A SHORT RELATIVE PHRASE IS BANNED HERE TOO, and emails 2 and 3 are where it matters
+  // most: they go out three and ten days after the upload, so they are the positions a
+  // writing-time clock was always least able to protect. See short-relative.ts.
+  for (const hit of findShortRelativePhrases(text, sentencesOf)) {
+    failures.push(`${label}: ${shortRelativeFeedback(hit)}`)
+  }
+
   for (const fault of findRelativeTimeFaults(text, datedCandidates, now, sentencesOf)) {
     failures.push(`${label}: ${relativeTimeFeedback(fault)}`)
   }
