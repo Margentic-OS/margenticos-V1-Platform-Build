@@ -298,3 +298,71 @@ describe('both production callers pass the document', () => {
     expect(collect).toMatch(/positioningText:\s*entry\.client_context\?\.positioningText\s*\?\?\s*null/)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE VERIFIERS' TOKENS REACH opening.usage. Added 2026-09-30.
+//
+// The factCheck closure returns string[], the failures and nothing else, so both paid calls
+// inside it had their usage computed, returned and dropped. opening.usage is what every cost
+// figure here is built from, so two Sonnet calls per attempt were billed and counted by
+// nothing. It matters now because the A/B runs under a hard dollar cap, and a cap enforced
+// against a number missing two of the calls it is capping is not a cap.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('the fact-check and need-match tokens are counted', () => {
+  const USAGE = { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, calls: 1 }
+  const withUsage = (text: string) => ({ content: [{ type: 'text', text }], usage: USAGE })
+
+  it('adds BOTH verifier calls into the usage produceOpening returns', async () => {
+    createMock.mockImplementation(async (a: { system: unknown }) =>
+      isNeedMatch(a) ? withUsage('{"needs":[]}') : withUsage('{"claims":[]}'))
+
+    // ═══ THE MOCK MUST CALL THE CLOSURE, or this test cannot see the fold at all ═══
+    //
+    // In production writeAndJudgeOpening invokes factCheck INSIDE itself, so verifierUsage is
+    // populated by the time produceOpening folds it in. A mock that returns without calling
+    // it leaves the accumulator at zero and the assertion passes on nothing, which is how the
+    // first version of this test was green while proving nothing. Calling it here also pins
+    // the ORDER: the fold has to happen after the writer returns, not before it is called.
+    writeAndJudgeOpening.mockImplementation(async (params: {
+      factCheck?: (c: { bridge: string; question: string }) => Promise<string[]>
+    }) => {
+      await params.factCheck?.({ bridge: BRIDGE, question: QUESTION })
+      return {
+        written_won: false, judge_reasoning: 'r',
+        usage: { input_tokens: 7, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, calls: 1 },
+      }
+    })
+
+    const out = await produceOpening({
+      apiKey: 'k', clientName: 'Client', ctx, candidates: [CANDIDATE],
+      selectedCandidateId: 'c1', relevanceReason: 'R',
+      messagingContent: {} as never, variantId: 'A', positioningText: TEXT,
+    })
+
+    expect(needMatchCalls()).toHaveLength(1)
+    expect(createMock.mock.calls).toHaveLength(2)
+    // The writer's 7 plus two verifier calls at 100 each. The SUM, so folding cannot have
+    // replaced what the writer spent.
+    expect(out.usage.input_tokens).toBe(7 + 200)
+    expect(out.usage.output_tokens).toBe(3 + 40)
+    expect(out.usage.calls).toBe(3)
+  })
+
+  it('counts nothing when the closure never runs', async () => {
+    createMock.mockImplementation(async () => withUsage('{"claims":[]}'))
+    writeAndJudgeOpening.mockResolvedValue({
+      written_won: false, judge_reasoning: 'r',
+      usage: { input_tokens: 7, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, calls: 1 },
+    })
+    const out = await produceOpening({
+      apiKey: 'k', clientName: 'Client', ctx, candidates: [CANDIDATE],
+      selectedCandidateId: 'c1', relevanceReason: 'R',
+      messagingContent: {} as never, variantId: 'A', positioningText: TEXT,
+    })
+    // The writer's own usage, unchanged. A fold that added something here would be counting
+    // a call nobody made.
+    expect(out.usage.input_tokens).toBe(7)
+    expect(out.usage.calls).toBe(1)
+  })
+})

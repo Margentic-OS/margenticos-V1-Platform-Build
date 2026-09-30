@@ -27,7 +27,7 @@ import {
 import { resolveBuyer } from './resolve-buyer'
 import { logger } from '@/lib/logger'
 import type { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
-import { ZERO_TOKEN_USAGE, type ProspectContext, type ObservationCandidate } from './types'
+import { ZERO_TOKEN_USAGE, addTokenUsage, type TokenUsage, type ProspectContext, type ObservationCandidate } from './types'
 import { hasUsableCandidate } from './synthesize'
 
 /**
@@ -354,7 +354,22 @@ export async function produceOpening({
     buyer_description: buyer.description,
   })
 
-  const opening = await writeAndJudgeOpening({
+  // ═══ THE VERIFIERS' TOKENS, COUNTED. Added 2026-09-30. ═══
+  //
+  // The factCheck closure returns `string[]`, the failures and nothing else, so both paid
+  // calls inside it had their usage computed, returned and dropped. `opening.usage` is what
+  // every cost figure in this project is built from, so for every Email 1 attempt that got
+  // past the deterministic gates, ONE Sonnet call (and since the need-match check, up to
+  // TWO) was billed by Anthropic and counted by nothing here.
+  //
+  // WHY IT MATTERS NOW RATHER THAN IN GENERAL: the A/B runs under a hard dollar cap, and a
+  // cap enforced against a number missing two of the calls it is capping is not a cap.
+  //
+  // THIS MOVES EVERY COST FIGURE UP FOR THE SAME WORK. That is the correct number, not a
+  // regression, and it is said out loud here because the step will otherwise be read as one.
+  let verifierUsage: TokenUsage = ZERO_TOKEN_USAGE
+
+  const writerResult = await writeAndJudgeOpening({
     apiKey,
     clientName,
     buyer: buyer.description,
@@ -426,6 +441,7 @@ export async function produceOpening({
         prospectId: ctx.id,
         companyName: ctx.company_name ?? null,
       })
+      verifierUsage = addTokenUsage(verifierUsage, fc.usage)
 
       // ═══ THE NEED-MATCH CHECK, SECOND, AND ONLY ON COPY THE FIRST ONE ACCEPTED ═══
       //
@@ -461,6 +477,7 @@ export async function produceOpening({
         labelOf: () => 'Email 1',
         prospectId: ctx.id,
       })
+      verifierUsage = addTokenUsage(verifierUsage, needs.usage)
 
       // REPORT OR BLOCK, decided by the caller. The check ran either way and the verdict is
       // already in the log line checkNeedMatchesOffer writes; what the mode decides is
@@ -478,6 +495,11 @@ export async function produceOpening({
       return needs.failures
     },
   })
+
+  // Folded once, here, so every return below carries it and none can forget to. AFTER the
+  // writer has returned, because the closure runs inside it and verifierUsage is only
+  // populated by then.
+  const opening = { ...writerResult, usage: addTokenUsage(writerResult.usage, verifierUsage) }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // EMAILS 2 AND 3, IN THEIR OWN CALL, AFTER EMAIL 1 IS FINISHED

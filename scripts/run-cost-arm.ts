@@ -221,7 +221,16 @@ async function main() {
       const synthModel = process.env.ARM_SYNTHESIS_MODEL || RESEARCH_SONNET_MODEL
       const synthesisUsd = usdForTokens(synthesisUsage, synthModel)
       const openingUsd = usdForUsage(openingUsage)
-      spent += synthesisUsd + openingUsd
+      // ═══ THE FOLLOW-UP CALL IS IN THE CAP. Fixed 2026-09-30. ═══
+      //
+      // `spent` summed synthesis and the opening and stopped, so an arm writing follow-ups
+      // spent roughly a third more than the ceiling it was given and the cap silently did
+      // not hold. scripts/export-writer-run.ts already summed it; this did not.
+      //
+      // ZERO WHEN NO FOLLOW-UP CALL WAS MADE, which is distinct from a zeroed usage object:
+      // followup_usage is null on the template arm and when Email 1 loses to the template.
+      const followupUsd = opening.followup_usage ? usdForUsage(opening.followup_usage) : 0
+      spent += synthesisUsd + openingUsd + followupUsd
 
       const selected = synthesis.candidates.find(c => c.id === synthesis.selected_candidate_id)
 
@@ -265,6 +274,7 @@ async function main() {
         `${opening.written_won ? 'WON ' : 'template'} ` +
         `cands=${synthesis.candidates.length} ` +
         `syn=$${synthesisUsd.toFixed(4)} open=$${openingUsd.toFixed(4)} ` +
+        `followups=$${followupUsd.toFixed(4)}`,
         `running=$${spent.toFixed(2)}`,
       )
     } catch (err) {
