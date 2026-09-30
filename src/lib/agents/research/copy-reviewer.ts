@@ -32,6 +32,31 @@ import { ZERO_TOKEN_USAGE, readTokenUsage, type TokenUsage } from './types'
 export const COPY_REVIEW_MODEL = 'claude-sonnet-4-6'
 
 /**
+ * How long a category's reasoning may be, in characters.
+ *
+ * CAPPED IN CODE, because the prompt asking for one line did not produce one. On the first
+ * calibration run a single wrong_or_mismatched_fact verdict ran to four sentences, changed
+ * its mind twice inside them ("which is correct, but ... however ..."), and ended
+ * somewhere other than where it started. A verdict that long is not a reason, it is the model
+ * reasoning in public, and it cannot be read beside a human mark.
+ *
+ * NOTHING IS LOST BY TRUNCATING. The full reply is stored in `raw` on the result and in the
+ * raw column of copy_review_verdicts, so a verdict that needs unpicking still can be.
+ */
+export const MAX_WHY_CHARS = 240
+
+/**
+ * A third-person reference to the PERSON. Naming their company is not one, which is the whole
+ * point: an email may say what their firm does and still address them throughout.
+ *
+ * DELIBERATELY EXCLUDES they, them and their. Those are the ordinary pronouns for a
+ * population, which is what a bridge is required to be about, and including them would fire
+ * on the copy the rules ask for. The cost is a missed "the founder should" with no name in
+ * it; that is the rarer shape and the cheaper miss.
+ */
+const THIRD_PERSON_PRONOUN = /\b(he|she|him|her|his|hers)\b/i
+
+/**
  * The operator's hard-fail rubric, as written. Each entry is a way a sentence can be wrong
  * about somebody nobody has met.
  *
@@ -88,7 +113,10 @@ export const HARD_FAIL_CATEGORIES = [
   {
     id: 'third_person',
     positions: [1, 2, 3],
-    question: 'Does it talk ABOUT the reader rather than TO them, after the greeting?',
+    question:
+      'Does it refer to the READER in the third person, after the greeting? Their name, or ' +
+      'he, she, him or her, where "you" belongs. NAMING THEIR COMPANY IS NOT THIS: an email ' +
+      'may say what their firm does and still be addressed to them throughout.',
   },
   {
     id: 'followup_about_a_different_fact',
@@ -196,6 +224,10 @@ ${list(soft)}
 QUOTE FROM THE EMAIL, EXACTLY, whenever you answer yes. A fault with no sentence attached
 cannot be read back or acted on, and is treated as no fault at all.
 
+ONE LINE FOR "why", AND ONE ONLY. Say what is wrong, not how you arrived at it. Anything
+past ${MAX_WHY_CHARS} characters is cut, so a verdict that changes its mind halfway through
+loses the half that mattered.
+
 Return ONLY this JSON, no prose around it:
 
 {"verdicts":[{"id":"<one of the ids above>","failed":false,"quote":"","why":"<one line>"}]}
@@ -207,7 +239,11 @@ Return one entry for EVERY id listed, including the ones that pass.`
 export function parseReviewResponse(
   raw: string,
   position: number,
+  readerNames: readonly (string | null | undefined)[] = [],
 ): { hardFails: Record<string, CategoryVerdict>; softNotes: Record<string, CategoryVerdict> } {
+  const names = readerNames
+    .filter((n): n is string => typeof n === 'string' && n.trim().length > 1)
+    .map(n => n.trim().toLowerCase())
   const { hard, soft } = categoriesFor(position)
   const hardIds = new Set<string>(hard.map(c => c.id))
   const softIds = new Set<string>(soft.map(c => c.id))
@@ -228,8 +264,30 @@ export function parseReviewResponse(
     // A FAULT WITH NO SENTENCE IS NOT A FAULT. The prompt says so and this enforces it: a
     // verdict nobody can read back cannot be calibrated against a human reading, and an
     // unquoted yes is the cheapest thing for a model to produce.
-    const failed = o.failed === true && quote.trim().length > 0
-    const verdict: CategoryVerdict = { failed, quote, why: typeof o.why === 'string' ? o.why : '' }
+    let failed = o.failed === true && quote.trim().length > 0
+
+    // ── THIRD PERSON MEANS THE PERSON, NOT THEIR COMPANY. Suppressed 2026-09-30. ──
+    //
+    // On the first calibration run this failed an email the operator passed without
+    // reservation, on "The buyers who need <Firm> next are not walking through a door they
+    // have to find themselves." Naming their firm is not talking about THEM in the third
+    // person, and an email is allowed to say what their company does while addressing them
+    // throughout. The prompt now says so; this is the half that binds.
+    //
+    // ONLY WITH NAMES TO CHECK AGAINST. With none supplied the suppression cannot run and
+    // the model's verdict stands, rather than being silently dropped.
+    if (failed && id === 'third_person' && names.length > 0) {
+      const low = quote.toLowerCase()
+      const namesTheReader = names.some(n => low.includes(n)) || THIRD_PERSON_PRONOUN.test(quote)
+      if (!namesTheReader) failed = false
+    }
+
+    // ONE LINE, ENFORCED. See MAX_WHY_CHARS: the prompt asking for one line did not produce
+    // one, and the full reply is kept in `raw` so nothing is lost by cutting it here.
+    const rawWhy = typeof o.why === 'string' ? o.why : ''
+    const why = rawWhy.length > MAX_WHY_CHARS ? `${rawWhy.slice(0, MAX_WHY_CHARS - 1).trimEnd()}\u2026` : rawWhy
+
+    const verdict: CategoryVerdict = { failed, quote, why }
     if (hardIds.has(id)) hardFails[id] = verdict
     else if (softIds.has(id)) softNotes[id] = verdict
   }
@@ -238,6 +296,12 @@ export function parseReviewResponse(
 
 export interface CopyReviewParams {
   apiKey: string
+  /**
+   * The reader's own names, first and last. Used ONLY to suppress a third_person verdict
+   * whose quote names nobody: see THIRD_PERSON_PRONOUN. Absent means the suppression cannot
+   * run and the model's verdict stands, which is the pre-2026-09-30 behaviour.
+   */
+  readerNames?: readonly (string | null | undefined)[]
   /** 1, 2 or 3. Email 4 is always the approved template and is never reviewed. */
   position: number
   /** The email as the reader receives it, composed. */
@@ -302,7 +366,7 @@ export async function reviewCopy(params: CopyReviewParams): Promise<CopyReviewRe
     return { ...empty, usage }
   }
 
-  const { hardFails, softNotes } = parseReviewResponse(raw, params.position)
+  const { hardFails, softNotes } = parseReviewResponse(raw, params.position, params.readerNames ?? [])
   const anyHardFail = Object.values(hardFails).some(v => v.failed)
 
   logger.info('copy-reviewer: reviewed', {

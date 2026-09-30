@@ -12,6 +12,7 @@ import {
   buildReviewPrompt,
   parseReviewResponse,
   fingerprintCopy,
+  MAX_WHY_CHARS,
 } from '../copy-reviewer'
 
 const idsFor = (position: number) =>
@@ -152,5 +153,80 @@ describe('the fingerprint', () => {
   it('changes with the copy and not with anything else', () => {
     expect(fingerprintCopy('one')).toBe(fingerprintCopy('one'))
     expect(fingerprintCopy('one')).not.toBe(fingerprintCopy('one '))
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TWO FIXES FROM THE FIRST CALIBRATION RUN, 2026-09-30.
+//
+// Both came from the same email: the reviewer failed one the operator had passed without
+// reservation, on a third_person verdict about the firm's name, and a fact verdict that ran
+// to four sentences and changed its mind twice inside them.
+//
+// RULE ZERO. Every fixture is invented.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('third person means the PERSON, not their company', () => {
+  const reply = (quote: string) =>
+    JSON.stringify({ verdicts: [{ id: 'third_person', failed: true, quote, why: 'reads as third person' }] })
+
+  it('does NOT fire on a sentence that only names their firm', () => {
+    const { hardFails } = parseReviewResponse(
+      reply('The buyers who need Kestrel Works next are not walking through a door they have to find themselves.'),
+      1, ['Rowan', 'Penhale'],
+    )
+    expect(hardFails.third_person.failed).toBe(false)
+  })
+
+  it('DOES fire when the reader is named', () => {
+    const { hardFails } = parseReviewResponse(
+      reply('Rowan has been running the workshop single-handed since March.'), 1, ['Rowan', 'Penhale'],
+    )
+    expect(hardFails.third_person.failed).toBe(true)
+  })
+
+  it('DOES fire on a third-person pronoun for the person', () => {
+    const { hardFails } = parseReviewResponse(
+      reply('He opened the second site in March.'), 1, ['Rowan', 'Penhale'],
+    )
+    expect(hardFails.third_person.failed).toBe(true)
+  })
+
+  it('leaves the verdict alone when no names are supplied, rather than dropping it silently', () => {
+    const { hardFails } = parseReviewResponse(
+      reply('The buyers who need Kestrel Works next are not walking through a door.'), 1,
+    )
+    expect(hardFails.third_person.failed).toBe(true)
+  })
+
+  it('suppresses nothing else: the same quote still fails another category', () => {
+    // The suppression is scoped to third_person. Without this, widening it later would look
+    // like a passing test rather than a change.
+    const { hardFails } = parseReviewResponse(JSON.stringify({ verdicts: [
+      { id: 'audience_claim', failed: true, quote: 'Nobody at Kestrel Works reads those posts.', why: 'x' },
+    ] }), 1, ['Rowan', 'Penhale'])
+    expect(hardFails.audience_claim.failed).toBe(true)
+  })
+})
+
+describe('a category\'s reasoning is capped', () => {
+  it('cuts anything past the limit and marks the cut', () => {
+    const long = 'x'.repeat(MAX_WHY_CHARS + 200)
+    const { hardFails } = parseReviewResponse(JSON.stringify({ verdicts: [
+      { id: 'invented_fact', failed: true, quote: 'a quoted sentence', why: long },
+    ] }), 1)
+    expect(hardFails.invented_fact.why.length).toBeLessThanOrEqual(MAX_WHY_CHARS)
+    expect(hardFails.invented_fact.why.endsWith('…')).toBe(true)
+  })
+
+  it('leaves a short reason exactly as written', () => {
+    const { hardFails } = parseReviewResponse(JSON.stringify({ verdicts: [
+      { id: 'invented_fact', failed: true, quote: 'a quoted sentence', why: 'no finding says so' },
+    ] }), 1)
+    expect(hardFails.invented_fact.why).toBe('no finding says so')
+  })
+
+  it('tells the model the limit, so the cut is not a surprise', () => {
+    expect(buildReviewPrompt(1)).toContain(String(MAX_WHY_CHARS))
   })
 })
