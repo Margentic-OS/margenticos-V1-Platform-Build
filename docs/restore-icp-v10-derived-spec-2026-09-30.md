@@ -47,14 +47,41 @@ Read back afterwards: v10 spec equals v9 spec (jsonb equality), 13 titles, no `s
 v9's as before; one active ICP; cursor `4dcfc841… @ 500`. No sourcing run or job had
 happened between the approval and the restore.
 
-## Not undone
+## The 62 prospects removed at 18:04 (not undone by the restore)
 
 At 18:04 UTC, before the restore, a tiering pass ran against v10's spec and removed 62
 prospects with `tiering_reason = 'no_buyer_criterion'`, because v10's criterion was
 out of band. The approval had first re-queued them (ADR-037). A tiering verdict is frozen
 on the row, so restoring the spec does not bring them back. Re-tiering them against the
-restored spec means clearing `tiering_reason` on exactly those rows. That was left for an
-operator decision.
+restored spec means clearing `tiering_reason` on exactly those rows.
+
+Note the timing. The approval re-queued removed prospects, and the scheduled
+`verify-pending` pass, which tiers before verifying and runs every 10 minutes, tiered them
+against the drifted spec about five minutes later. So a drifted re-derivation acts on
+prospects already in the database, not only on future searches.
+
+## Re-tier, 2026-09-30 (operator decision)
+
+Recorded in the Notion Decisions Log as a correction of a system fault, not a reversal of
+a deliberate removal: ADR-037 freezes a verdict so that a deliberate removal stands until
+the rule changes, and these 62 were removed by a spec nobody chose.
+
+`tiering_reason` was cleared on exactly those 62 rows, in one block that aborted unless the
+restored spec was live and exactly 62 rows matched (reason `no_buyer_criterion`, no tier,
+enriched, updated 18:04:03 to 18:04:06 UTC). No other prospect in the organisation was
+waiting for tiering, so the next scheduled pass (20:24 UTC) touched only these.
+
+| Outcome against the restored spec | Count |
+|---|---|
+| Passed (given a tier) | 0 |
+| Failed: `industry_off_target` | 47 |
+| Failed: `not_decision_maker` | 14 |
+| Failed: `company_too_large` | 1 |
+| Changed tier | 0 (untiered before and after) |
+
+Tiering makes no model calls, and none of the 62 went on to verification, so the
+correction cost nothing beyond the pass itself. The fault did not lose any prospect who
+would have passed. What it did was replace their real removal reasons with the wrong one.
 
 ## Stopgap
 
