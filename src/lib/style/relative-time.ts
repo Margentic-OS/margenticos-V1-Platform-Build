@@ -38,12 +38,46 @@ const RELATIVE_WINDOWS: Array<{ re: RegExp; label: string; minMonths: number; ma
   { re: /\bin the last few months\b/i, label: 'in the last few months', minMonths: 0, maxMonths: 6 },
 ]
 
+/**
+ * A finding's date, parsed ONLY from the forms we know we wrote: YYYY, YYYY-MM, YYYY-MM-DD,
+ * optionally with a time. Anything else is null.
+ *
+ * ═══ WHY THIS REFUSES WHAT new Date() WOULD ACCEPT ═══════════════════════════
+ *
+ * Handing a free-text date to new Date() does not fail loudly; it guesses, and the guess can
+ * be years out. Measured 2026-09-30 on the uploaded cohort:
+ *
+ *     new Date("September 12-17, 2026")  ->  2017-09-12
+ *
+ * It reads the "-17" as the year and discards the 2026. One prospect's chosen finding carries
+ * exactly that string, so the copy "ran twelve new articles in six days last month" was
+ * measured against an event nine years old and reported as 108 MONTHS out. The copy was
+ * right, the gate was wrong, and it was wrong in the direction that costs a personalised
+ * email.
+ *
+ * A DATE THAT LOOKS PARSEABLE AND IS NOT is worse than one that plainly is not: it produces a
+ * confident wrong answer instead of a fail-open. So the shape is checked first, and anything
+ * outside it reads as "no usable date", which every caller here already handles by leaving
+ * the sentence alone.
+ *
+ * THE COST, STATED: a finding whose date is a free-text range is invisible to every check
+ * built on this. That is a synthesis problem, not a parsing one, and it has its own Backlog
+ * row; guessing at the range here would reintroduce exactly the fault above.
+ */
+export function parseFindingDate(date: string | null | undefined): Date | null {
+  if (!date) return null
+  const raw = String(date).trim()
+  const m = raw.match(/^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?(?:[T\s].*)?$/)
+  if (!m) return null
+  const iso = `${m[1]}-${m[2] ?? '01'}-${m[3] ?? '01'}T00:00:00Z`
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 /** Whole months between a stored date and the run date, or null when it carries no date. */
 export function monthsAgo(date: string | null | undefined, now: Date): number | null {
-  if (!date) return null
-  const raw = String(date)
-  const parsed = new Date(raw.length === 4 ? `${raw}-01-01` : raw.length === 7 ? `${raw}-01` : raw)
-  if (Number.isNaN(parsed.getTime())) return null
+  const parsed = parseFindingDate(date)
+  if (parsed === null) return null
   const months =
     (now.getUTCFullYear() - parsed.getUTCFullYear()) * 12 + (now.getUTCMonth() - parsed.getUTCMonth())
   return months < 0 ? null : months
@@ -84,21 +118,36 @@ export function findRelativeTimeFaults(
     const matched = RELATIVE_WINDOWS.filter(w => w.re.test(sentence))
     if (matched.length === 0) continue
 
-    // The best-matching candidate is the event this sentence is about.
-    let best: { months: number; score: number } | null = null
+    // ═══ THE BEST MATCH IS CHOSEN FIRST, AND ONLY THEN IS ITS DATE READ ═══
+    //
+    // This used to skip a candidate whose date does not parse BEFORE scoring it, so a
+    // high-overlap candidate with an unreadable date was silently replaced by a low-overlap
+    // one with a readable date, and the sentence was measured against an event it is not
+    // about.
+    //
+    // Measured 2026-09-30 on the uploaded cohort. One prospect's chosen candidate carries
+    // the date "September 12-17, 2026", a free-text RANGE that new Date() cannot read. The
+    // sentence "ran twelve new articles in six days last month" was therefore matched to a
+    // 2018 employment record and reported as 108 MONTHS out. The copy was right and the
+    // gate was wrong, in the direction that costs a personalised email.
+    //
+    // FAILS OPEN ON AN UNREADABLE DATE, which is the same decision this gate already makes
+    // when no candidate resembles the sentence: better to miss a stale phrase than to demand
+    // a rewrite against the wrong event.
+    let best: { date: string | null | undefined; score: number } | null = null
     for (const c of candidates) {
-      const months = monthsAgo(c.date, now)
-      if (months === null) continue
       const score = contentOverlap(sentence, c.observation ?? '')
-      if (score >= 0.2 && (best === null || score > best.score)) best = { months, score }
+      if (score >= 0.2 && (best === null || score > best.score)) best = { date: c.date, score }
     }
     if (best === null) continue
+    const bestMonths = monthsAgo(best.date, now)
+    if (bestMonths === null) continue
 
     for (const w of matched) {
-      if (best.months >= w.minMonths && best.months <= w.maxMonths) continue
+      if (bestMonths >= w.minMonths && bestMonths <= w.maxMonths) continue
       faults.push({
         phrase: w.label,
-        actualMonths: best.months,
+        actualMonths: bestMonths,
         maxMonths: w.maxMonths,
         sentence: sentence.trim(),
       })

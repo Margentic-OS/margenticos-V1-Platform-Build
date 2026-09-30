@@ -54,11 +54,36 @@ import type { MessagingContent } from '@/lib/composition/compose-sequence'
 // Final step's delay is unused (no step after it).
 // Operator can override via future per-campaign config — not in scope for this build.
 
-function defaultDelays(stepCount: number): Array<{ delay: number; delay_unit: 'days' }> {
+export function defaultDelays(stepCount: number): Array<{ delay: number; delay_unit: 'days' }> {
   return Array.from({ length: stepCount }, (_, i) => ({
     delay: i === 0 ? 3 : 7,
     delay_unit: 'days' as const,
   }))
+}
+
+/**
+ * Days from the upload until step `position` (1-based) actually sends.
+ *
+ * DERIVED FROM defaultDelays, never a second list. The gaps and the offsets are the same
+ * schedule read two ways, and the upload-time relative-time check needs the offsets while
+ * the shell sync needs the gaps. Two hand-maintained copies of "when does email 3 go out"
+ * is the parallel-list shape, and the one that drifts is the one nothing sends against.
+ *
+ * With the default cadence: step 1 on day 0, step 2 on day 3, step 3 on day 10, step 4 on
+ * day 17. Verified live on a campaign whose shell carries [3,7,7,7] and whose email 2 sent
+ * three days after email 1.
+ */
+export function sendDayOffset(position: number, stepCount = 4): number {
+  if (position <= 1) return 0
+  // BUILT LONG ENOUGH FOR THE POSITION ASKED ABOUT, never truncated to stepCount. Stopping
+  // at the end of a short list would silently return a SMALLER offset, which reads as an
+  // earlier send date and makes every staleness check more lenient than it should be. A
+  // caller asking about step 3 of a list it thinks has one step is wrong about the list, and
+  // an answer that is quietly too small hides that.
+  const gaps = defaultDelays(Math.max(stepCount, position))
+  let days = 0
+  for (let i = 0; i < position - 1; i++) days += gaps[i].delay
+  return days
 }
 
 // ─── Public types ─────────────────────────────────────────────────────────────
