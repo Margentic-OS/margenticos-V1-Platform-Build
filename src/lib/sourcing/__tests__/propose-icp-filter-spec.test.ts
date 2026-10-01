@@ -379,6 +379,36 @@ describe('a targeting edit files a proposal BESIDE the live settings', () => {
     expect(proposal.person_countries).toEqual(liveBefore.person_countries)
   })
 
+  it('carries untouched parts over VERBATIM, even where a fresh derivation would not reproduce them', async () => {
+    // Live settings are not always what the derivation would produce today. They may have
+    // been restored by hand, as on 2026-09-30, or written by an older derivation. The
+    // promise is that an untouched part of the settings is the live one, exactly. Handing
+    // the live values to the derivation and trusting it to hand them back would keep that
+    // promise only for settings that happen to round-trip.
+    const handRestored = liveSettings()
+    handRestored.job_titles = ['a title nobody would derive from the criterion']
+    handRestored.job_titles_excluded = ['an exclusion that is not in the criterion']
+    handRestored.person_countries = [...twoTargetableCodes()].reverse()
+    // The control: these really are values the derivation would NOT reproduce.
+    expect(handRestored.job_titles).not.toEqual(handRestored.buyer_criterion!.accept.map(a => a.fragment))
+    expect(handRestored.person_countries).not.toEqual(handRestored.company_countries)
+
+    const { document, liveBefore } = await propose(
+      d => { d.tier_2.company_profile.headcount = '41 to 120 people' },
+      { live: handRestored },
+    )
+
+    const proposal = proposalIn(document)!
+    expect(proposal.job_titles).toEqual(liveBefore.job_titles)
+    expect(proposal.job_titles_excluded).toEqual(liveBefore.job_titles_excluded)
+    expect(proposal.person_countries).toEqual(liveBefore.person_countries)
+    expect(proposal.company_countries).toEqual(liveBefore.company_countries)
+    expect(proposal.fit_dimensions).not.toEqual(liveBefore.fit_dimensions) // a document field changed
+    expect(diffSettings(document.icp_filter_spec as ICPFilterSpec, proposal).field_changes).toEqual([
+      { field: 'company_headcount_max', kind: 'value', before: 90, after: 120 },
+    ])
+  })
+
   it('a geography edit asks the geography derivation and nothing else about the buyer', async () => {
     const { result, document, liveBefore } = await propose(d => {
       d.tier_1.company_profile.geography = 'a different placeholder geography phrase'
