@@ -240,6 +240,25 @@ Fields:
                     judge reads, each required or supporting and establishable or not, from
                     which code computes icp_fit, ADR-058). A spec approved before 2026-09-11
                     has no fit_dimensions, and that client's judge gives its own grade.
+                    INHERITED, since 2026-09-30 (ADR-061 step 3): when a new ICP version
+                    is promoted, promote_strategy_doc_version copies this column from the
+                    outgoing active row onto the new one, with the three columns below.
+                    A client's first ICP has nothing to inherit and starts NULL. Until
+                    ADR-061 step 4 merges, persistIcpFilterSpec still overwrites the copy
+                    after every promotion, so the end state is unchanged for now.
+  icp_filter_spec_proposed
+                  — ICP rows only. A PROPOSED set of search settings, waiting for the
+                    operator's approval (jsonb, ADR-061). NULL means nothing is pending.
+                    Sourcing, tiering and the buyer gate never read it: they read
+                    icp_filter_spec only. Nothing writes it until step 4.
+  icp_filter_spec_approved_at
+                  — when the live settings in icp_filter_spec were approved (timestamptz).
+  icp_filter_spec_approved_by
+                  — the operator who approved them (uuid, references users.id, set to
+                    NULL if that user is deleted). Nothing writes either until step 4.
+                    All three inherit the table's row level security: a client can read
+                    their own organisation's, as they already can icp_filter_spec, and
+                    no client screen selects them.
   plain_text      — plain text version for agent consumption
   status          — draft / active / archived
   generated_at    — when the agent generated this version

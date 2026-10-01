@@ -2983,6 +2983,9 @@ export type Database = {
           generated_at: string | null
           generated_by_model: string | null
           icp_filter_spec: Json | null
+          icp_filter_spec_approved_at: string | null
+          icp_filter_spec_approved_by: string | null
+          icp_filter_spec_proposed: Json | null
           icp_filter_spec_refusal: Json | null
           id: string
           is_stale: boolean
@@ -3009,6 +3012,9 @@ export type Database = {
           generated_at?: string | null
           generated_by_model?: string | null
           icp_filter_spec?: Json | null
+          icp_filter_spec_approved_at?: string | null
+          icp_filter_spec_approved_by?: string | null
+          icp_filter_spec_proposed?: Json | null
           icp_filter_spec_refusal?: Json | null
           id?: string
           is_stale?: boolean
@@ -3035,6 +3041,9 @@ export type Database = {
           generated_at?: string | null
           generated_by_model?: string | null
           icp_filter_spec?: Json | null
+          icp_filter_spec_approved_at?: string | null
+          icp_filter_spec_approved_by?: string | null
+          icp_filter_spec_proposed?: Json | null
           icp_filter_spec_refusal?: Json | null
           id?: string
           is_stale?: boolean
@@ -3051,6 +3060,13 @@ export type Database = {
           version?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "strategy_documents_icp_filter_spec_approved_by_fkey"
+            columns: ["icp_filter_spec_approved_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "strategy_documents_organisation_id_fkey"
             columns: ["organisation_id"]

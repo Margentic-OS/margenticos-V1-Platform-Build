@@ -5636,9 +5636,15 @@ columns: `grep -rn "excludeTierRejected" src` settles it in one command.
 
 ## ADR-061 — Search settings change only through an approved proposal; a new ICP version inherits the live settings, and a prose edit never reaches the search
 
-**Status:** ACCEPTED by Doug, 2026-09-30. **NOTHING IN IT IS BUILT YET.** Each rule below
-names the build step that makes it true, and until that step merges, the ADRs this one amends
-still describe the code. This line is updated as each step merges. Numbered 061 on branch
+**Status:** ACCEPTED by Doug, 2026-09-30. **PARTLY BUILT, AND NOT YET IN FORCE.** Each rule
+below names the build step that makes it true, and until that step merges, the ADRs this one
+amends still describe the code. This line is updated as each step merges.
+
+- Step 2, merged 2026-09-30: the targeting fields and the settings diff exist as pure code.
+  Nothing calls them.
+- Step 3, 2026-09-30: the three columns exist, and a new ICP version inherits the live
+  settings. **Every promotion still re-derives the settings afterwards and overwrites the
+  inherited copy**, so a prose edit can still move the search until step 4. Numbered 061 on branch
 `targeting-1-adr`, written off main `8242667` and rebased onto `a812849`; no branch, local or
 remote, carried a number above 060 on that date.
 
