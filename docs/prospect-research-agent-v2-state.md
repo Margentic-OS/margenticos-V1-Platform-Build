@@ -921,3 +921,75 @@ rejected switches were deleted rather than left behind a flag.
 control's, because the control replayed stored search findings for free while arm C refetched
 every search to measure brief mode. The $0.40 was the price of measuring, not a cost the arm
 adds.
+
+## EXPERIMENT, NOT MERGED: a hedged bridge and a repair step (2026-10-01)
+
+Branch `experiment/email1-hedged-repair`, cut from main at `dfe019ed`. This section exists
+only on that branch. Another session is building the firm-fact tier on `firm-fact-tier` and
+changes the same writer, so nothing here should be merged without reading that branch first.
+
+**What prompted it.** A first look at personalised Email 1 on 20 freshly researched
+prospects gave 7 personalised and 13 on the template. In most of the 13 the research fact was
+usable. The writer lost on the second sentence (the bridge), where a flat statement is either
+a claim about the reader, which is banned, or a claim about a market nobody measured, which
+the fact check rejects. It also lost on mechanics: a day in a date, and a 19-word sentence
+against a cap of 18.
+
+**Change (a): a possibility about firms like the reader's is allowed.**
+`src/lib/style/hedged-pattern.ts` recognises a sentence that carries a possibility word (can,
+could, may, might, often, sometimes, usually, tends to, at times) and says nothing about the
+reader: no "you", no "your", no company name. `checkOpeningCitations` in
+`fact-check-opening.ts` no longer fails an unsupported claim when every sentence carrying it
+is that shape. The same sentence stated flat, or said about the reader, still fails. The
+writer prompt teaches the form and its worked examples use it. The word list is a second copy
+of `findAssertedConsequences` on the `firm-fact-tier` branch; if both land, import one and
+delete the other.
+
+**Change (b): a fault of form is repaired, not failed.** In `write-opening.ts`, a draft whose
+only failures are a day in a date, the current year beside a month, a sentence over the
+writer cap or the observation over its word cap goes back to the writer with an instruction
+to fix that and nothing else. The attempt is not spent. Capped at two repairs per attempt.
+The repaired draft goes through the same gate function, so a repair cannot pass anything a
+gate rejects. Each attempt records `repairs` and `repaired_faults`. The event-year rule is
+deliberately not in the set.
+
+**Not changed.** Every gate on claims about the reader (activity verdict, assumed capacity,
+the audience promise), the event-year rule, the floor and the judge.
+
+**What was measured.** Writer only, over the same 20 prospects and the same stored research,
+with `scripts/export-writer-run.ts`, which writes nothing. Two runs per arm, because the
+writer is not repeatable: the unchanged writer alone moved by two prospects between runs.
+
+| | Run 1 | Run 2 |
+|---|---|---|
+| Unchanged writer (main), personalised of 20 | 10 | 8 |
+| Changed writer, personalised of 20 | 14 | 11 |
+| Unchanged, first attempt stopped by a rule (of 18 written) | 17 | 16 |
+| Changed, first attempt stopped by a rule (of 18 written) | 8 | 7 |
+| Unchanged, writer attempts in the run | 52 | 49 |
+| Changed, writer attempts in the run | 32 | 39 |
+| Changed, repairs run, and attempts that then cleared the rules | 15, 14 of 14 | 17, 17 of 17 |
+| Unchanged, shipped bridges that are hedged and say nothing of the reader | 0 of 10 | 0 of 8 |
+| Changed, the same | 13 of 14 | 11 of 11 |
+| Cost of the run | $0.63 changed, $0.70 unchanged | $0.76 changed, $0.60 unchanged |
+
+**How to read it.** The mechanisms did what they were built to do, and that part is not in
+doubt: repairs cleared the rules on 31 of 31 attempts and the shipped bridges changed form.
+The headline count is weaker evidence. Fourteen and eleven against ten and eight is a gain of
+about three prospects in twenty on two runs each, and the two ranges nearly touch.
+
+**What the read of the first changed run found.** Of 14 personalised: 2 pass, 9 pass with a
+note, 3 fail. Two of the three fails are prospects whose fact was weak (an employment-history
+line from 2023; a founding date and a testimonial read back from the firm's own website).
+Before the change the fact check stopped both on the bridge, by accident: it was rejecting
+the sentence, not the fact. With the bridge allowed, a weak fact now ships. Nothing gates the
+age or the kind of fact the writer is handed.
+
+**What to check if this is picked up again.**
+- The date rule misses a day written before the month when the month is May ("19 May"). It
+  catches "May 19" and "19 June". One shipped opening carried it.
+- "Next month" about a future event is not checked against anything on Email 1.
+- After change (a) the fact check mostly rejects the closing question, including one it
+  described as assuming nothing.
+- The run files with real prospect text are in `.writer-export/email1-first-look-20261001/`
+  in the main checkout, which is gitignored.
