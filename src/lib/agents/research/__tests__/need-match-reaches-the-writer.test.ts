@@ -203,7 +203,13 @@ describe('produceOpening calls the check, with the document, at the right moment
   it('does NOT run it when the fact-check already rejected the attempt', async () => {
     createMock.mockImplementation(async (a: { system: unknown }) => isNeedMatch(a) ? NEED_UNSUPPORTED : FACT_CHECK_FAILS)
 
-    const failures = await (await closureFor(TEXT))({ bridge: BRIDGE, question: QUESTION })
+    // A FLAT BRIDGE HERE, NOT `BRIDGE`. On the experiment branch (2026-10-01) the fact-check
+    // allows a hedged pattern about firms like the reader's, and BRIDGE is one ("tends to"),
+    // so with it the fact-check no longer rejects and this test would be asserting on an
+    // attempt that passed. The same sentence stated flat is still rejected, which is the
+    // case this test is about.
+    const flatBridge = 'Work like that lands before the next set of buyers does.'
+    const failures = await (await closureFor(TEXT))({ bridge: flatBridge, question: QUESTION })
 
     // The cost rule. An attempt already being rewritten is not worth a second Sonnet call.
     expect(needMatchCalls()).toHaveLength(0)

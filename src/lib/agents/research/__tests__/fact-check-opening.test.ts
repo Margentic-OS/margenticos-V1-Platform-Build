@@ -255,3 +255,74 @@ describe('a stranger line defined by a relative clause survives the fact-check',
     expect(failures.length).toBeGreaterThan(0)
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════════
+// EXPERIMENT, 2026-10-01: A POSSIBILITY ABOUT FIRMS LIKE THEIRS IS NOT A CLAIM.
+//
+// The verifier returns "unsupported" for a hedged pattern, correctly on its own terms: no
+// finding carries it. The code half now lets that through, and ONLY that. Every control
+// below is a sentence one word away from the allowed one that must still fail, because a
+// rule that excused everything with "often" in it would let the Devon sentence back in.
+describe('a hedged pattern about firms like theirs survives the fact-check', () => {
+  const HEDGED = 'A new hire often needs client work lined up before the first invoice lands.'
+  const FLAT = 'A new hire needs client work lined up before the first invoice lands.'
+  const ABOUT_THEM = 'Your new hire often needs client work lined up before the first invoice lands.'
+  const NAMES_THEM = 'A new hire at Brightpath often needs client work lined up before the first invoice lands.'
+  const unsupported = (text: string) =>
+    [claim({ claim: text.replace(/\.$/, ''), finding: null, supported: false, why: 'No finding establishes this.' })]
+
+  it('does NOT fail the hedged pattern', () => {
+    expect(checkOpeningCitations(unsupported(HEDGED), FINDINGS, HEDGED, NEUTRAL_QUESTION, 'Brightpath Delivery Group')).toEqual([])
+  })
+
+  it('STILL fails the same sentence stated flat, which is the control', () => {
+    const f = checkOpeningCitations(unsupported(FLAT), FINDINGS, FLAT, NEUTRAL_QUESTION, 'Brightpath Delivery Group')
+    expect(f).toHaveLength(1)
+    expect(f[0]).toContain('which the findings do not support')
+  })
+
+  it('STILL fails the hedged sentence when it says "your"', () => {
+    const f = checkOpeningCitations(unsupported(ABOUT_THEM), FINDINGS, ABOUT_THEM, NEUTRAL_QUESTION, 'Brightpath Delivery Group')
+    expect(f).toHaveLength(1)
+  })
+
+  it('STILL fails the hedged sentence when it names their firm', () => {
+    const f = checkOpeningCitations(unsupported(NAMES_THEM), FINDINGS, NAMES_THEM, NEUTRAL_QUESTION, 'Brightpath Delivery Group')
+    expect(f.length).toBeGreaterThan(0)
+    expect(f.join(' ')).toContain('which the findings do not support')
+  })
+
+  it('STILL fails Devon and Marin: neither real sentence is hedged, and both name the firm', () => {
+    expect(checkOpeningCitations(
+      [claim({ claim: 'brings new people to Brightpath regularly', finding: null, supported: false, why: '' })],
+      FINDINGS, KARL_BRIDGE, NEUTRAL_QUESTION, 'Brightpath Delivery Group',
+    )).toHaveLength(1)
+    expect(checkOpeningCitations(
+      [claim({ claim: 'needs to win new clients without a second income behind it', finding: null, supported: false, why: '' })],
+      FINDINGS, NICK_BRIDGE, NEUTRAL_QUESTION, 'The Delivery Company',
+    )).toHaveLength(1)
+  })
+
+  it('does not excuse a QUESTION that presupposes a fact, even under a hedged bridge', () => {
+    // The question shares most of its words with the bridge. `some` would excuse it on the
+    // strength of the bridge; `every` does not, because a question is never a hedged pattern.
+    const question = 'Is the client work for the new hire lined up before the first invoice lands?'
+    const f = checkOpeningCitations(
+      [claim({ claim: 'client work for the new hire lined up before the first invoice lands', finding: null, supported: false, why: 'Presupposes a hire and an invoice.' })],
+      FINDINGS, HEDGED, question, 'Brightpath Delivery Group',
+    )
+    expect(f).toHaveLength(1)
+  })
+
+  it('suppresses only the hedged claim, not another unsupported claim in the same email', () => {
+    const f = checkOpeningCitations(
+      [
+        ...unsupported(HEDGED),
+        claim({ claim: 'the chamber role fills the diary on its own', finding: null, supported: false, why: 'Nothing says so.' }),
+      ],
+      FINDINGS, HEDGED, 'Is the chamber role something that fills the diary on its own?', 'Brightpath Delivery Group',
+    )
+    expect(f).toHaveLength(1)
+    expect(f[0]).toContain('chamber role')
+  })
+})

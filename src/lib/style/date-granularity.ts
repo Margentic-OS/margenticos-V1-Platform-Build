@@ -146,17 +146,28 @@ export function findDateGranularityFaults(
   return faults
 }
 
+/**
+ * The exact phrases the two date faults put in their failure strings.
+ *
+ * SHARED BY THE PRODUCER AND THE READER, the same contract as SENTENCE_CAP_MARKER in
+ * write-opening.ts. The feedback below builds its message from these, and the Email 1 repair
+ * step matches on them to tell a fault of FORM from a fault of content. A reworded message
+ * that forgot a separate matcher would silently stop being repaired, and nothing would fail.
+ */
+export const DATE_DAY_MARKER = 'names a day of the month'
+export const DATE_CURRENT_YEAR_MARKER = 'names the current year'
+
 /** The rewrite instruction. Names the legal form, not the rule. */
 export function dateGranularityFeedback(fault: DateGranularityFault): string {
   if (fault.kind === 'day') {
     return (
-      `"${fault.match}" names a day of the month: ${JSON.stringify(fault.sentence)}. ` +
+      `"${fault.match}" ${DATE_DAY_MARKER}: ${JSON.stringify(fault.sentence)}. ` +
       'Name the month alone, or drop the date. A day is precision a stranger has no reason ' +
       'to have offered, and it reads as a record being read out.'
     )
   }
   return (
-    `"${fault.match}" names the current year: ${JSON.stringify(fault.sentence)}. ` +
+    `"${fault.match}" ${DATE_CURRENT_YEAR_MARKER}: ${JSON.stringify(fault.sentence)}. ` +
     'Drop the year and keep the month. The month alone is enough for something that ' +
     'happened this year, and a year belongs in the copy only when the event is from an ' +
     'earlier one.'

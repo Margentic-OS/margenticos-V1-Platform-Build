@@ -40,6 +40,7 @@ import { logger } from '@/lib/logger'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { splitIntoSentences } from '@/lib/style/sentence-count'
 import { isStrangerGroupStatement } from '@/lib/style/stranger-group'
+import { isHedgedPatternStatement } from '@/lib/style/hedged-pattern'
 import { companyNameForms } from '@/lib/style/followup-gates'
 import { ZERO_TOKEN_USAGE, readTokenUsage, type TokenUsage } from './types'
 import {
@@ -172,7 +173,32 @@ export function checkOpeningCitations(
       // JUDGED ON THE SENTENCE, NOT THE CLAIM. The verifier quotes fragments, and a fragment
       // of a relative clause loses the very syntax the test depends on. isStrangerGroupStatement
       // needs both halves present to say yes.
-      if (sentenceCarrying(c.claim, bridge, question).some(isStrangerGroupStatement)) continue
+      const carrying = sentenceCarrying(c.claim, bridge, question)
+      if (carrying.some(isStrangerGroupStatement)) continue
+
+      // ═══ A POSSIBILITY ABOUT FIRMS LIKE THEIRS IS NOT A CLAIM EITHER. EXPERIMENT. ═══
+      //
+      // Added 2026-10-01 on the experiment branch. "A podcast that builds credibility often
+      // does not book the next meeting" says what can happen to firms in that position. No
+      // finding could ever carry it, it does not need one, and it is the same sentence form
+      // the approved templates are held to. The verifier rejects it for want of a finding,
+      // which left the writer with no legal bridge: 5 of 13 template fallbacks in the first
+      // look ended on this check. See hedged-pattern.ts.
+      //
+      // EVERY carrying sentence, not SOME, which is deliberately stricter than the stranger
+      // rule above. A closing question that presupposes a fact about the reader can share
+      // half its words with a hedged bridge, and `some` would then excuse the question on the
+      // strength of the bridge. A question is never a hedged pattern, so `every` keeps it.
+      //
+      // WHAT STAYS BANNED: the same sentence with "you", "your" or the firm's name in it, and
+      // the same sentence stated flat. Both fall through to the failure below as before.
+      if (carrying.length > 0 && carrying.every(s => isHedgedPatternStatement(s, companyNameForms(companyName)))) {
+        logger.info('fact-check-opening: unsupported claim allowed, it is a hedged pattern about firms like theirs', {
+          claim: c.claim,
+          sentences: carrying,
+        })
+        continue
+      }
 
       failures.push(
         `Email 1 states ${JSON.stringify(c.claim)}, which the findings do not support` +

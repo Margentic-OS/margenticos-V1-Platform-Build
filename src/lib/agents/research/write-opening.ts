@@ -24,7 +24,10 @@ import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { findAssumedCapacityClaims, assumedCapacityFeedback, isUnambiguousReaderClaim, EMAIL1_RAW_BLOCKING_KINDS } from '@/lib/style/assumed-capacity'
 import { findShortRelativePhrases, shortRelativeFeedback } from '@/lib/style/short-relative'
-import { findDateGranularityFaults, dateGranularityFeedback } from '@/lib/style/date-granularity'
+import {
+  findDateGranularityFaults, dateGranularityFeedback,
+  DATE_DAY_MARKER, DATE_CURRENT_YEAR_MARKER,
+} from '@/lib/style/date-granularity'
 import { companyNameForms } from '@/lib/style/followup-gates'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
@@ -229,6 +232,84 @@ export const EXTRA_ATTEMPT_MARKERS: readonly string[] = [SENTENCE_CAP_MARKER, OB
 
 export function isSentenceLengthOnly(gates: readonly string[]): boolean {
   return gates.length > 0 && gates.every(g => EXTRA_ATTEMPT_MARKERS.some(m => g.includes(m)))
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// EXPERIMENT, 2026-10-01: A FAULT OF FORM IS REPAIRED, NOT FAILED.
+//
+// On the 20-prospect first look, three prospects with a usable fact fell to the template on
+// mechanics alone: "October 1" written twice where the rule wants the month, and a 19-word
+// sentence against a cap of 18, twice. Each of those cost a whole attempt, and the next
+// attempt was a fresh write that was free to break something else. Asked to "write a
+// different version", the writer did exactly that.
+//
+// A fault of form has a different remedy from a fault of content. The fact is right, the
+// reason is right, and one or two words are wrong. So the draft goes BACK to the writer with
+// an instruction to fix that and nothing else, and the attempt is not spent.
+//
+// THE SET IS EXPLICIT, the same way EXTRA_ATTEMPT_MARKERS is, so adding one is a deliberate
+// act and a reader can see the whole list. Two families and no more:
+//   length   a sentence over the writer cap, the observation over its word cap
+//   a date   a day of the month, or the current year beside a month
+// Every other gate says the CONTENT is wrong, and a repair that keeps the content keeps the
+// fault. The event-year rule ("name the year") is deliberately NOT here: it is the same kind
+// of fix, but it was not asked for, and adding it would make this experiment's result
+// impossible to attribute.
+// ═════════════════════════════════════════════════════════════════════════════
+export const MECHANICAL_MARKERS: readonly string[] = [
+  ...EXTRA_ATTEMPT_MARKERS, DATE_DAY_MARKER, DATE_CURRENT_YEAR_MARKER,
+]
+
+/**
+ * True when EVERY failure on this draft is a fault of form, and there is at least one.
+ *
+ * "ONLY" IS LOAD-BEARING, for the reason it is in isSentenceLengthOnly: a draft that names
+ * a day AND makes a claim the findings do not carry is not a date problem, and repairing
+ * the date would spend a call polishing copy that is about to be thrown away.
+ */
+export function isMechanicalOnly(gates: readonly string[]): boolean {
+  return gates.length > 0 && gates.every(g => MECHANICAL_MARKERS.some(m => g.includes(m)))
+}
+
+/**
+ * How many times one attempt may be sent back for repair before it is failed as before.
+ *
+ * TWO, because the commonest pair is one fix exposing the other: cutting a day out of a
+ * date can leave a sentence a word over, and splitting a sentence can leave the day behind.
+ * A third round has never been needed in what was measured, and without a cap a writer that
+ * cannot satisfy a rule would loop on it at a model call a time.
+ */
+export const MAX_REPAIRS_PER_ATTEMPT = 2
+
+/**
+ * The repair message. The draft, the faults, and the instruction to change nothing else.
+ *
+ * "DO NOT RESTATE THE EVENT IN DIFFERENT WORDS" is there because of what a free rewrite did
+ * on the first look: told to add a year, the writer also turned "gets adapted" into "went
+ * into production", and that shipped. A repair that may only touch the fault cannot do that.
+ */
+export function buildRepairInstruction(
+  draft: { observation: string; bridge: string; question: string; subject: string },
+  faults: readonly string[],
+): string {
+  return [
+    '## Repair this draft',
+    '',
+    'This draft is being KEPT. Nothing is wrong with what it says. It breaks a rule of FORM,',
+    'listed below. Fix that and nothing else.',
+    '',
+    `OBSERVATION: ${draft.observation}`,
+    `BRIDGE: ${draft.bridge}`,
+    `QUESTION: ${draft.question}`,
+    `SUBJECT: ${draft.subject}`,
+    '',
+    'What to fix:',
+    ...faults.map(f => `- ${f}`),
+    '',
+    'Keep the same fact, the same reason and the same question. Change only the words the fix',
+    'needs. Do not add a claim, do not drop the fact, and do not restate the event in different',
+    'words. Return ONLY the five labelled blocks.',
+  ].join('\n')
 }
 
 /** The sum of the per-part targets. What the prompt aims at, not what the gate enforces. */
@@ -522,9 +603,33 @@ capacity. We told him the thing that works does not work.
 
 PATTERN, corrected, and deliberately about a PRINT SHOP:
   observation: "You added a second large-format press in March."
-  bridge: "Your second press needs work from customers you have not quoted yet."
-Nothing here claims anyone's network has failed. It states what is true and stops, and it
-leaves the reader to decide whether it is happening to them.
+  bridge: "A second press often needs work from customers a shop has not quoted yet."
+Nothing here claims anyone's network has failed. It says what often happens and stops, and
+it leaves the reader to decide whether it is happening to them.
+
+SAY IT AS A POSSIBILITY, ABOUT FIRMS LIKE THEIRS.
+
+You have one fact about this reader. You have none about what that fact has done to their
+business. So the bridge is not about them. It is about firms in the position the observation
+describes, and it says what CAN happen there, never what does.
+
+Two things make it that sentence:
+  It carries a possibility word: often, can, tends to, usually, sometimes.
+  It has no "you", no "your" and no company name. The observation above it already says who
+  the email is about, so the bridge does not need to.
+
+  About them, banned:      "Your second press needs work from customers you have not quoted."
+  Stated flat, unprovable: "A second press needs work the first press never needed."
+  A possibility, allowed:  "A second press often needs work from customers a shop has not
+                            quoted yet."
+
+The third holds whether or not it is true of this reader, which is why they can read it
+without arguing. The first two each claim something nobody has checked, and a checker reads
+your bridge against the findings before anyone else sees it.
+
+ONE EXCEPTION, AND IT IS NARROW. A sentence about people who have never heard of the reader
+may still say "you", because it names strangers and not the reader's business. It is shown
+further down.
 
 
 VERDICT again, invented outright:
@@ -563,6 +668,9 @@ agree with anything:
 NO CAUSAL CONSTRUCTIONS. No "when X, that tends to be Y". No "because". The bridge is ONE
 sentence stating what follows, with no condition in front of it and no until, before, while
 or when clause trailing after it. Do not build a causal chain back to the observation.
+
+The fault in those three is the clause, not the possibility word. "Often", "can" and "tends
+to" belong in the bridge. A when-clause in front of them does not.
 
 NEVER POINT BACK. NAME THE THING AGAIN.
 
@@ -736,21 +844,22 @@ Every shape below is ONE sentence, and so is every bridge you write. The observa
 part that may run to two; the bridge never does.
 
   ONE FLAT SENTENCE. One thing that happens, stated and left there.
-    A dentist: "Families new to your town book whichever dentist comes up first on a phone
-     search."
+    A dentist: "Families new to a town often book whichever dentist comes up first on a
+     phone search."
 
   WHAT HAPPENS, WITH ITS SETTING. The time or the place goes in a short phrase, never a clause.
-    A commercial builder: "On a year-long build, the next tender gets priced at night."
+    A commercial builder: "On a year-long build, the next tender often gets priced at night."
 
   A COUNT THAT MAKES THE POINT. One number from the findings does the contrasting. No second
   clause is needed.
-    A freight broker: "At an expo, shippers walk past your stand for two days a year."
+    A freight broker: "At an expo, shippers can walk past a stand for two days a year."
 
   WHAT A WORKING THING DOES NOT REACH. The observation has already conceded what works. The
   bridge names the one thing it does not reach. This one lands on people who already know
   the work, which is only permitted where the REASON is about people they have already
   reached rather than people they have not, as set out above.
-    A wedding photographer: "People who like your wedding photos rarely ask for your prices."
+    A wedding photographer: "People who like a set of wedding photos often stop short of
+     asking for prices."
 
 There are more shapes than these four, and every one of them is a single sentence: a plain
 statement of what the situation costs, a comparison between the two halves of the same week.
@@ -2207,6 +2316,19 @@ export interface AttemptObservation {
   judge_reasoning: string | null
   /** Whether the written version beat the template HERE. Null unless kind is 'compared'. */
   judge_written_won: boolean | null
+
+  // ─── REPAIRS, EXPERIMENT 2026-10-01 ────────────────────────────────────────
+  //
+  // OPTIONAL, so every stored record written before the repair step existed still reads as
+  // this type, and absent means "no repair ran" rather than "unknown".
+  /** How many times this attempt's draft was sent back for a fault of form. */
+  repairs?: number
+  /**
+   * The faults each repair was asked to fix, in order. These are failures the attempt did
+   * NOT end on, so they are in neither gate_failures nor any count built from it, and
+   * without this field a repaired fault would leave no trace at all.
+   */
+  repaired_faults?: string[]
 }
 
 /**
@@ -2507,20 +2629,14 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
   // The template keeps its OWN approved CTA. Passing no question is what makes that true.
   const templateEmail = params.composeEmail1(params.templateOpening, null)
 
-  const writeOnce = async (feedback: string | null): Promise<AttemptText & { gates: string[] }> => {
-    // The questions already gone in this batch, listed rather than implied. Shown on every
-    // retry, not just a collision retry: the writer that is rewriting for length is equally
-    // capable of walking into a taken question on the way past.
-    const taken = params.uniqueness?.takenQuestions(params.prospectId) ?? []
-    const takenBlock = taken.length > 0
-      ? `\n\n## Closing questions already taken in this batch\n\nDo not use any of these, and do not reword one slightly:\n${taken.map(q => `- ${q}`).join('\n')}`
-      : ''
+  type Draft = AttemptText & { gates: string[] }
 
-    // Assignment first: the prompt instructs the writer to read the reason BEFORE the
-    // findings, so it has to physically precede them.
-    const user = feedback
-      ? `${assignment}\n\n## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the five labelled blocks.`
-      : `${assignment}\n\n## Findings\n\n${findings}\n\nWrite the observation, the bridge, the closing question and the subject line. Return ONLY the five labelled blocks.`
+  /**
+   * ONE WRITER CALL, parsed, scrubbed and gated. A fresh write and a repair both come
+   * through here, so a repaired draft is held to every gate the original was: there is no
+   * second, lighter path a repair could slip through.
+   */
+  const draftFrom = async (user: string, label: string): Promise<Draft> => {
     // cacheSystem: the writer prompt is the big stable one, and this is the call that runs
     // up to three times per prospect.
     // 1100, RAISED FROM 700 WHEN THE SCRATCH BLOCK WAS ADDED, AND THE TWO MUST MOVE
@@ -2530,7 +2646,7 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     // writing a single email field: 0 of 33 judge wins, against 23 of 33, with 64
     // missing observations. A scratch block placed before the email can starve it, so
     // the 120-word cap in the prompt and this ceiling are one mechanism in two places.
-    const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, 1100, `writer for prospect ${params.prospectId}`, true)
+    const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, 1100, `${label} for prospect ${params.prospectId}`, true)
     record(writerCall.usage)
     const raw = writerCall.text
     const parsed = parseWriterOutput(raw)
@@ -2648,6 +2764,62 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     return { observation, bridge, opening, question, subject, subject_discarded, gates }
   }
 
+  /**
+   * A WRITE, PLUS ANY REPAIRS IT NEEDED. EXPERIMENT 2026-10-01.
+   *
+   * A draft whose only faults are faults of form goes back to the writer with an instruction
+   * to fix them and nothing else, up to MAX_REPAIRS_PER_ATTEMPT times, and the attempt is not
+   * spent. See MECHANICAL_MARKERS for the set and for what is deliberately not in it.
+   *
+   * WHAT COMES BACK IS THE LAST DRAFT, WHATEVER STATE IT IS IN. If the repairs ran out, or a
+   * repair introduced a fault of content, its gates are non-empty and the attempt fails
+   * exactly as it would have before this existed. A repair can therefore only ever turn a
+   * failed attempt into a passing one or leave it failed; it cannot pass anything a gate
+   * rejects, because the repaired text is gated by the same function.
+   */
+  const writeOnce = async (
+    feedback: string | null,
+  ): Promise<Draft & { repairs: number; repaired_faults: string[] }> => {
+    // The questions already gone in this batch, listed rather than implied. Shown on every
+    // retry, not just a collision retry: the writer that is rewriting for length is equally
+    // capable of walking into a taken question on the way past.
+    const taken = params.uniqueness?.takenQuestions(params.prospectId) ?? []
+    const takenBlock = taken.length > 0
+      ? `\n\n## Closing questions already taken in this batch\n\nDo not use any of these, and do not reword one slightly:\n${taken.map(q => `- ${q}`).join('\n')}`
+      : ''
+
+    // Assignment first: the prompt instructs the writer to read the reason BEFORE the
+    // findings, so it has to physically precede them.
+    const user = feedback
+      ? `${assignment}\n\n## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the five labelled blocks.`
+      : `${assignment}\n\n## Findings\n\n${findings}\n\nWrite the observation, the bridge, the closing question and the subject line. Return ONLY the five labelled blocks.`
+
+    let draft = await draftFrom(user, 'writer')
+    let repairs = 0
+    const repaired_faults: string[] = []
+    while (repairs < MAX_REPAIRS_PER_ATTEMPT && isMechanicalOnly(draft.gates)) {
+      repairs++
+      repaired_faults.push(...draft.gates)
+      logger.info('write-opening: draft sent back for repair, every fault is one of form', {
+        prospect_id: params.prospectId,
+        repair: repairs,
+        faults: draft.gates,
+      })
+      const repairUser =
+        `${assignment}\n\n## Findings\n\n${findings}${takenBlock}\n\n` +
+        buildRepairInstruction({
+          observation: draft.observation,
+          bridge: draft.bridge,
+          question: draft.question,
+          // The subject the writer produced, kept or discarded: the repair is shown its own
+          // draft, and a subject its soft gate threw away is still part of that draft.
+          subject: draft.subject || draft.subject_discarded || '',
+        }, draft.gates)
+      draft = await draftFrom(repairUser, 'writer repair')
+    }
+    return { ...draft, repairs, repaired_faults }
+  }
+
   // THE FLOOR. Runs on the personalised email alone, before any comparison, and can only
   // disqualify. A comparison picks a winner, so without this a flawed personalised email
   // ships whenever its template happens to be worse.
@@ -2725,7 +2897,7 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
   // shape: four variants and one field set to keep in step by hand, and adding a variant
   // without its text produced no error. Written this way there is one list, and a variant
   // that does not carry the text cannot be expressed.
-  type Attempt = AttemptText & (
+  type Attempt = AttemptText & { repairs: number; repaired_faults: string[] } & (
     | { kind: 'gated'; gates: string[] }
     // A FOURTH VARIANT RATHER THAN MORE STRINGS IN `gates`, so the compiler names every
     // place that has to learn about it: the feedback builder, the attempt emit and the
@@ -2740,9 +2912,10 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     const w = await writeOnce(feedback)
     // The text every branch below carries, lifted once. `gates` is deliberately not in it:
     // it belongs to the gated variant and nothing else may read it.
-    const text: AttemptText = {
+    const text: AttemptText & { repairs: number; repaired_faults: string[] } = {
       observation: w.observation, bridge: w.bridge, opening: w.opening,
       question: w.question, subject: w.subject, subject_discarded: w.subject_discarded,
+      repairs: w.repairs, repaired_faults: w.repaired_faults,
     }
     if (w.gates.length > 0) return { ...text, kind: 'gated', gates: w.gates }
 
@@ -2801,7 +2974,7 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     a.kind === 'gated'
       ? `${a.opening} ${a.question}|||${a.gates.join('; ')}`
       : a.kind === 'factchecked'
-        ? `${a.opening} ${a.question}|||${a.failures.join('; ')}. Write a version whose every statement about this prospect is one the findings actually carry, or make the statement about the population rather than about them.`
+        ? `${a.opening} ${a.question}|||${a.failures.join('; ')}. Write a version whose every statement about this prospect is one the findings actually carry, or say it as a possibility about firms like theirs: use "often", "can" or "tends to", and keep "you", "your" and their company name out of that sentence.`
       : a.kind === 'floored'
         ? `${a.opening} ${a.question}|||A reviewer said this claims private knowledge about the prospect: ${a.floor.reason}. Say only what can be seen from outside.`
         : `${a.c.opening} ${a.c.question}|||${a.c.reason}`
@@ -2838,6 +3011,10 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
       // absent verdict and a verdict of "no reasoning returned" are different facts.
       judge_reasoning: a.kind === 'compared' ? a.c.reason : null,
       judge_written_won: a.kind === 'compared' ? a.c.written_won : null,
+      // Copied like every field above. Zero and an empty list on an attempt that needed no
+      // repair, so "none ran" is a recorded value rather than a missing one.
+      repairs: a.repairs,
+      repaired_faults: a.repaired_faults,
     })
 
     if (a.kind === 'compared') {

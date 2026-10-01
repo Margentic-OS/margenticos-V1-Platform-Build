@@ -365,7 +365,10 @@ describe('prompt shape', () => {
     // The corrected half no longer belongs to the first case. The writer reproduced it
     // almost verbatim, so it was re-welded to a print shop, whose facts belong to nobody
     // in the batch.
-    expect(flat).toContain('Your second press needs work from customers you have not quoted yet')
+    // HEDGED on the experiment branch, 2026-10-01: the bridge is a possibility about firms
+    // like the reader's, so the corrected example no longer says "your".
+    expect(flat).toContain('A second press often needs work from customers a shop has not quoted yet')
+    expect(flat).not.toContain('bridge: "Your second press needs work from customers you have not quoted yet."')
   })
 
   it('no longer offers the model that seeded the batch collapse', () => {
@@ -779,10 +782,12 @@ describe('the writer prompt varies the bridge construction', () => {
     expect(p).not.toMatch(/^\s*A CONSEQUENCE\. /m)
     // The illustrations moved out of consulting entirely, because two batches lifted the
     // in-industry ones almost verbatim and the batch gate then threw the attempts away.
-    expect(flat).toContain('Families new to your town book whichever dentist comes up first on a phone search.')
-    expect(flat).toContain('On a year-long build, the next tender gets priced at night.')
-    expect(flat).toContain('At an expo, shippers walk past your stand for two days a year.')
-    expect(flat).toContain('People who like your wedding photos rarely ask for your prices.')
+    // EACH ONE HEDGED on the experiment branch, 2026-10-01, and none says "your": the four
+    // shapes are what the writer copies, so they have to be the form the fact-check allows.
+    expect(flat).toContain('Families new to a town often book whichever dentist comes up first on a phone search.')
+    expect(flat).toContain('On a year-long build, the next tender often gets priced at night.')
+    expect(flat).toContain('At an expo, shippers can walk past a stand for two days a year.')
+    expect(flat).toContain('People who like a set of wedding photos often stop short of asking for prices.')
   })
 
   it('limits the concession model to reasons about people already reached', () => {
@@ -1732,7 +1737,7 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('PATTERN, corrected, and deliberately about a PRINT SHOP')
     expect(flat).toContain('You added a second large-format press in March.')
-    expect(flat).toContain('Your second press needs work from customers you have not quoted yet.')
+    expect(flat).toContain('A second press often needs work from customers a shop has not quoted yet.')
   })
 
   it('no longer carries the phrasing that was reproduced almost verbatim', () => {
