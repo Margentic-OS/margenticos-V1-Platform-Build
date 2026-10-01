@@ -99,7 +99,7 @@ const lowerCeiling = () => {
   return spec
 }
 
-/** Seven enriched prospects and one never enriched, planted to land in known places. */
+/** Eight enriched prospects and one never enriched, planted to land in known places. */
 const PLANTED = () => [
   prospect('s1-stays', { ...TIER_1, company_headcount: 12 }),
   prospect('s2-now-too-large', { ...TIER_1, company_headcount: 25 }),
@@ -111,6 +111,9 @@ const PLANTED = () => [
   prospect('r2-removed-again', { tiering_reason: 'industry_off_target', company_industry: handlerIndustries()[4] }),
   prospect('r3-never-enriched', { tiering_reason: 'not_decision_maker', enrichment_status: null }),
   prospect('n1-not-yet-tiered'),
+  // Not yet tiered, and the two sets of settings WOULD judge it differently. It is in no
+  // tier, so it must not be listed among the people who keep theirs.
+  prospect('n2-not-yet-tiered-and-would-differ', { company_headcount: 25 }),
   prospect('x1-another-client', { organisation_id: OTHER_ORG, tiering_reason: 'industry_off_target' }),
 ]
 
@@ -168,6 +171,21 @@ describe('who is shown a proposal: decided before anything is read', () => {
   it('never shows one organisation\'s proposal under another organisation\'s id', async () => {
     const fake = fakeReplayClient({ documents: [document(before(), lowerCeiling())] })
     expect(await buildProposalPanel(fake.client, { organisationId: OTHER_ORG, documentId: DOC })).toBeNull()
+  })
+
+  // The builder checks the row itself as well. The viewer check above is told the status
+  // by the page; this one reads it, so a caller that got it wrong still gets nothing.
+  it.each([
+    ['an archived version that still carries a proposal', { status: 'archived' }],
+    ['another document type carrying a stray proposal', { document_type: 'positioning' }],
+  ])('the builder returns nothing for %s', async (_name, overrides) => {
+    const fake = fakeReplayClient({ documents: [document(before(), lowerCeiling(), overrides)] })
+    expect(await buildProposalPanel(fake.client, { organisationId: ORG, documentId: DOC })).toBeNull()
+  })
+
+  it('control: the same row, active and an ICP, does produce a panel', async () => {
+    const fake = fakeReplayClient({ documents: [document(before(), lowerCeiling())], prospects: [] })
+    expect(await buildProposalPanel(fake.client, { organisationId: ORG, documentId: DOC })).not.toBeNull()
   })
 })
 
@@ -228,7 +246,7 @@ describe('who would be re-tiered', () => {
       ],
       // s2 and s3. NOT d1, whose stored tier is stale but which the change does not move.
       survivors_moved: [{ from: 'tier_1', to: 'removed', count: 2 }],
-      judged: 7,
+      judged: 8,
     })
   })
 
