@@ -221,6 +221,33 @@ is waiting, and to retry a proposal that failed:
 
     npx dotenv -e .env.local -- npx tsx scripts/propose-icp-filter-spec.ts
 
+**Rollout record, 2026-10-01.** Done in the order ADR-061 fixes, because each step is only
+safe after the one before it.
+
+1. *Code.* Merged and read back as serving from the login page (`311d22fd`; the page read
+   `6c0dabc6` before the merge).
+2. *Cursor migration.* `20260930234500` applied to production. The function body in the
+   database matched the committed file by md5 and length. No ICP had been promoted in between.
+3. *Existing clients stamped.* `scripts/stamp-approved-filter-specs.ts` marked the three
+   clients' live settings approved and stored the targeting fields they were built from. It
+   first checked that each client's settings are what their current fields produce in effect.
+   All three passed. One stores no revenue band because its settings predate the code that
+   reads one. That is a stored-only difference: the band is not sent either way.
+
+   Read back from the database, not from the script: each row carries the stored fields, the
+   stamp and the operator's id, with nothing pending. Each client's built provider request was
+   hashed before step 3 of ADR-061, before the stamp and after it, and is identical all three
+   times. The first client's settings, less the one added key, are jsonb-equal to the archived
+   version they were restored from on 2026-09-30.
+4. *Replay.* A real pending suggestion that edits two trigger reasons was compared (2 of 215
+   leaves differ, no targeting field) and then promoted inside a block that cannot commit.
+   Settings, approval stamp, cursor offset and every prospect's verdict were unchanged.
+
+**What an ICP approval does now, for a wording edit:** creates the new version with the same
+settings and the same place in the search, and nothing else. To check one after the fact, the
+new row's `icp_filter_spec` should jsonb-equal the previous row's, `icp_filter_spec_proposed`
+should be NULL, and the client's `sourcing_cursors.record_offset` should not have moved.
+
 The functions underneath are:
 
 - `targetingInputs(document, outside)` copies the targeting fields out of a document.

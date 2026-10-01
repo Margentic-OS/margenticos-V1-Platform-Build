@@ -1,4 +1,33 @@
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-10-01, both production hjpvnvjryxdjcfdsfhzy and test
+--         tidqheqjzvwmrrrebzir). IN THE ORDER THIS FILE REQUIRES: the test database on
+--         2026-09-30, before the code merged, because no deployed code runs against it; then
+--         production on 2026-10-01, only after the step 4 code was read back as serving
+--         (311d22fd, from the served login page, before and after the merge).
+--         Read back on BOTH:
+--           - the function body stored in the database has the same md5 and the same
+--             length (4,041) as the body in this file, so what was applied is what is
+--             committed
+--           - EXECUTE: service_role true, authenticated false, anon false
+--           - one overload, SECURITY DEFINER, search_path=public, row_security=off
+--           - it updates sourcing_cursors and never assigns record_offset
+--         Production only:
+--           - zero SECURITY DEFINER functions in public that anon can execute
+--           - no ICP was promoted between the code deploy and this migration: the same
+--             three active ICPs, the same two cursor rows
+--           - replay of a real pending suggestion (two trigger reasons, 2 of 215 leaves),
+--             in a DO block ending in RAISE EXCEPTION so nothing could commit: promoted
+--             exactly as approval promotes it, the new version carried settings jsonb-equal
+--             to the old including their stored targeting fields and approval stamp, the
+--             cursor moved to the new version with its offset unchanged at 500, and every
+--             prospect's tier and reason was unchanged (62 removed before, 62 after).
+--             Read back afterwards: the old version still active, the suggestion still
+--             pending, no probe row, the cursor where it was
+--         Test only:
+--           - the live test, 9 passed against the real function: the cursor follows a new
+--             version, is left alone when keyed to an older one, is never moved by another
+--             document type or for another organisation
+--           - the end-to-end replay, 2 passed: the real promote function and then the real
+--             comparison, with the three model calls counted at zero
 --
 -- ADR-061 step 4: a new ICP version keeps the client's place in the search.
 --

@@ -5654,10 +5654,11 @@ merges, and it is the place to look for what is real today.
   promotion path and on the two inputs outside the document. A prose edit now calls no
   model and writes nothing. A targeting edit files a proposal beside the live settings.
   Nothing re-queues a removed prospect. The promote function moves the cursor onto the new
-  version with its offset kept. **Outcome 1 holds from here, once the rollout below it is
-  complete**: code deployed, then the cursor migration applied, then the existing clients
-  stamped. The migration file's status line and `docs/sourcing-specification-gates.md`
-  record when each of those happened.
+  version with its offset kept. **OUTCOME 1 HOLDS IN PRODUCTION SINCE 2026-10-01.** The
+  rollout ran in the order fixed below: code deployed and read back as serving, then the
+  cursor migration applied, then the three existing clients stamped approved with the
+  targeting fields their settings were built from. `docs/sourcing-specification-gates.md`
+  has the record, and the two migration files carry their own read-backs.
 - **Not built: step 5 (approve and reject, floors, re-queue, cursor reset) and step 6 (the
   panel). Until step 5 a proposal cannot be approved.** It waits, the live settings keep
   running, and a brand-new client whose first settings are a proposal is not sourced.
