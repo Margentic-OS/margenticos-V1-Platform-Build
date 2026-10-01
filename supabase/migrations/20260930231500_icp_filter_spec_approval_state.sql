@@ -1,4 +1,25 @@
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-09-30, both production hjpvnvjryxdjcfdsfhzy and test
+--         tidqheqjzvwmrrrebzir; test first, as a rehearsal). Read back on BOTH:
+--           - the three columns, nullable, and the foreign key (ON DELETE SET NULL)
+--           - EXECUTE on the function: service_role true, authenticated false, anon false
+--           - one overload, SECURITY DEFINER, search_path=public, row_security=off
+--           - the function body is byte-identical on the two databases (same md5 of
+--             pg_get_functiondef), copies the settings and names no cursor table
+--         Production only:
+--           - table privileges on strategy_documents unchanged by this migration: anon
+--             none, authenticated SELECT/INSERT/UPDATE/DELETE behind RLS, as before
+--           - zero SECURITY DEFINER functions in public that anon can execute
+--           - probe, in a DO block ending in RAISE EXCEPTION so nothing could commit: the
+--             live client's active ICP (v10) promoted to v11 with the same content. The
+--             new row's settings were jsonb-equal to v10's and not null, v10 was archived,
+--             the cursor row and every prospect's tier and tiering_reason were unchanged.
+--             Read back afterwards: v10 still active, no probe row, cursor where it was
+--           - each of the three live clients' built provider request hashed before and
+--             after applying: identical
+--         Test only:
+--           - the live test beside the unit test, 5 passed against the real function
+--           - mutation proof in one rolled-back transaction: the migrated function
+--             returned the live settings, the pre-migration body returned NULL
 --
 -- ADR-061 step 3: an approval state beside the stored search settings, and a new ICP version
 -- that INHERITS the live settings.
