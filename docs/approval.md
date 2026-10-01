@@ -181,6 +181,30 @@ a model failure you can see, not a plumbing failure you cannot.
 
 ---
 
+## Search settings: the one approval on an ICP, and it is the operator's (2026-10-01)
+
+This is NOT the client approval that was removed (see the top of this file). An ICP
+document is still live because an operator produced it, with no Approve button for the
+client and no review window.
+
+What an operator approves is narrower: a change to a client's **search settings**, the
+values the sourcing search and tiering actually run on. Since ADR-061 an ICP edit never
+changes them directly.
+
+- An edit to wording does nothing to the search. No proposal, no approval.
+- An edit to a targeting field files a proposal. The search keeps running on the current
+  settings until an operator approves the proposal on that client's ICP page.
+- Approval is refused if the buyer criterion would stop being applied, if an exclusion is
+  being removed without its tick, if anything changed since the page was loaded, or if it
+  would move the client's place in the search during a sourcing run.
+- Rejecting leaves the search as it is. The ICP still says something different, so the
+  proposal comes back at the next edit unless the targeting field is changed back.
+
+Clients never see a proposal. Client screens read the live settings only.
+
+Where to look: `docs/dashboard.md`, "Proposed change to the search", for the screen, and
+`docs/sourcing-specification-gates.md` for the rules and the routes.
+
 ## Launch gate
 
 `assertStrategyApproved` (source: `src/lib/approval/assertStrategyApproved.ts`) is

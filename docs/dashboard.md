@@ -728,6 +728,70 @@ reassuring direction and the one an operator cannot check. If the sentence never
 confirm `research_ran_at` is actually null for the prospects in question before suspecting
 the component: the research agent stamps it on every run.
 
+### Proposed change to the search — on a client's ICP page, operator only (2026-10-01)
+
+**What this does.** When a targeting field changes (an industry, a company size, a
+country, the buyer profile, a disqualifier, the intake headcount or the revenue switch),
+the search does not change. A proposal is filed beside the live settings, and this panel
+appears at the top of that client's ICP page, `/dashboard/strategy/icp?client=<id>`, for an
+operator. It shows the change and has two buttons: Approve change, and Reject. ADR-061.
+
+It shows four things:
+
+1. **What changes**, one line per setting, in plain words. For example "Largest company
+   size: changes from 30 people to 20 people".
+2. **Place in the search.** Whether this client keeps their place or starts again from the
+   first result. They start again only when the search request itself changes.
+3. **Who would be re-tiered.** Two different kinds of fact, kept apart on purpose:
+   - *What will happen:* removed prospects go back into tiering, and the panel says where
+     the proposed settings would put each one ("3 would now be tier 1").
+   - *What would only look different:* people already in a tier KEEP it. The panel says
+     how the new settings would judge them ("3 in tier 1 would be removed") so that a
+     change which disowns part of the existing list is not approved blind.
+4. **Exclusions this removes**, each with a tick. Approve stays off until all are ticked.
+
+If the proposed buyer criterion would not be applied to anyone, the panel says the change
+cannot be approved and Approve stays off. Reject still works.
+
+**What it connects to.**
+
+- `src/lib/dashboard/targeting-proposal-view.ts` builds what the panel shows, on the
+  server. It decides the viewer is an operator before it reads anything. A client's page
+  load never selects the proposal, so a client does not receive it.
+- Everything on the panel comes from `planApproval`, the function the approve route runs.
+  The screen and the approval cannot disagree, because each fact has one implementation.
+- `src/lib/sourcing/tiering-replay.ts` re-runs tiering over the client's enriched
+  prospects with the real classifier and writes nothing. `scripts/compare-tiering.ts` is
+  the same replay from the terminal. Add `--proposed` to replay against the proposal.
+- `src/components/dashboard/strategy/TargetingProposalPanel.tsx` renders it and sends
+  back the fingerprint it was given and the ticks. The route re-checks all of it.
+
+**What to check if it looks wrong.**
+
+- *No panel, and you expected one.* Nothing is pending. Check with
+  `npx dotenv -e .env.local -- npx tsx scripts/propose-icp-filter-spec.ts`. An edit to
+  wording (reasons, summary, descriptions) never files a proposal.
+- *A red notice saying the settings could not be checked.* The panel could not be loaded.
+  A proposal may be waiting. Refresh, then look for `loadProposalPanelForViewer` in the log.
+- *"The replay could not be run".* The prospects could not be read. Approving still works
+  and still re-queues removed prospects; only the preview is missing.
+- *The survivor counts look high.* They compare today's settings with the proposed ones,
+  both run through today's code, so they show the effect of this change only. A prospect
+  whose stored tier is out of step with today's code is not counted as moved.
+- *"Reload and review it again" when approving.* The proposal or the live settings changed
+  after the page loaded. That is the fingerprint check working.
+
+**Why key decisions were made.**
+
+- *Survivors keep their tier.* ADR-037 and ADR-061: re-tiering someone already published
+  to a client is a different decision. The panel shows what the new settings would say and
+  says plainly that nothing changes for them.
+- *One tick per excluded job title.* A title is excluded in two places, the search results
+  and the buyer check. To a person that is one decision, so it is one tick, and the route
+  still requires both.
+- *The replay runs only when something tiering reads changed.* Otherwise every verdict is
+  the same by definition, and the read is skipped.
+
 ## View inventory (to be built)
 - Empty state view (months 1–2 default)
 - Client pipeline view (post-unlock)

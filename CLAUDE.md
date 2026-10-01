@@ -2079,15 +2079,19 @@ For quick reference. Full text in /docs/ADR.md.
            verdict, which reads as "not yet tiered", and the looser rule admits that. Also
            records why a grep concluded the gate was absent when it had been live since
            2026-09-01: it searched for the COLUMNS, and the gate is applied via a helper
-  ADR-061  ACCEPTED 2026-09-30. STEPS 2 TO 5 BUILT; STEP 6 (THE PANEL) IS NOT. Search settings
+  ADR-061  ACCEPTED 2026-09-30. ALL SIX STEPS BUILT 2026-10-01. Search settings
            (icp_filter_spec) change only through a proposal the operator approves. A new
            ICP version INHERITS the live settings byte-exact, so a prose edit never reaches
            the search, never re-queues a removed prospect and never resets the cursor. Only
            a targeting field files a proposal, in icp_filter_spec_proposed, and only the
            parts whose inputs changed are rebuilt. A re-derived buyer criterion that does
            not gate is never proposed over a live one that does. Supersedes ADR-015's single
-           approval and ADR-037's re-queue trigger. THE OPERATOR APPROVES OR REJECTS THROUGH
-           /api/operator/icp-filter-spec. An approval is refused when the criterion would
+           approval and ADR-037's re-queue trigger. THE OPERATOR APPROVES OR REJECTS FROM THE
+           BEFORE-AND-AFTER PANEL ON THE CLIENT'S ICP PAGE, which posts to
+           /api/operator/icp-filter-spec. The panel and the approval share one plan, and the
+           tiering replay is one module shared with scripts/compare-tiering.ts. Survivors
+           keep their tier; only removed prospects are re-queued. An approval is refused
+           when the criterion would
            not gate, when a removed exclusion is not ticked, or when the proposal or the live
            settings moved since it was shown. One database function writes it: the cursor is
            reset only when the built request changes, and only a change tiering reads

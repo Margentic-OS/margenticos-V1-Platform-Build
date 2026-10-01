@@ -217,8 +217,9 @@ the current targeting fields with the ones stored inside the live settings.
 
 **Approving or rejecting a proposal, since step 5 (2026-10-01).** Operator-only, through
 two routes: `POST /api/operator/icp-filter-spec/approve` and `.../reject`. Both are thin
-gates over `src/lib/sourcing/approve-icp-filter-spec.ts`. The before-and-after screen is
-step 6. Until it ships the routes exist and nothing on screen calls them.
+gates over `src/lib/sourcing/approve-icp-filter-spec.ts`. The operator presses them from
+the before-and-after panel on the client's ICP page (step 6, 2026-10-01). See
+`docs/dashboard.md`, "Proposed change to the search".
 
 An approval is refused, and nothing is written, when:
 

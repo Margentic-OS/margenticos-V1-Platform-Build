@@ -29,6 +29,11 @@ import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
 import { LIVE_DOCUMENT_STATUSES } from '@/lib/documents/live-document-statuses'
+import { loadProposalPanelForViewer, type ProposalPanelState } from '@/lib/dashboard/targeting-proposal-view'
+import {
+  TargetingProposalPanel,
+  TargetingProposalUnavailable,
+} from '@/components/dashboard/strategy/TargetingProposalPanel'
 
 const VALID_TYPES: DocumentType[] = ['icp', 'positioning', 'tov', 'messaging']
 
@@ -196,6 +201,23 @@ export default async function StrategyDocumentPage({
   const clientCriterion = doc ? selectClientBuyerCriterion(doc) : null
   const operatorCriterion = doc && isOperatorViewing ? selectOperatorBuyerCriterion(doc) : null
 
+  // ── A proposed change to the search settings (ADR-061). Operator only ───────
+  //
+  // Loaded by its own function and NOT by adding the proposal column to the document read
+  // above. That read runs for clients too, and the proposal must be absent from what a
+  // client's page load selects, not merely left unrendered. The function decides who may
+  // see it before it reads anything, and returns 'failed' rather than 'none' when it
+  // could not tell, so a proposal that could not be loaded is never shown as no proposal.
+  const proposalPanel: ProposalPanelState = doc
+    ? await loadProposalPanelForViewer({
+        role,
+        docType,
+        docStatus: doc.status,
+        organisationId: org.id,
+        documentId: doc.id,
+      })
+    : { state: 'none' }
+
   // Check for pending suggestions when no active document exists
   // (client sees "being reviewed" state instead of Generate button).
   let hasPendingSuggestion = false
@@ -311,6 +333,10 @@ export default async function StrategyDocumentPage({
                   docType={docType}
                 />
               )}
+              {proposalPanel.state === 'pending' && (
+                <TargetingProposalPanel view={proposalPanel.view} />
+              )}
+              {proposalPanel.state === 'failed' && <TargetingProposalUnavailable />}
               <DocumentVersionHistory
                 versions={versions}
                 canRestore={isOperatorViewing}

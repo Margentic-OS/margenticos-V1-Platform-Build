@@ -5644,7 +5644,7 @@ columns: `grep -rn "excludeTierRejected" src` settles it in one command.
 
 ## ADR-061 — Search settings change only through an approved proposal; a new ICP version inherits the live settings, and a prose edit never reaches the search
 
-**Status:** ACCEPTED by Doug, 2026-09-30. **STEPS 2 TO 5 ARE BUILT. STEP 6 IS NOT.**
+**Status:** ACCEPTED by Doug, 2026-09-30. **ALL SIX STEPS ARE BUILT, 2026-10-01.**
 Each rule below names the build step that makes it true. This block is updated as each step
 merges, and it is the place to look for what is real today.
 
@@ -5682,9 +5682,25 @@ merges, and it is the place to look for what is real today.
     compile.
   A rejected proposal is filed again by the next comparison if the targeting fields still
   differ from the live settings. Rejecting does not make the document and the search agree.
-- **Not built: step 6 (the panel).** The routes exist and no screen calls them yet, so a
-  proposal still waits, and a brand-new client whose first settings are a proposal is not
-  sourced until it is approved.
+- Step 6, 2026-10-01: the before-and-after panel on the client's ICP page, operator only
+  (`TargetingProposalPanel`, built by `src/lib/dashboard/targeting-proposal-view.ts`). It
+  shows each changed setting in plain words, whether the client keeps their place in the
+  search, who would be re-tiered, and a tick for each removed exclusion. A brand-new
+  client's first settings are approved from the same panel. **OUTCOME 2 HOLDS.** Two things
+  were settled while building it:
+  - *"Who would be re-tiered" is two facts, shown apart.* Removed prospects go back to
+    tiering, and the panel says where the proposed settings put them: that is what will
+    happen. People already in a tier keep it, and the panel says how the new settings would
+    judge them: that is what would only look different. The second is compared replay
+    against replay, live settings and then proposed, both through today's code, so a stored
+    verdict that has drifted from today's code is not counted as moved by this change.
+    Measured on the first client 2026-10-01: six stored verdicts differ from today's code
+    under the LIVE settings, and a comparison against the stored tier would have blamed
+    all six on whatever was being approved.
+  - *The replay is one module*, `src/lib/sourcing/tiering-replay.ts`, shared with
+    `scripts/compare-tiering.ts`. It replays enriched prospects only and reads in pages.
+    The script used to make one select, which stops at 1,000 rows and says nothing about
+    the rest.
 
 Numbered 061 on branch `targeting-1-adr`, written off main `8242667` and rebased onto
 `a812849`; no branch, local or remote, carried a number above 060 on that date.
