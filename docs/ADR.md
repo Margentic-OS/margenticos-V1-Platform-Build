@@ -513,6 +513,11 @@ Follow-ups:
 ## ADR-013 — Model version selection for agents
 Date: April 2026 | Status: Accepted (updated April 2026 — messaging agent switched to Sonnet)
 
+AMENDED BY ADR-061 (proposed 2026-09-30, NOT YET BUILT). The three derivations below are each described as
+running ONCE PER ICP APPROVAL. From ADR-061's step 4 they run only when a targeting field they
+read has changed, and their output is a proposal that waits for the operator. Until that step
+merges, the text below still describes the code. The model choices themselves are unchanged.
+
 Context:
 CLAUDE.md specifies model versions for each task category. As the agents were built,
 actual model selections diverged from the CLAUDE.md references — the agents are
@@ -721,6 +726,12 @@ defaulting to Template for all clients.
 
 ## ADR-015 — ICP Filter Specification and tool-agnostic sourcing
 Date: April 2026 | Status: Accepted
+
+SUPERSEDED IN PART BY ADR-061 (proposed 2026-09-30, NOT YET BUILT), one sentence only: "one review, one
+approval, both artefacts activate together". From ADR-061's step 4 a new ICP version inherits
+the live filter specification unchanged, and a change to it applies on a second, operator
+approval. Until that step merges, the sentence still describes the code. Storage beside the ICP,
+canonical industry names, handler-owned translation and the manifest refusal all stand.
 
 Context:
 The product needs to source prospects at scale (~400–1,300 qualified prospects per
@@ -2983,6 +2994,11 @@ the manifest check must be reinstated as a real gate in the same change.
 **Date:** 2026-08-27
 **Status:** Accepted. This is ADR-034's missing third layer, built for one rule.
 **Supersedes:** nothing.
+**Superseded in part by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT), the TRIGGER only. The rule
+stands: a verdict is frozen, and removals are re-queued by exactly one thing. From ADR-061's
+step 5 that thing is the approval of a change to something tiering reads, and an ICP promotion
+re-queues nothing. Until then `persistIcpFilterSpec` still re-queues on every promotion, as
+described below.
 
 ### The problem this solves
 
@@ -4077,6 +4093,11 @@ other three wait.
 
 **Date:** 2026-09-02
 **Status:** Accepted.
+**Amended by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT). Decision 2 below says the criterion "is
+approved with the ICP, regenerates with the ICP, and is thawed by the same re-queue". From
+ADR-061's step 4 it is re-derived only when a buyer profile or a disqualifier changes, and it
+applies only on the operator's approval. A criterion that does not gate never becomes live.
+Until that step merges, decision 2 still describes the code.
 
 NOTE ON NUMBERING: taken as 046 on branch seniority off main e7c7ea0.
 See BACKLOG on ADR numbers racing across parallel branches.
@@ -4205,6 +4226,11 @@ the failure mode this design will keep having, and the sanity band would not hav
 
 **Date:** 2026-09-03
 **Status:** Accepted
+**Amended by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT), the last finding only: "The client revision
+path never derived the ICP filter spec", fixed here by deriving it on every path. From
+ADR-061's step 4 no promotion path derives it. Each inherits the live settings, and a revert
+brings back the old words without changing the search. The rest of this ADR is the pattern
+ADR-061 follows: versions are kept, and a change is flagged and never applied by itself.
 
 ### The defect that forced the decision
 
@@ -4742,6 +4768,9 @@ reverting, or the pair-list test fails.
 
 **Date:** 2026-09-10
 **Status:** Accepted
+**Amended by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT), a factual line only. "What still works"
+says the approve, revise and revert paths call `persistIcpFilterSpec`. From ADR-061's step 4
+they file a proposal when a targeting field changed and otherwise do nothing to the search.
 
 ### What the job is
 
@@ -5379,6 +5408,12 @@ that, it is built on it.**
 ## ADR-058 — The research fit grade is computed in code from the judge's reading of each dimension, and the dimensions are fixed per client when the ICP is approved
 Date: 2026-09-11 | Status: Accepted, merged to main 2026-09-14
 
+AMENDED BY ADR-061 (proposed 2026-09-30, NOT YET BUILT). Decision 1 below begins "When an ICP is
+approved". From ADR-061's step 4 the dimensions are rebuilt only when a targeting field in the
+document changed, and they take effect with the operator's approval of that proposal. A
+summary-only edit no longer refreshes them. Until that step merges, decision 1 still
+describes the code.
+
 Numbered 058 because main reached ADR-057, the meeting outcome decision, while this branch was open.
 
 Context:
@@ -5544,6 +5579,12 @@ are now partial via `importOriginal`. **A whole-module mock is a denylist of one
 **Status:** Accepted, 2026-09-15. **Supersedes the research half of the rule recorded in
 ADR-037's wake.** Verification is unchanged.
 
+**Amended by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT), wording only. The context below says the
+re-queue in `persist-icp-filter-spec.ts` is "correct, and it must stay". The re-queue stays; its
+trigger moves, at ADR-061's step 5, from every ICP promotion to the approval of a change that
+tiering reads. The decision here is unaffected and becomes cheaper: a prose edit no longer turns
+"rejected" into "not yet tiered".
+
 **Context.** `tier-verdict.ts` offers two rules: refuse a REJECTION (`excludeTierRejected`), or
 require a POSITIVE tier (`requireTierPresent`). Until now only the send gate used the strict
 one, on the reasoning that everything upstream "spends money, which is recoverable in a way a
@@ -5590,3 +5631,284 @@ which is the part worth carrying: **proving a grep CAN find something does not p
 searching for the right noun.** A working instrument aimed at the wrong word still returns a
 confident zero. When asking whether a gate exists, grep for its CONSUMERS as well as its
 columns: `grep -rn "excludeTierRejected" src` settles it in one command.
+
+---
+
+## ADR-061 — Search settings change only through an approved proposal; a new ICP version inherits the live settings, and a prose edit never reaches the search
+
+**Status:** PROPOSED 2026-09-30, awaiting Doug's approval. **NOTHING IN IT IS BUILT.** Each
+rule below names the build step that makes it true, and until that step merges, the ADRs this
+one amends still describe the code. Numbered 061 on branch `targeting-1-adr` off main
+`8242667`; no branch, local or remote, carried a number above 060 on that date.
+
+**Supersedes in part:** ADR-015 (one approval activating both artefacts) and ADR-037 (what
+thaws a removal). **Amends:** ADR-013, ADR-046, ADR-047, ADR-052, ADR-058, ADR-060. Each of
+those carries a dated pointer to this ADR at the place it changes.
+
+**Vocabulary.** "Search settings" means `strategy_documents.icp_filter_spec`: what is sent to
+the sourcing provider, the buyer criterion, and what tiering judges a prospect against.
+ADR-015 calls it the filter specification. "Promotion" means any path that makes a new ICP
+version live.
+
+### The defect
+
+Every ICP promotion rebuilds the search settings from nothing. CODE-EVIDENCED at `8242667`:
+`persistIcpFilterSpec` is called by the suggestion approve route, the revise route, the revert
+route, the paused auto-approve job (ADR-052) and one backfill script. Each call makes three
+model calls (buyer criterion with seniority, geography, fit dimensions), overwrites
+`icp_filter_spec`, and clears `tiering_reason` on every removed prospect in the organisation.
+The new version is a new document id, and the sourcing cursor is keyed on that id, so the
+client's place in the search is thrown away as well.
+
+Nothing in that path asks whether the edit touched targeting, and nothing shows a person the
+result. So a wording change and a targeting change are the same operation.
+
+**The 2026-09-30 incident.** An ICP edit changed two trigger reasons and nothing else: 2 of 215
+leaves, by a path-by-path diff. The re-derivation it triggered added a job title and a
+seniority band to the search, swapped two excluded titles, and returned a buyer criterion
+measured at 95.6% acceptance against a ceiling of 95%, so the criterion stopped gating. The
+approval re-queued the organisation's removed prospects, the ten-minute tiering pass picked
+them up five minutes later, and 62 prospects were removed with `no_buyer_criterion`. Nobody
+chose any of it. Record: `docs/restore-icp-v10-derived-spec-2026-09-30.md`.
+
+**It was not a one-off.** DATABASE-EVIDENCED, production, read 2026-09-30: across four
+consecutive versions of that organisation's ICP the search sent 9, then 15, then 13, then 14
+job titles and 5, 8, 7, 8 seniority bands, while industries, keywords, headcount and countries
+were identical throughout. The titles moved at every approval and the things a person had
+actually edited never did. `src/lib/tuner/run-tuner.ts` records the cause, measured
+2026-09-08: three identical calls to the buyer criterion agent returned 11, 11 and 8 accept
+fragments.
+
+**Why re-deriving less often is not enough.** The buyer criterion call reads the plain text of
+every active strategy document, plus the intake. So a fingerprint of its inputs changes on any
+wording edit to any document, and "re-derive only when the input changed" would have
+re-derived on 2026-09-30 exactly as before.
+
+**Why pinning the criterion's status is not enough either.** The sanity band measures the
+criterion against job titles the client has already sourced. Those were fetched by a search
+whose title filter is the criterion's own accept list. The acceptance rate therefore sits
+near the ceiling by construction, and the same criterion can cross it as prospects
+accumulate.
+
+**Three smaller faults on the same path**, recorded because the fix removes them:
+
+- Revert does not restore an old version's settings. It copies the old content forward and
+  re-derives, so restoring a version whose settings were good produces new ones.
+- The promote function inserts the new row with NULL settings and the derivation runs
+  afterwards. In that window sourcing and tiering throw, and the pre-enrichment buyer gate
+  fails open and enriches unfiltered.
+- A failed buyer criterion call writes no settings at all, although the comment beside it
+  says it writes them without titles. The empty seniority list makes `deriveFilterSpec`
+  throw, and the log blames non-canonical industries.
+
+### What this ADR guarantees
+
+Three outcomes, in Doug's words, and nothing beyond them:
+
+1. The prospect list never changes unless a targeting field changes. Edits to reasons,
+   descriptions or other prose never touch search settings.
+2. When a targeting field is deliberately changed, the resulting change to search settings,
+   and to who would be re-tiered, is shown as a plain before-and-after and applies only after
+   the operator's approval.
+3. Floors in code: the buyer criterion stays applied, and exclusions never shrink without
+   that approval.
+
+### Decision
+
+**1. The live settings stay where they are.** `icp_filter_spec` on the active ICP row remains
+the one place every reader looks: the sourcing orchestrator, tiering, the pre-enrichment gate,
+the research fit judge. No reader changes. Three columns are added beside it:
+`icp_filter_spec_proposed`, `icp_filter_spec_approved_at` and `icp_filter_spec_approved_by`.
+A non-null proposal is the pending state. (Step 3.)
+
+There is deliberately no new table and no new document type. ICP rows are already append-only
+versions, each carrying its settings, and every legitimate targeting change starts from a
+targeting field. A separate versioned type would buy the ability to edit settings without
+touching the ICP and an approval history apart from ICP versions. Neither is among the three
+outcomes, and it would mean switching six readers.
+
+**2. A new ICP version inherits the live settings.** For ICPs, `promote_strategy_doc_version`
+copies the outgoing active row's settings, approval stamp and any pending proposal onto the
+new row, in the same transaction that creates it. The copy is unconditional and byte-exact:
+the function knows nothing about which fields are targeting. (Step 3.)
+
+Two consequences. The NULL window closes, because a version is never live without settings
+unless the client has never had any. And a revert no longer changes the search: it brings
+back the old words and keeps the live settings.
+
+**3. Targeting fields are one list, defined by one function.** `targetingInputs()` returns,
+for tier 1 and tier 2, the company profile's industries, headcount, revenue range and
+geography, the buyer profile's title and seniority, and the disqualifiers. It also returns
+the inputs that live outside the document: the headcount pair the client typed into intake,
+and the organisation's revenue-filter switch. Tier 3 is not read, as today. (Step 2.)
+
+Everything else is prose: triggers and their reasons, the job-to-be-done statement, the
+summary, descriptions. A change there is never a targeting change.
+
+The list is kept honest by construction rather than by care. `deriveFilterSpec` and the
+geography derivation are retyped to accept only the output of `targetingInputs()`, so reading
+a field the list omits does not compile. The inputs a set of settings was built from are
+stored inside those settings as a metadata key, so the copy in rule 2 and the approval in
+rule 5 carry them without a second thing to keep in step.
+
+**4. A targeting change files a proposal. It does not change the search.** After a
+promotion, and when the intake headcount or the revenue switch is saved, the current
+targeting inputs are compared with the ones stored in the live settings. Equal: nothing
+runs, no model is called, nothing is written. Different: a proposal is built and stored in
+`icp_filter_spec_proposed`. Settings with no stored inputs count as different, because
+"cannot tell" must not read as "unchanged". (Step 4.)
+
+Only the parts whose inputs changed are rebuilt. The deterministic parse always re-runs: it
+is free and it cannot drift. The geography call runs only when a geography field changed.
+The buyer criterion call runs only when a buyer profile or a disqualifier changed. The fit
+dimensions are rebuilt when any targeting field in the document changed, because those are
+the fields they read. Everything else is carried over from the live settings unchanged, so a
+headcount edit proposes a headcount change and nothing else in the search.
+
+When a model call does run, it may read everything it reads today. That is safe now, because
+its output waits for a person.
+
+**5. A proposal applies only when the operator approves it, and one function writes it.**
+The approve route checks the operator role on every request and names the proposal it was
+shown. It replaces the live settings with the proposal, clears the proposal and stamps who
+and when. Reject clears the proposal and changes nothing else. (Step 5.) The panel that shows
+the before-and-after, and who would be re-tiered, is step 6.
+
+Approval is operator-only. This is not the client approval ADR-047 removed: that was approval
+of a document, and documents remain live because an operator produced them. A proposal is
+operator-facing, and client screens read the live settings only.
+
+**6. Floors, enforced where the settings are written.** The approve route refuses:
+
+- a proposal whose buyer criterion is not `derived`. A criterion that does not gate never
+  becomes live. When a re-derived criterion comes back unsettled or out of band, the proposal
+  keeps the live criterion and records why, and the panel says so.
+- a proposal that removes an exclusion present in the live settings, unless that removal was
+  ticked individually. Exclusions are the excluded job titles, the excluded industries and
+  the excluded keywords. Switching an exclusion axis off counts as removing every entry on
+  it.
+- a proposal that has changed since the operator was shown it.
+
+The legal country subtraction is unchanged and is not a setting anyone can approve away.
+
+A client with no live settings and a first criterion that does not gate therefore has a
+proposal nobody can approve, and is not sourced. Today the same client is sourced, enriched
+unfiltered, and then has every prospect removed at tiering. Refusing earlier costs nothing
+and saves the enrichment.
+
+**7. What thaws a removal.** This replaces ADR-037's trigger and keeps its rule. A removal
+verdict is still frozen on the row, and removals are still re-queued by exactly one thing.
+That thing is now the approval of a proposal that changes something tiering reads from the
+settings: the buyer criterion, the headcount ceiling, the industries, the excluded industries
+or the keywords, as of `8242667`. A promotion re-queues nothing. The count is shown before
+approval and logged at warn after it, as ADR-037 requires. (Step 5.)
+
+**8. The cursor follows the query, not the document.** No ADR governed the cursor until this
+one. The copy in rule 2 re-keys `sourcing_cursors` to the new row and keeps the offset,
+because the settings are identical and so is the query. On approval the offset is reset to
+zero only when the provider request built from the new settings differs from the one built
+from the old, compared through the sourcing handler's own request builder with paging removed
+and lists compared without regard to order. If either request cannot be built, the offset is
+reset. No fingerprint column is stored: the comparison is made once, at the only moment the
+query can change. `readCursor`'s reset on a changed document id stays as a backstop.
+
+A change that touches only post-filters keeps the offset. Loosening an excluded title
+therefore does not re-read records dropped earlier. Accepted, and stated at the call site.
+
+**9. Existing clients keep exactly what they have.** Their live settings are stamped approved
+as they stand and their current targeting inputs are stored with them. Nothing is re-derived.
+What that freezes includes whatever the last derivation happened to produce; changing it is
+then a proposal like any other.
+
+### Build order, and one change from the plan
+
+The plan put the cursor re-key in step 3's migration. That is unsafe on its own. A migration
+reaches production the moment it is applied, before the code that goes with it is deployed.
+If the promote function kept the offset while the old code was still re-deriving, a
+re-derivation that changed the query would leave the offset pointing into a different result
+set. Nothing would report it, and records would be skipped rather than re-read, which is the
+expensive direction. So:
+
+- **Step 2.** `targetingInputs()` and the settings diff, as pure code.
+- **Step 3.** The three columns, and the promote function copying settings, stamp and
+  proposal forward. No cursor change. While the old path still runs it overwrites the copy,
+  so behaviour is unchanged.
+- **Step 4.** The proposal replaces the re-derivation on every promotion path and on the two
+  non-document inputs. Rollout order is fixed: deploy the code, then apply the migration that
+  adds the cursor re-key to the promote function, then stamp the existing clients. Each
+  intermediate state fails in the safe direction: without the re-key a promotion resets the
+  cursor, which is today's behaviour, and without the stamp a client's first promotion files
+  a proposal. **Outcome 1 holds from here.**
+- **Step 5.** Approve and reject routes, floors, re-queue, cursor reset. **Outcome 3 holds.**
+- **Step 6.** The before-and-after panel. **Outcome 2 holds.**
+
+Between steps 4 and 6 a targeting change waits as a proposal and the live settings keep
+running.
+
+### Decisions recorded, Doug, 2026-09-30
+
+1. Quality is measured as removals divided by classified, per sourcing cohort. Tier 2 share is
+   reported beside it.
+2. Disqualifiers are a targeting field.
+3. Whether to add industries to the first client's settings is decided in the panel, after a
+   free provider count.
+4. A re-derived criterion that does not gate: keep the live one and say so in the panel.
+5. Approval is operator-only.
+
+### What this does not do
+
+**It does not improve who the search finds.** It makes the list stable; it does not make it
+better. DATABASE-EVIDENCED 2026-09-30: of 270 prospects sourced for the first client on
+2026-09-28, tiering classified 259 and removed 27, every one for an off-target industry, and
+industries had not drifted. 24 of the 27 were returned because they carry a matching industry
+code among several, while tiering judges only the primary label. Two free measurements the
+same day, 32 people searches and no credits: a provider filter on industry label avoids 7 of
+the 27, because the provider matches any of a company's labels, and correcting one
+canonical-to-code mapping avoids 2. Together that is 10.4% to 8.4%, inside the noise of one
+cohort. Those are separate decisions, made through the panel and by pull request.
+
+**It does not govern code.** A change to the handler's translation table or to a tiering rule
+also moves the list with no targeting field changing. That is outside the three outcomes and
+is governed by review, with a tiering replay in the pull request.
+
+**Deferred, each for a reason:** a separate versioned settings type (rule 1); a provider
+adapter in neutral vocabulary, until a second provider exists; any check that derives twice
+and compares; recording which settings produced each tiering verdict and the exact query of
+each sourcing run; a provider count on the approval panel.
+
+**Not deferred lightly:** a monitor for a live criterion that does not gate, an active ICP
+with no settings, or a proposal left waiting. The floors live in application code, and a
+hand-written UPDATE goes around them, as the 2026-09-30 restore necessarily did. Only
+something reading the database would notice. It is on the Notion Backlog for after step 6.
+
+ADR-034 is untouched: these rules govern what is sourced and uploaded next, and nothing here
+recalls a prospect already handed to the sending provider.
+
+### Costs accepted
+
+- **An approval rewrites the settings in place.** A sourcing run is tied to the settings it
+  used by time, before or after the approval stamp, not by row. Enough to measure a cohort;
+  not an audit trail.
+- **The fit dimensions go stale on a summary-only edit.** They are rebuilt only with a
+  proposal. They never touch the prospect list, and the judge keeps grading against the last
+  approved set.
+- **The settings can lag the document.** An ICP can say one thing while the search still does
+  another, until the proposal is approved. That gap is the point: it is visible as a pending
+  proposal, where before it was invisible as drift.
+- **The targeting list is a list**, the shape this project keeps paying for. It is one
+  function that the derivation is typed against, with a test that reading outside it fails to
+  compile.
+
+### What must change with each step
+
+Step 3: `docs/data-model.md` (three columns). Step 4: this ADR's status, the Model selection
+section of CLAUDE.md and ADR-013 (the three calls no longer run once per ICP approval),
+`docs/agents.md`, `docs/sourcing-specification-gates.md`. Step 5: `docs/tier-gate.md` and
+ADR-037's pointer. Step 6: `docs/dashboard.md` and `docs/approval.md`.
+
+### Revisit when
+
+A second sourcing provider is registered, which is the trigger for the adapter. Or settings
+need to change with no ICP edit behind them, which is the trigger for a separate type. Or
+proposals start waiting unapproved, which means the gap in "the settings can lag the
+document" has stopped being visible to the person who has to close it.
