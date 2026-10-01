@@ -1,4 +1,30 @@
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-10-01, both production hjpvnvjryxdjcfdsfhzy and test
+--         tidqheqjzvwmrrrebzir). Applied before the step 5 code merged, which is safe:
+--         nothing called either function until that code deployed.
+--         Read back on BOTH:
+--           - each function body stored in the database has the same md5 and the same
+--             length as the body in this file (approve 3,992, reject 1,175), so what was
+--             applied is what is committed
+--           - EXECUTE on each: service_role true, authenticated false, anon false
+--           - one overload each, SECURITY INVOKER, search_path=public
+--           - control: promote_strategy_doc_version read back in the same query as
+--             SECURITY DEFINER with its known md5, so the query can tell the two apart
+--         Production only:
+--           - zero of 17 SECURITY DEFINER functions in public are executable by anon
+--           - a probe on a real client's active ICP, in a DO block ending in RAISE
+--             EXCEPTION so nothing could commit. Planted a proposal, then: reject naming
+--             another proposal REFUSED; approve naming another proposal REFUSED; approve
+--             with other live settings REFUSED; approve with both switches on APPLIED
+--             (settings became the proposal, proposal cleared, stamp written, offset
+--             500 -> 0, 62 removed prospects re-queued, 541 survivors untouched); approve
+--             again REFUSED with no_proposal; a second planted proposal rejected, leaving
+--             the settings as they were. Read back afterwards: nothing pending, no probe
+--             text, the approval stamp unchanged, the cursor at 500, 62 still removed
+--         Test only:
+--           - the live test, 35 passed against the real functions: each switch on and
+--             off, the re-queue's scope, another organisation never touched, every
+--             refusal leaving every row as it was, and a failed stamp rolling back the
+--             cursor reset and the re-queue with it
 --
 -- ADR-061 step 5: the two functions that end a proposal's life.
 --
