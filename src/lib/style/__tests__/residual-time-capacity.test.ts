@@ -108,8 +108,11 @@ describe('the sentences that FIRED during development and forced a pattern to ti
     ['a budget underspend', 'Whatever is left in the budget at the end of the year goes back.'],
     ['an undelivered part of an order', 'What was left of the first order arrived in a second box.'],
     ['a deadline described as a window', 'Whatever is left of the submission window closes this quarter.'],
-    // A release verb must end its clause. This is why "leave Fridays clear" cannot reach it.
+    // The determiner must sit directly on the time noun. This is why "leave Fridays clear"
+    // cannot reach the releasing-verb pattern: "the opening" is not a time noun. Mutation-
+    // tested by loosening the adjacency, which turns this red.
     ['a published schedule', 'The opening hours listed on the site leave Fridays clear.'],
+    ['a release verb with a noun object', 'The committed work leaves the regional figures out.'],
     // The negation list is present-tense only. These two are why.
     ['a past observation about staffing', 'In the weeks after launch, demand did not require more staff.'],
     ['a past-perfect observation', 'Within days he had not needed a second meeting.'],
