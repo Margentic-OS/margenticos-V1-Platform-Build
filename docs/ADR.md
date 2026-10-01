@@ -513,7 +513,7 @@ Follow-ups:
 ## ADR-013 — Model version selection for agents
 Date: April 2026 | Status: Accepted (updated April 2026 — messaging agent switched to Sonnet)
 
-AMENDED BY ADR-061 (proposed 2026-09-30, NOT YET BUILT). The three derivations below are each described as
+AMENDED BY ADR-061 (accepted 2026-09-30, NOT YET BUILT). The three derivations below are each described as
 running ONCE PER ICP APPROVAL. From ADR-061's step 4 they run only when a targeting field they
 read has changed, and their output is a proposal that waits for the operator. Until that step
 merges, the text below still describes the code. The model choices themselves are unchanged.
@@ -727,7 +727,7 @@ defaulting to Template for all clients.
 ## ADR-015 — ICP Filter Specification and tool-agnostic sourcing
 Date: April 2026 | Status: Accepted
 
-SUPERSEDED IN PART BY ADR-061 (proposed 2026-09-30, NOT YET BUILT), one sentence only: "one review, one
+SUPERSEDED IN PART BY ADR-061 (accepted 2026-09-30, NOT YET BUILT), one sentence only: "one review, one
 approval, both artefacts activate together". From ADR-061's step 4 a new ICP version inherits
 the live filter specification unchanged, and a change to it applies on a second, operator
 approval. Until that step merges, the sentence still describes the code. Storage beside the ICP,
@@ -2994,7 +2994,7 @@ the manifest check must be reinstated as a real gate in the same change.
 **Date:** 2026-08-27
 **Status:** Accepted. This is ADR-034's missing third layer, built for one rule.
 **Supersedes:** nothing.
-**Superseded in part by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT), the TRIGGER only. The rule
+**Superseded in part by:** ADR-061 (accepted 2026-09-30, NOT YET BUILT), the TRIGGER only. The rule
 stands: a verdict is frozen, and removals are re-queued by exactly one thing. From ADR-061's
 step 5 that thing is the approval of a change to something tiering reads, and an ICP promotion
 re-queues nothing. Until then `persistIcpFilterSpec` still re-queues on every promotion, as
@@ -4093,7 +4093,7 @@ other three wait.
 
 **Date:** 2026-09-02
 **Status:** Accepted.
-**Amended by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT). Decision 2 below says the criterion "is
+**Amended by:** ADR-061 (accepted 2026-09-30, NOT YET BUILT). Decision 2 below says the criterion "is
 approved with the ICP, regenerates with the ICP, and is thawed by the same re-queue". From
 ADR-061's step 4 it is re-derived only when a buyer profile or a disqualifier changes, and it
 applies only on the operator's approval. A criterion that does not gate never becomes live.
@@ -4226,7 +4226,7 @@ the failure mode this design will keep having, and the sanity band would not hav
 
 **Date:** 2026-09-03
 **Status:** Accepted
-**Amended by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT), the last finding only: "The client revision
+**Amended by:** ADR-061 (accepted 2026-09-30, NOT YET BUILT), the last finding only: "The client revision
 path never derived the ICP filter spec", fixed here by deriving it on every path. From
 ADR-061's step 4 no promotion path derives it. Each inherits the live settings, and a revert
 brings back the old words without changing the search. The rest of this ADR is the pattern
@@ -4768,7 +4768,7 @@ reverting, or the pair-list test fails.
 
 **Date:** 2026-09-10
 **Status:** Accepted
-**Amended by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT), a factual line only. "What still works"
+**Amended by:** ADR-061 (accepted 2026-09-30, NOT YET BUILT), a factual line only. "What still works"
 says the approve, revise and revert paths call `persistIcpFilterSpec`. From ADR-061's step 4
 they file a proposal when a targeting field changed and otherwise do nothing to the search.
 
@@ -5408,7 +5408,7 @@ that, it is built on it.**
 ## ADR-058 — The research fit grade is computed in code from the judge's reading of each dimension, and the dimensions are fixed per client when the ICP is approved
 Date: 2026-09-11 | Status: Accepted, merged to main 2026-09-14
 
-AMENDED BY ADR-061 (proposed 2026-09-30, NOT YET BUILT). Decision 1 below begins "When an ICP is
+AMENDED BY ADR-061 (accepted 2026-09-30, NOT YET BUILT). Decision 1 below begins "When an ICP is
 approved". From ADR-061's step 4 the dimensions are rebuilt only when a targeting field in the
 document changed, and they take effect with the operator's approval of that proposal. A
 summary-only edit no longer refreshes them. Until that step merges, decision 1 still
@@ -5579,7 +5579,7 @@ are now partial via `importOriginal`. **A whole-module mock is a denylist of one
 **Status:** Accepted, 2026-09-15. **Supersedes the research half of the rule recorded in
 ADR-037's wake.** Verification is unchanged.
 
-**Amended by:** ADR-061 (proposed 2026-09-30, NOT YET BUILT), wording only. The context below says the
+**Amended by:** ADR-061 (accepted 2026-09-30, NOT YET BUILT), wording only. The context below says the
 re-queue in `persist-icp-filter-spec.ts` is "correct, and it must stay". The re-queue stays; its
 trigger moves, at ADR-061's step 5, from every ICP promotion to the approval of a change that
 tiering reads. The decision here is unaffected and becomes cheaper: a prose edit no longer turns
@@ -5636,10 +5636,11 @@ columns: `grep -rn "excludeTierRejected" src` settles it in one command.
 
 ## ADR-061 — Search settings change only through an approved proposal; a new ICP version inherits the live settings, and a prose edit never reaches the search
 
-**Status:** PROPOSED 2026-09-30, awaiting Doug's approval. **NOTHING IN IT IS BUILT.** Each
-rule below names the build step that makes it true, and until that step merges, the ADRs this
-one amends still describe the code. Numbered 061 on branch `targeting-1-adr` off main
-`8242667`; no branch, local or remote, carried a number above 060 on that date.
+**Status:** ACCEPTED by Doug, 2026-09-30. **NOTHING IN IT IS BUILT YET.** Each rule below
+names the build step that makes it true, and until that step merges, the ADRs this one amends
+still describe the code. This line is updated as each step merges. Numbered 061 on branch
+`targeting-1-adr`, written off main `8242667` and rebased onto `a812849`; no branch, local or
+remote, carried a number above 060 on that date.
 
 **Supersedes in part:** ADR-015 (one approval activating both artefacts) and ADR-037 (what
 thaws a removal). **Amends:** ADR-013, ADR-046, ADR-047, ADR-052, ADR-058, ADR-060. Each of
@@ -5761,9 +5762,12 @@ runs, no model is called, nothing is written. Different: a proposal is built and
 Only the parts whose inputs changed are rebuilt. The deterministic parse always re-runs: it
 is free and it cannot drift. The geography call runs only when a geography field changed.
 The buyer criterion call runs only when a buyer profile or a disqualifier changed. The fit
-dimensions are rebuilt when any targeting field in the document changed, because those are
-the fields they read. Everything else is carried over from the live settings unchanged, so a
-headcount edit proposes a headcount change and nothing else in the search.
+dimensions are rebuilt when any targeting field in the document changed. Everything else is
+carried over from the live settings unchanged, so a headcount edit proposes a headcount change
+and nothing else in the search.
+
+The fit dimensions also read three things that are not targeting fields: the summary, and the
+company profile's stage and business model. An edit to only those does not rebuild them.
 
 When a model call does run, it may read everything it reads today. That is safe now, because
 its output waits for a person.
@@ -5855,6 +5859,12 @@ running.
 4. A re-derived criterion that does not gate: keep the live one and say so in the panel.
 5. Approval is operator-only.
 
+Approved with this ADR, the same day, because each goes beyond the plan it was written from:
+
+6. The cursor re-key ships with step 4, in the rollout order above, not with step 3.
+7. Saving the intake headcount or the revenue switch files a proposal at once.
+8. A new client whose first buyer criterion cannot gate is not sourced.
+
 ### What this does not do
 
 **It does not improve who the search finds.** It makes the list stable; it does not make it
@@ -5889,9 +5899,10 @@ recalls a prospect already handed to the sending provider.
 - **An approval rewrites the settings in place.** A sourcing run is tied to the settings it
   used by time, before or after the approval stamp, not by row. Enough to measure a cohort;
   not an audit trail.
-- **The fit dimensions go stale on a summary-only edit.** They are rebuilt only with a
-  proposal. They never touch the prospect list, and the judge keeps grading against the last
-  approved set.
+- **The fit dimensions go stale on an edit to only the summary, the stage or the business
+  model.** They are rebuilt only with a proposal, and those three are not targeting fields.
+  They never touch the prospect list, and the judge keeps grading against the last approved
+  set.
 - **The settings can lag the document.** An ICP can say one thing while the search still does
   another, until the proposal is approved. That gap is the point: it is visible as a pending
   proposal, where before it was invisible as drift.

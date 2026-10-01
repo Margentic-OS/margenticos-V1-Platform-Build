@@ -2071,7 +2071,7 @@ For quick reference. Full text in /docs/ADR.md.
            verdict, which reads as "not yet tiered", and the looser rule admits that. Also
            records why a grep concluded the gate was absent when it had been live since
            2026-09-01: it searched for the COLUMNS, and the gate is applied via a helper
-  ADR-061  PROPOSED 2026-09-30, NOT YET BUILT. Search settings (icp_filter_spec) change only
+  ADR-061  ACCEPTED 2026-09-30, NOT YET BUILT. Search settings (icp_filter_spec) change only
            through a proposal the operator approves. A new ICP version INHERITS the live
            settings byte-exact, so a prose edit never reaches the search, never re-queues a
            removed prospect and never resets the cursor. Only a targeting field files a
