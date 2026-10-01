@@ -104,6 +104,49 @@ const MONEY_NOUN = '(income|revenue|revenues|turnover|cash|cashflow|cash flow|bi
 const CAPACITY_NOUN = '(time|hours?|attention|focus|capacity|bandwidth|energy|days?|weeks?)'
 const DIVISION_VERB = '(split|divided|shared|spread|stretched)'
 
+/**
+ * The capacity nouns PLUS the units of time a residual claim actually uses.
+ *
+ * DERIVED FROM CAPACITY_NOUN RATHER THAN RESTATED, which is the one structural rule this file
+ * keeps paying for. A second copy of a noun list loses an entry within a minute of being typed
+ * (measured: the division patterns lost `days?` and `weeks?` exactly that way), so adding a
+ * noun above must reach here without anybody remembering to.
+ *
+ * The extras are the units a leftover claim reaches for and a division claim does not:
+ * evenings, weekends and nights are where work goes when something else has taken the day, and
+ * a gap, a slot, a window or a margin is residual by definition.
+ */
+const RESIDUAL_TIME_NOUN = `(?:${CAPACITY_NOUN}|evenings?|weekends?|mornings?|afternoons?|nights?|gaps?|slots?|windows?|margins?)`
+
+/**
+ * A PRESENT-TENSE negation, and the tense is the precision.
+ *
+ * The claim being banned is about how the reader's week works NOW. The simple past is a
+ * different sentence and a much larger false-positive surface: "in the weeks after launch,
+ * demand did not require more staff" and "within days he had not needed a second meeting" are
+ * both observations about events, and both fired when `did not` and `had not` were in this
+ * list. Present and present-perfect only.
+ */
+const NOT_CLAIMING = "(?:do(?:es)?\\s+not|don['\u2019]t|doesn['\u2019]t|has\\s+not|hasn['\u2019]t|" +
+  "have\\s+not|haven['\u2019]t|never|is\\s+not|isn['\u2019]t|are\\s+not|aren['\u2019]t|" +
+  "will\\s+not|won['\u2019]t|cannot|can['\u2019]t)"
+
+/**
+ * A verb of one commitment CLAIMING time. Negated, it is the residual shape; the positive form
+ * is already covered by the consuming patterns above.
+ */
+/**
+ * A verb of one commitment RELEASING time rather than refusing to take it. The other half of
+ * the residual shape, and the half that needs no negation at all.
+ */
+const RELEASING_VERB = '(?:leav\\w*(?:\\s+behind)?|remain\\w*|surviv\\w*|free\\w*\\s+up|open\\w*\\s+up|releas\\w*|' +
+  // THE PARTICLE IS THE PRECISION GUARD. "the week the audit finished" is a date; "the hours
+  // the audit has finished with" is one commitment releasing them.
+  'finish\\w*\\s+with|done\\s+with|through\\s+with)'
+
+const CLAIMING_VERB = '(?:tak\\w*|claim\\w*|need\\w*|want\\w*|us(?:e|es|ed|ing)|fill\\w*|get\\w*|' +
+  'requir\\w*|demand\\w*|occup\\w+|absorb\\w*|eat\\w*|consum\\w*|touch\\w*)'
+
 const THEIR_TIME: RegExp[] = [
   // "your time", "your week", "your diary", "your calendar", "your hours", "your day(s)"
   /\byour\s+(own\s+)?(time|week|weeks|day|days|diary|calendar|schedule|hours|bandwidth|capacity|attention|focus)\b/i,
@@ -199,6 +242,123 @@ const THEIR_TIME: RegExp[] = [
   // second order cannot disagree with the first.
   new RegExp(`\\b${CAPACITY_NOUN}\\b[^.!?]{0,40}\\b${DIVISION_VERB}\\s+(between|across|over|among)\\b`, 'i'),
   new RegExp(`\\b${DIVISION_VERB}\\s+(between|across|over|among)\\b[^.!?]{0,40}\\b${CAPACITY_NOUN}\\b`, 'i'),
+
+  // ═══ ADDED 2026-10-01: THE READER'S WORK PLACED IN TIME SOMETHING ELSE LEAVES ═══
+  //
+  // THE SENTENCE THAT SHIPPED, with its two real names removed:
+  //
+  //   "Your pipeline gets worked on in the hours delivery does not take first."
+  //
+  // It reached a blind operator read on 2026-09-30 and was failed outright: "We're telling him
+  // what happens to his pipeline as a result of his hours. We can't know this." It was the ONLY
+  // assumed-capacity fault in that read the gate let through, and the gate was already BLOCKING
+  // on Email 1 when it did.
+  //
+  // MEASURED BEFORE A LINE WAS WRITTEN, with controls, because a silent detector and a broken
+  // one look identical. Against that sentence and a generic-noun rewrite of it the detector
+  // scored ZERO, while "Your attention is already spoken for" and "Every hour spent on delivery
+  // is an hour not spent on new work" both fired. The detector was live; it had no shape for
+  // the claim.
+  //
+  // ─── WHY IT IS ITS OWN SHAPE AND NOT A GAP IN THE ZERO-SUM PATTERNS ─────────
+  //
+  // The zero-sum patterns above state the division as an EQUATION: one unit of time equals one
+  // unit lost elsewhere. This states it as a RESIDUE: the reader's work is given whatever is
+  // left once another commitment has taken what it wants. Same assumption, no arithmetic, no
+  // shared vocabulary, and nothing equation-shaped can reach it.
+  //
+  // WHAT MAKES IT A GUESS. It asserts the ORDER in which the reader's commitments claim their
+  // hours, and which of them goes first. That is not a fact about an event, it is a fact about
+  // how somebody's week is actually run, and it is invisible from outside. It is also worse
+  // than most capacity guesses, because it is unflattering: it tells a founder their own
+  // business gets the scraps.
+  //
+  // ─── THE FOUR GRAMMARS A RESIDUAL CLAIM USES ────────────────────────────────
+  //
+  // Each is named by its grammar. None carries an industry, a service, a buyer type or a verb
+  // of selling. "Delivery" appears in the comments because it is what the real sentence said,
+  // never in a pattern.
+  //
+  //   negated claim    "the hours delivery does not take"
+  //   named residue    "the hours left over", "spare time", "whatever hours are left"
+  //   releasing verb   "the gaps the commitments leave behind"
+  //   priority order   "fills the week first", "first call on the day"
+  //
+  // ─── MEASURED, ON TWO CORPORA, AND THE SECOND ONE IS THE AUTHORITY ──────────
+  //
+  // 221 STORED PERSONALISED OPENINGS: five emails newly blocked, and all five are the fault.
+  // Three name the reader outright ("Your own outbound tends to get the hours left over after
+  // client delivery is done", "Your [role] fills the week first", "outreach waits for whichever
+  // week has a spare hour in it"). Two are impersonal ("Delivery tends to claim the week
+  // first"), and those block because Email 1 blocks this kind RAW by an explicit operator
+  // decision: the bridge sits directly under the reader's own fact, so an impersonal time claim
+  // reads as a claim about them. Zero false positives.
+  //
+  // A BLIND ADVERSARIAL CORPUS, 36 must-fire and 58 must-not-fire sentences written from the
+  // English rule by writers who never saw these patterns: 24 of 36 caught, and the six
+  // must-not-fire hits are all explained classes rather than defects. Three are sender
+  // sentences carrying a first person, which isSenderSide exempts. Two are QUESTIONS, which is
+  // a real gap and a deliberate one: see the Notion row, because exempting questions would
+  // change every pattern in this file and not just these. One is a population statement, which
+  // blocks by the raw-blocking decision above.
+  //
+  // FOUR CANDIDATE PATTERNS WERE DROPPED rather than shipped, each earning nothing on either
+  // corpus: a leftover-as-adjective form, "gets the rest", "comes second", and "has had the
+  // day". A pattern with no demonstrated hit is FP surface with no upside, and two of those
+  // four carried no time noun at all, which is wrong in principle inside a time gate.
+  //
+  // THE PRESENT TENSE IS THE PRECISION. `did not` and `had not` were in the negation list for
+  // one iteration and cost two false positives: "in the weeks after launch, demand did not
+  // require more staff" and "within days he had not needed a second meeting" are observations
+  // about events. The claim being banned is about how the reader's week works NOW.
+
+  // THE NEGATED CLAIM. A stretch of time another commitment does not take.
+  //
+  // NO LOCATIVE PREPOSITION IS REQUIRED, and that was the single biggest recall fault in the
+  // first version: demanding "in" or "during" caught the shipped sentence and missed "gets the
+  // hours", "waits for the afternoons" and "has first call on the day". Nine of the blind
+  // corpus's thirty-six, and zero of its fifty-eight legal sentences.
+  new RegExp(
+    `\\b${RESIDUAL_TIME_NOUN}\\b[^.!?]{0,60}\\b${NOT_CLAIMING}\\s+(?:\\w+\\s+){0,3}${CLAIMING_VERB}\\b`,
+    'i',
+  ),
+
+  // THE RESIDUE NAMED OUTRIGHT. BARE "left" IS EXCLUDED and that exclusion is the whole of
+  // this pattern's precision: "three weeks left before the deadline" and "two years left on
+  // the lease" are neutral countdowns, and a bare `left` rejects both.
+  new RegExp(`\\b${RESIDUAL_TIME_NOUN}\\b[^.!?]{0,20}\\b(?:left\\s*over|leftover)\\b`, 'i'),
+
+  // SPARE TIME. A time noun is required: "spare hours" is the claim, "a spare room" and "spare
+  // parts" are not, and `spare` alone cannot tell them apart.
+  new RegExp(`\\bspare\\s+${RESIDUAL_TIME_NOUN}\\b`, 'i'),
+
+  // "WHATEVER HOURS ARE LEFT". The time noun is REQUIRED between "whatever" and "is left", and
+  // it is required because without it the pattern fired on three remainders that are not time
+  // at all: a budget underspend, an undelivered part of an order, and a submission window.
+  new RegExp(`\\bwhat(?:ever)?\\s+${RESIDUAL_TIME_NOUN}\\s+(?:is|are|was|were)\\s+left\\b`, 'i'),
+
+  // A COMMITMENT RELEASING THE TIME, with no negation needed: "the gaps the commitments leave
+  // behind", "whatever weeks remain after the current work is met".
+  //
+  // THE CLAUSE BOUNDARY AFTER THE VERB IS LOAD-BEARING. Without it, "the opening hours listed
+  // on the site leave Fridays clear" matched: a published schedule, which is a visible fact.
+  // Requiring the release verb to end its clause, or to carry a residual adverb, is what
+  // separates time being LEFT from something being left somewhere.
+  new RegExp(
+    `\\b(?:what(?:ever)?|the)\\s+${RESIDUAL_TIME_NOUN}\\s+(?:\\w+\\s+){0,4}${RELEASING_VERB}` +
+    `(?:\\s+(?:behind|over|open|free|spare|unclaimed|untouched|after|once))?(?=[\\s.,;:!?]|$)`,
+    'i',
+  ),
+
+  // PRIORITY ORDER. Which of the reader's commitments gets the week first.
+  //
+  // NEVER "first" BESIDE A TIME NOUN, which is a DATE: "you spoke at a conference in the first
+  // week of July" must pass. The claim needs a verb of claiming placed first, or the explicit
+  // first-call idiom. These two found two of the five real hits between them.
+  new RegExp(`\\b${CLAIMING_VERB}\\b[^.!?]{0,40}\\b${RESIDUAL_TIME_NOUN}\\b[^.!?]{0,30}\\bfirst\\b`, 'i'),
+  new RegExp(`\\b${RESIDUAL_TIME_NOUN}\\b[^.!?]{0,40}\\b${CLAIMING_VERB}\\s+first\\b`, 'i'),
+  new RegExp(`\\bfirst\\s+(?:call|claim|refusal|dibs)\\s+on\\b`, 'i'),
+
 ]
 
 /**

@@ -919,11 +919,13 @@ export function getVariantEmail1Frame(
  * composeSequence's researched path must change here too.
  *
  * IT DRIFTED ANYWAY, WITHIN FIVE DAYS. The strip was added to composeSequence on
- * 2026-09-25 and not here. Measured 2026-09-30 on the A/B read: one prospect's Email 1
- * carried "THRIVE Futures Architecture(tm)" three times, in the observation, the bridge and
- * the closing question, and was failed on it by the operator. The email that would have
- * SHIPPED was clean, because composeSequence strips. So the defect was invisible from
- * production and visible only to every human who read the copy, which is the worst
+ * 2026-09-25 and not here. Measured 2026-09-30 on the A/B read: one prospect's Email 1 carried
+ * their own trademarked framework name with the symbol attached, three times over, in the
+ * observation, the bridge and the closing question, and the operator failed it on exactly that.
+ * The name is deliberately not reproduced here, because it identifies a real prospect.
+ *
+ * The email that would have SHIPPED was clean, because composeSequence strips. So the defect
+ * was invisible from production and visible only to every human who read the copy, which is the worst
  * available split: the reviewer distrusts copy the pipeline would have fixed, and nothing
  * in the pipeline can tell them so.
  *
