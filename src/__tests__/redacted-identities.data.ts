@@ -57,6 +57,70 @@
 // the plaintext, not in a comment, not in a variable name, not "just this once".
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ─── THIRD FINDING, 2026-10-01. A FULL NAME AND ITS DISTINCTIVE TOKEN ───────
+//
+// Three real prospect company names were still live on main after the database-driven scrub
+// of 2026-09-29, in a single test file, and all three prospects were already in the database
+// when that scrub ran. It had the data and missed them.
+//
+// AND ONE PLACEHOLDER WAS NEARLY REDACTED BY MISTAKE, which is the more useful half of this
+// entry. The first pass at this fix named two tokens from one fixture sentence, on the
+// reasoning that the sentence described a real individual's two concurrent positions. Only
+// ONE of the two was real. The other was an APPROVED PLACEHOLDER that an earlier scrub had
+// substituted in, is listed in the allowlist data file beside this one, and appears in seven
+// tracked files including production code. Hashing it failed the scan immediately, on seven
+// files, which is the control catching a wrong redaction rather than a missed one.
+//
+// So the lesson runs both ways: check a name against the live tables AND against the
+// allowlist before treating it as a leak. A name that looks real because it belongs to a
+// real-world organisation may be exactly the placeholder a previous scrub chose, and
+// redacting a placeholder costs a working fixture and teaches nobody anything.
+//
+// IT MATCHED THE FULL STORED NAME. A company stored as "<Token> Consulting, LLC" was searched
+// for as that whole string. The test fixture said only "<Token>", in a sentence about
+// something else entirely, so a substring search for the full name found nothing. Same for a
+// second stored as "<Token> Environmental Consulting" and a third as "<Token> Consulting &
+// Engineering".
+//
+// So the reach of a scrub is set by how it TOKENISES, not by whether it read the database.
+// A name's distinctive word is the part that identifies somebody, and it is the part that
+// survives being embedded in unrelated prose. Any future scan must search for the
+// distinctive token of each stored name as well as for the name itself.
+//
+// A FOURTH CLASS CAME WITH THEM, and it is not a company name at all: two institutions named
+// in a prospect's own RESEARCHED COPY, their employer and a university, which appear in no
+// identity column and so could not be found by scanning the identity columns. One of them is
+// in a prospect's stored personalisation_trigger today. A scan of `prospects.company_name`
+// cannot see it. The copy columns have to be scanned too.
+//
+// FIVE REAL TOKENS WERE REPLACED IN THAT FILE. TWO WERE ADDED TO THE LIST BELOW, THREE WERE
+// DELIBERATELY NOT, under this file's own stated limit about false positives. The two added
+// have no plausible innocent use in this codebase. The three withheld are an international
+// ratings firm, a well-known university and an ordinary Latin word.
+//
+// AND ONE OF THOSE THREE WAS MEASURED RATHER THAN GUESSED AT, which is why it is worth the
+// lines. The ratings firm's token appears, case-insensitively, inside a camelCase TYPE NAME
+// used across six tracked files, two of them production modules in the research agent. The
+// scanner lowercases what it finds, so hashing that token would have failed the suite on code
+// that has nothing to do with any prospect and cannot be renamed to suit a scan. The other two
+// are the same risk argued rather than demonstrated: a university and an ordinary Latin word
+// are exactly what an unrelated fixture, comment or reading-grade sample legitimately contains.
+//
+// Firing the guard on code doing its job is how a scan gets exempted rather than fixed, and
+// this file has already lost one hash that way.
+//
+// AND ONE OF THE WITHHELD THREE IS STILL IN THE REPOSITORY, which is the part worth being
+// exact about. The university token survives in two name-handling tests, as a bare token in a
+// list of names a guard must REJECT. Those lists are the opposite case to the one fixed today:
+// there the name is the test's subject, and swapping it for an invented one would weaken a
+// working control while publishing nothing less. A bare token in a list of six identifies
+// nobody. What identified somebody was that token sitting beside a role in one sentence about
+// a real individual's working life, and that sentence is gone.
+//
+// So: four of five tokens are out of the repository, two of five are enforced against
+// returning, and the reasoning for each is above rather than in somebody's head. The
+// remaining decisions are on the Notion Backlog rather than hidden here.
+
 // ─── SECOND SCRUB, 2026-09-29. THE FIRST ONE WAS NOT THE WHOLE PROBLEM ───────
 //
 // A fresh scan of every blob reachable from origin found 35 more real identities still
@@ -110,6 +174,7 @@ export const REDACTED_TOKEN_HASHES: readonly string[] = [
   '3cb6e6eb71c3469effc058553f38aaeb13e59d15',
   '3fe7c35fb7b95f7761963137a6d55ed015ae127f',
   '45126cd8ee6270643c2a446e56d87f61cec6e3c0',
+  '4bbe49c6d9fbd6244501d8eac5cbfd5dbf8f1878',
   '4c535946ae747f4bc933ad35d80528b3c6a5fbe1',
   '4d693dba03a3bf6361d547ee596563a3490bffa5',
   '58c0d939d21a50304c9890ee17ffbe5914ca6104',
@@ -141,6 +206,7 @@ export const REDACTED_TOKEN_HASHES: readonly string[] = [
   '956e22b93147d413f2a0da7871cae4811ad33d52',
   '97be9e17cbc9a0af0779195685563643b8f5cd12',
   '97cda41db87e55d2a021fb37e26e446154ae83db',
+  '984d5d4626a091d1755e627ee592bf68ee29cf56',
   '98c07213171eca4551ac83b48cea9a2d29927b4e',
   '99155fea548e21bdd3680e052fc799c986f284ea',
   '9cada2d98dea659c5754f120a0078f5475e6101a',

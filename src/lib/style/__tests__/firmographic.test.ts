@@ -1,3 +1,27 @@
+// EVERY NAME IN THIS FILE IS INVENTED. DO NOT "RESTORE REALISM".
+//
+// Five tokens here were real as of 2026-10-01 and were replaced: three were real entries in
+// prospects.company_name, one was named in a prospect's stored personalisation_trigger, and
+// one was a real individual's university, sitting beside a role in a sentence about their two
+// concurrent positions. That sentence is what identified somebody; the repository is PUBLIC
+// until the first paying client.
+//
+// ONE NAME HERE IS LEFT ALONE ON PURPOSE. The other half of that sentence was already an
+// APPROVED PLACEHOLDER from the allowlist data file, substituted in by an earlier scrub, and
+// it appears in seven tracked files including production code. It reads like a real
+// organisation because it is the name of one, which is exactly why it was nearly redacted by
+// mistake here. Check the allowlist before treating a name as a leak.
+//
+// THE ASSERTIONS DO NOT DEPEND ON ANY NAME. This gate reads numerals, currency and
+// spelled-out headcounts, so a proper noun is inert to it. The only way a substitution here
+// can change behaviour is by introducing a digit or a number word, and the script that made
+// these replacements asserted against both. Test count before and after: 60 and 60.
+//
+// IF YOU ADD A FIXTURE, invent the name and check it against the live tables first. Three of
+// the six had survived the database-driven scrub of 2026-09-29 because that scrub searched for
+// each company's FULL stored name and these fixtures carry only its distinctive word. See
+// src/__tests__/redacted-identities.data.ts, third finding.
+
 // The gate originally matched numerals and currency only, so two spelled-out headcounts
 // shipped: "a two-person firm" in one opening and "a firm that size" in another. Both are
 // the prospect's headcount restated, and both were reported as clean.
@@ -39,12 +63,12 @@ describe('spelled-out forms, the hole that shipped', () => {
 describe('what must never fire: dates, tenures and counts of things they did', () => {
   it.each([
     'Fourteen months running ORRIN alongside the firm says a lot.',
-    'Your last five posts are carrying RLCore.',
-    'Two years running Northwell alongside a full-time Stanford role.',
+    'Your last five posts are carrying Tanmoor.',
+    'Two years running Northwell alongside a full-time Thornbury role.',
     'Three and a half years running SCG alongside a full consulting role.',
     'Winning Best Startup at CAEV Expo in your first year.',
     'Every post in the last two months is Qundo or PALADYN.',
-    'Six years running Henosys and Fitch in parallel.',
+    'Six years running Henosys and Larkhill in parallel.',
     'Seven years of delivery have not left much room.',
     'Nine months into BrightlaneIQ.',
     'The Nashville recruiting post says delivery is live.',
@@ -54,11 +78,11 @@ describe('what must never fire: dates, tenures and counts of things they did', (
 
   it('all eleven surviving openings from the run pass', () => {
     const survivors = [
-      'Two years running Northwell alongside a full-time Stanford role says the consulting work is real enough to hold through serious competing demands.',
-      'Six years running Henosys and Fitch in parallel says you can carry a serious operational load.',
+      'Two years running Northwell alongside a full-time Thornbury role says the consulting work is real enough to hold through serious competing demands.',
+      'Six years running Henosys and Larkhill in parallel says you can carry a serious operational load.',
       'Three and a half years running SCG alongside a full consulting role at Beta Strategies says you can carry a serious load.',
       'Going on air to work through the ideal-client question says the positioning work is happening.',
-      'Your last five posts are carrying RLCore story, media hits, open roles, the momentum is visible.',
+      'Your last five posts are carrying Tanmoor story, media hits, open roles, the momentum is visible.',
       'Running Kestrel Consulting and KESC Jamaica simultaneously means the delivery load across two geographies rarely leaves a gap for pipeline.',
       'Your post connecting the Counselors Academy conference to opening day says you know where PR agency principals gather.',
       'The hiring post for a Manager of Delivery and Operations says the client load is real and growing.',
@@ -220,7 +244,7 @@ describe('headcount spellings the 2026-09-21 batch got past the gate', () => {
 
   it('catches headcount with the word FIRST, or with no numeral at all', () => {
     fires('Your headcount has stayed at 21 people across the past 12 months.')
-    fires("ProTech's headcount has been the same for the last twelve months.")
+    fires("Veltro's headcount has been the same for the last twelve months.")
   })
 
   it('catches size invariance, which is the headcount restated as a non-event', () => {
@@ -245,7 +269,7 @@ describe('headcount spellings the 2026-09-21 batch got past the gate', () => {
   // variant that exhausts its retries is DROPPED for a fallback angle, so over-firing
   // ships worse copy than the sentence it rejected. See the solo narrowing above.
   it('does NOT fire on dates, counts, durations or ordinary prose', () => {
-    clean('You founded Orbis in 2014 and have run it since.')
+    clean('You founded Calvane in 2014 and have run it since.')
     clean('Read through your last 30 reviews on Google.')
     clean('Front desk hold times keep coming up, 4 of the most recent 10.')
     clean('You ran both roles for thirteen months.')
