@@ -46,7 +46,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { logger } from '@/lib/logger'
 import { toIso2CountryCode } from '@/lib/sourcing/country-code'
-import type { IcpDocument } from '@/lib/agents/icp-filter-spec'
+import type { TargetingDocument } from '@/lib/sourcing/targeting-inputs'
 
 const ICP_GEOGRAPHY_MODEL = 'claude-opus-4-6'
 const MAX_TOKENS = 2048
@@ -164,8 +164,11 @@ each country's common English name; do not give codes or abbreviations.`
  *
  * This mirrors what the rest of deriveFilterSpec already does: industries and headcount
  * are both taken from tier 1 and tier 2 only.
+ *
+ * Typed as the targeting projection (ADR-061), so this cannot come to read a field the
+ * targeting list does not name. A full ICP document is still accepted.
  */
-export function collectTargetingGeographyStatements(doc: IcpDocument): string[] {
+export function collectTargetingGeographyStatements(doc: TargetingDocument): string[] {
   return [doc.tier_1?.company_profile?.geography, doc.tier_2?.company_profile?.geography]
     .map(value => (typeof value === 'string' ? value.trim() : ''))
     .filter(value => value.length > 0)

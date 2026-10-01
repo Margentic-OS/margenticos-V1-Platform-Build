@@ -190,9 +190,64 @@ described, so the reason for the change stays visible.
 derivation stops sourcing for that client until a human re-approves; losing one binding does
 not.
 
+## Which edits count as targeting (added 2026-09-30, ADR-061 step 2)
+
+**What this does.** It answers one question about any edit to a client's ICP: did it change
+who we would source, or only the words? `src/lib/sourcing/targeting-inputs.ts` holds the list
+of targeting fields. For tier 1 and tier 2 they are the company profile's industries,
+headcount, revenue range and geography, the buyer's title and seniority, and the
+disqualifiers. Two more sit outside the document: the headcount pair a client typed into
+intake, and the organisation's revenue-filter switch. Everything else is prose. Triggers and
+their reasons, the summary, the job-to-be-done statement, labels and descriptions are never
+targeting fields.
+
+**Why it exists.** On 2026-09-30 an edit to two trigger reasons rebuilt one client's search
+and removed 62 prospects, because nothing in the system knew that edit was only words.
+
+**What it connects to. NOTHING YET.** This is step 2 of ADR-061 and it is pure code. No
+route calls it and no setting is written by it. Until step 4 merges, every ICP approval
+still rebuilds the whole search, exactly as before. The functions are:
+
+- `targetingInputs(document, outside)` copies the targeting fields out of a document.
+- `compareTargetingInputs(before, after)` says whether they differ, which fields, and which
+  parts of the settings would need rebuilding (geography, buyer criterion, fit dimensions).
+- `diffSettings(live, proposed)` in `src/lib/sourcing/settings-diff.ts` says what a proposed
+  set of search settings would change: fields added and removed, every exclusion that would
+  stop applying, and whether the buyer criterion would still gate.
+
+**The one thing that IS live from this step:** `deriveFilterSpec` and the geography reader
+now accept only the targeting fields as their document. Their behaviour is unchanged. What
+changed is that neither can come to read a field outside the list without a compile error.
+
+**What to check if it breaks.**
+
+- *An edit you expected to count as targeting did not, or the reverse.* Run it on the real
+  documents. This prints the fields that differ and never the text:
+
+      npx dotenv -e .env.local -- npx tsx scripts/show-targeting-change.ts --from <id> --to <id>
+      npx dotenv -e .env.local -- npx tsx scripts/show-targeting-change.ts --suggestion <id>
+
+- *`tsc` fails with "Unused '@ts-expect-error' directive" in
+  `targeting-inputs.types.test.ts`.* Someone widened the targeting types so that prose is
+  readable through them. That file is the test. Decide whether the new field really is a
+  targeting field (an ADR-061 decision) before touching the directive.
+- *A whitespace-only edit, or a reordered list, counted as a change.* That is deliberate.
+  Values are compared exactly as written, because the alternative risks swallowing an edit
+  somebody meant, and that failure is silent.
+
+**Why one function and not a list of field names.** A list kept beside the code that reads
+the fields falls behind it, and an edit to the forgotten field then silently stops counting.
+Here the list is a type the derivation is written against, so the code can only read what
+the list names.
+
+**Exclusions are reported by name, never by count.** The 2026-09-30 re-derivation swapped two
+excluded job titles for two others. The list stayed the same length, so a rule about length
+would have passed it. `diffSettings` names every exclusion present before and absent after.
+
 ## Related
 
 
 - `docs/dashboard.md`, "Operator quality review", for the removal counts on screen.
 - `docs/BACKLOG.md`, "Silent sourcing defaults are now loud", for what was found and left.
 - ADR-032 (sourcing filter hardcoded in the handler), ADR-036 (the 5-20 headcount band).
+- ADR-061 (search settings change only through an approved proposal).

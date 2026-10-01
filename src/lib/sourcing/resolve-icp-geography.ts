@@ -31,7 +31,7 @@ import {
 } from '@/agents/icp-geography-agent'
 import { applyGeographyExclusions } from '@/lib/sourcing/geography-exclusion'
 import { resolveActiveSourcingHandler } from '@/lib/sourcing/handler-registry'
-import type { IcpDocument } from '@/lib/agents/icp-filter-spec'
+import type { TargetingDocument } from '@/lib/sourcing/targeting-inputs'
 
 /**
  * A client's targeting geography, finished: derived, subtracted, and checked reachable.
@@ -50,7 +50,8 @@ export interface ResolvedGeography {
 
 export interface ResolveIcpGeographyInput {
   supabase: SupabaseClient
-  doc: IcpDocument
+  /** The targeting projection (ADR-061). A full ICP document is still accepted. */
+  doc: TargetingDocument
   /**
    * Test seam. Production passes nothing and the active handler is resolved from the
    * integrations registry, which is the only tool-agnostic way to ask the question.

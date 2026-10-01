@@ -1,5 +1,11 @@
 import type { BuyerCriterion } from '@/lib/sourcing/buyer-criterion'
 import type { ProviderSeniorityBand } from '@/lib/sourcing/handlers/provider-seniority'
+import {
+  usableHeadcountPair,
+  type TargetingDocument,
+  type TargetingInputs,
+  type TargetingTier,
+} from '@/lib/sourcing/targeting-inputs'
 
 // ICP Filter Spec derivation.
 // Deterministic extraction from an approved ICP document JSON into the
@@ -192,6 +198,19 @@ export interface ICPFilterSpec {
    * client's judge grades the way it did before. Metadata: the sourcing handler never sees it.
    */
   fit_dimensions?: import('@/lib/agents/research/fit-dimensions').FitDimensionSet
+  /**
+   * The targeting fields these settings were built from. ADR-061.
+   *
+   * Stored INSIDE the settings, not beside them, so that copying the settings forward to a
+   * new ICP version and approving a proposal both carry it with nothing extra to keep in
+   * step. A promotion compares the document's current targeting fields with this: equal
+   * means the edit was prose and the settings stand.
+   *
+   * Optional because every spec written before ADR-061 lacks one. ABSENT MEANS "CANNOT
+   * TELL", which the comparison reports as changed. It must never read as unchanged.
+   * Metadata: no sourcing handler and no tiering rule reads it.
+   */
+  targeting_inputs?: TargetingInputs
 }
 
 // ─── Layer G: ONE list of spec fields, and a compile-time guard on it ─────────
@@ -278,6 +297,9 @@ export const FILTER_SPEC_METADATA_FIELDS = [
   'omitted_axes',
   // Why each switched-off axis is off. See omission_reasons on ICPFilterSpec.
   'omission_reasons',
+  // The targeting fields the settings were built from. A statement ABOUT the settings,
+  // which is what makes a prose edit recognisable as one. See targeting_inputs above.
+  'targeting_inputs',
 ] as const
 
 export type FilterSpecField = typeof FILTER_SPEC_FIELDS[number]
@@ -480,7 +502,7 @@ const GENERIC_HEAD_NOUNS = new Set(['services', 'and', 'the', 'of'])
  * document states a band in a currency the provider does not assume, the number is still
  * the right order of magnitude, which is what a band is for.
  */
-export function parseRevenueBand(phrases: (string | undefined)[]): { min: number | null; max: number | null } {
+export function parseRevenueBand(phrases: (string | null | undefined)[]): { min: number | null; max: number | null } {
   const values: number[] = []
   for (const phrase of phrases) {
     if (!phrase) continue
@@ -600,7 +622,11 @@ export const REVENUE_NOT_OPTED_IN =
  * market's vocabulary reached a live client, and an error is cheaper than a batch.
  */
 export function deriveFilterSpec(
-  doc: IcpDocument,
+  // THE TARGETING FIELDS, AND ONLY THEM (ADR-061). Typed as the projection rather than
+  // the whole document so that this function CANNOT read a field the targeting list does
+  // not name: an edit to anything it could reach here is, by construction, a targeting
+  // edit. A full ICP document is still accepted, because it has these fields and more.
+  doc: TargetingDocument,
   buyerCriterion: BuyerCriterion | null,
   geography: SpecGeography,
   seniority: SpecSeniority,
@@ -863,8 +889,8 @@ export function deriveFilterSpec(
  * cares about is visible beside the spec instead of being invented for them.
  */
 function buildNotes(
-  t1: IcpDocument['tier_1'],
-  t2: IcpDocument['tier_2'],
+  t1: TargetingTier,
+  t2: TargetingTier,
   buyerCriterion: BuyerCriterion | null,
   geography: SpecGeography,
   /**
@@ -979,11 +1005,10 @@ const TRAILING_PLUS = /(\d+)\s*\+/
 function normaliseStatedHeadcount(
   stated: { min: number; max: number } | null | undefined,
 ): { min: number; max: number } | null {
-  if (!stated) return null
-  const { min, max } = stated
-  if (!Number.isInteger(min) || !Number.isInteger(max)) return null
-  if (min < 1 || max < min) return null
-  return { min, max }
+  // ONE DEFINITION, shared with the targeting fields (ADR-061). The pair this function
+  // accepts and the pair `targetingInputs` stores must be the same pair, or an intake
+  // answer the derivation ignores would count as a targeting change, or the reverse.
+  return usableHeadcountPair(stated)
 }
 
 export function parseHeadcountRange(raw: string | null | undefined): HeadcountRange {
