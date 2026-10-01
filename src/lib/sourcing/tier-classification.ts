@@ -73,6 +73,30 @@ interface TierResult {
 
 // ─── The hardcoded decision-maker list is DELETED, not parameterised ─────────
 //
+// ─── What tiering reads from a client's search settings: ONE list ────────────
+//
+// ADR-061 rule 7: approving a change to the search settings re-queues the removed
+// prospects only when the change touches something TIERING reads. That needs an answer to
+// "what does tiering read", and a second list of it kept beside this file would agree with
+// the code until the day someone added a read here.
+//
+// So the list is the type. Every function below that takes the settings takes TieringSpec,
+// which is exactly these fields, and reading any other field of the settings in this file
+// is a compile error. The approval reads TIERING_SPEC_FIELDS to decide the re-queue, so the
+// two cannot disagree. tier-spec-fields.types.test.ts pins it.
+//
+// A full ICPFilterSpec is still accepted wherever a TieringSpec is asked for, so no caller
+// changes.
+export const TIERING_SPEC_FIELDS = [
+  'buyer_criterion',
+  'company_headcount_max',
+  'industries',
+  'industries_excluded',
+  'keywords',
+] as const satisfies readonly (keyof ICPFilterSpec)[]
+export type TieringSpecField = (typeof TIERING_SPEC_FIELDS)[number]
+export type TieringSpec = Pick<ICPFilterSpec, TieringSpecField>
+
 // DECISION_MAKER_PATTERNS was twelve title fragments applied identically to every
 // client. It is a Rule Zero violation that stayed invisible only because every
 // prospect sourced so far happened to fit it, and because one live client in a market
@@ -123,7 +147,7 @@ interface TierResult {
  */
 function hasTargetKeywordEvidence(
   prospect: EnrichedProspect,
-  icpFilterSpec: ICPFilterSpec,
+  icpFilterSpec: TieringSpec,
 ): boolean {
   return matchesTargetKeywords(
     prospect.company_name,
@@ -238,7 +262,7 @@ function calculateHeadcountScore(headcount: number | null): number {
  */
 function calculateIndustryScore(
   prospect: EnrichedProspect,
-  icpFilterSpec: ICPFilterSpec,
+  icpFilterSpec: TieringSpec,
   databaseMappings: Record<string, string>,
 ): number {
   const mappedIndustry = prospect.company_industry
@@ -300,7 +324,7 @@ function calculateIndustryScore(
  * calls a single time before the first request and which already reports this field
  * absent or of the wrong type. A non-positive number is reported there too.
  */
-function resolveHeadcountCeiling(icpFilterSpec: ICPFilterSpec): number | null {
+function resolveHeadcountCeiling(icpFilterSpec: TieringSpec): number | null {
   const ceiling = icpFilterSpec.company_headcount_max
 
   if (typeof ceiling !== 'number' || !Number.isFinite(ceiling) || ceiling <= 0) {
@@ -317,7 +341,7 @@ function resolveHeadcountCeiling(icpFilterSpec: ICPFilterSpec): number | null {
  */
 export async function classifyTier(
   prospect: EnrichedProspect,
-  icpFilterSpec: ICPFilterSpec,
+  icpFilterSpec: TieringSpec,
   supabase?: SupabaseClient<any>,
 ): Promise<TierResult> {
   const prospectId = prospect.id

@@ -731,8 +731,8 @@ Date: April 2026 | Status: Accepted
 SUPERSEDED IN PART BY ADR-061 (accepted 2026-09-30, IN FORCE since its step 4 merged that day), one sentence
 only: "one review, one approval, both artefacts activate together". A new ICP version now
 inherits the live filter specification unchanged, and a change to it is filed as a proposal
-that applies on a second, operator approval (the approval itself is ADR-061's step 5, not
-yet built). The sentence no longer describes the code. Storage beside the ICP,
+that applies on a second, operator approval (the approval itself is ADR-061's step 5, built
+2026-10-01). The sentence no longer describes the code. Storage beside the ICP,
 canonical industry names, handler-owned translation and the manifest refusal all stand.
 
 Context:
@@ -2999,10 +2999,11 @@ the manifest check must be reinstated as a real gate in the same change.
 **Superseded in part by:** ADR-061 (accepted 2026-09-30), the TRIGGER only. The rule stands:
 a verdict is frozen, and removals are re-queued by exactly one thing. **Since ADR-061's step 4
 merged on 2026-09-30, an ICP promotion re-queues nothing**, and `persistIcpFilterSpec`, named
-below, no longer exists. From step 5, not yet built, the one thing is the approval of a change
-to something tiering reads. BETWEEN THE TWO STEPS NOTHING RE-QUEUES A REMOVAL. That does not
-break "the filter must never ship alone": in that window nothing can change the live settings
-either, so no verdict was made under a rule that has since moved.
+below, no longer exists. **Since step 5 (2026-10-01) the one thing is the approval of a change
+to something tiering reads**: `approve_icp_filter_spec_proposal`, called with the re-queue
+switched on only when one of `TIERING_SPEC_FIELDS` changed. Between the two steps nothing
+re-queued a removal, and nothing could change the live settings either, so no verdict was made
+under a rule that had since moved.
 
 ### The problem this solves
 
@@ -5643,7 +5644,7 @@ columns: `grep -rn "excludeTierRejected" src` settles it in one command.
 
 ## ADR-061 — Search settings change only through an approved proposal; a new ICP version inherits the live settings, and a prose edit never reaches the search
 
-**Status:** ACCEPTED by Doug, 2026-09-30. **STEPS 2 TO 4 ARE BUILT. STEPS 5 AND 6 ARE NOT.**
+**Status:** ACCEPTED by Doug, 2026-09-30. **STEPS 2 TO 5 ARE BUILT. STEP 6 IS NOT.**
 Each rule below names the build step that makes it true. This block is updated as each step
 merges, and it is the place to look for what is real today.
 
@@ -5659,9 +5660,31 @@ merges, and it is the place to look for what is real today.
   cursor migration applied, then the three existing clients stamped approved with the
   targeting fields their settings were built from. `docs/sourcing-specification-gates.md`
   has the record, and the two migration files carry their own read-backs.
-- **Not built: step 5 (approve and reject, floors, re-queue, cursor reset) and step 6 (the
-  panel). Until step 5 a proposal cannot be approved.** It waits, the live settings keep
-  running, and a brand-new client whose first settings are a proposal is not sourced.
+- Step 5, 2026-10-01: `approveIcpFilterSpecProposal` and `rejectIcpFilterSpecProposal`
+  (`src/lib/sourcing/approve-icp-filter-spec.ts`), behind two operator-only routes under
+  `/api/operator/icp-filter-spec/`. The floors in rule 6 are enforced there. The write is one
+  database function, `approve_icp_filter_spec_proposal`, so the settings, the stamp, the
+  cursor reset and the re-queue commit together or not at all, and it re-checks under a row
+  lock that the proposal AND the live settings are still the ones judged. **OUTCOME 3 HOLDS.**
+  Three things were settled while building it and are recorded here because the rules above
+  do not say them:
+  - *"The proposal it was shown" covers the live settings too.* The fingerprint the request
+    carries is of both. The before-and-after is a comparison, and the exclusions a proposal
+    removes are the ones present in the live settings, so a change to either side is a
+    refusal.
+  - *An approval that resets the cursor is refused while a sourcing run for that client is in
+    flight.* A run writes `start + records read` when it finishes, which would overwrite the
+    reset with an offset counted against the old search. An approval that keeps the offset is
+    not refused. A run starting in the milliseconds between that check and the commit is not
+    closed.
+  - *"What tiering reads" is the type tiering is compiled against*, `TIERING_SPEC_FIELDS`, and
+    not a second list. Reading another field of the settings in the tiering module does not
+    compile.
+  A rejected proposal is filed again by the next comparison if the targeting fields still
+  differ from the live settings. Rejecting does not make the document and the search agree.
+- **Not built: step 6 (the panel).** The routes exist and no screen calls them yet, so a
+  proposal still waits, and a brand-new client whose first settings are a proposal is not
+  sourced until it is approved.
 
 Numbered 061 on branch `targeting-1-adr`, written off main `8242667` and rebased onto
 `a812849`; no branch, local or remote, carried a number above 060 on that date.

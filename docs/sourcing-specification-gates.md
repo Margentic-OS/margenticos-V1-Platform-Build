@@ -215,9 +215,54 @@ the current targeting fields with the ones stored inside the live settings.
   the live settings, which it does not touch. Only the parts whose inputs changed are
   rebuilt. A headcount edit calls no model for the buyer or the geography.
 
-**THERE IS NO APPROVE ROUTE YET.** That is step 5, and the screen is step 6. Until they
-ship, a proposal waits and the client keeps running on the approved settings. To see what
-is waiting, and to retry a proposal that failed:
+**Approving or rejecting a proposal, since step 5 (2026-10-01).** Operator-only, through
+two routes: `POST /api/operator/icp-filter-spec/approve` and `.../reject`. Both are thin
+gates over `src/lib/sourcing/approve-icp-filter-spec.ts`. The before-and-after screen is
+step 6. Until it ships the routes exist and nothing on screen calls them.
+
+An approval is refused, and nothing is written, when:
+
+- the proposal or the live settings changed after the operator's page was loaded
+- the proposed buyer criterion would not gate. A criterion that does not gate never
+  becomes live
+- the proposal stops applying an exclusion that is live, and that removal was not ticked.
+  Each removed exclusion is named and needs its own tick. Switching an exclusion axis off
+  counts as removing every entry on it
+- it would move the client's place in the search while a sourcing run is in progress
+
+An approval that goes through does up to four things in ONE database transaction
+(`approve_icp_filter_spec_proposal`):
+
+1. The proposal becomes the live settings and the proposal is cleared.
+2. Who approved it, and when, are recorded.
+3. The sourcing cursor is reset to zero ONLY if the request the sourcing handler builds
+   from the new settings differs from the one it builds from the old. A change that
+   touches only post-filters, such as an excluded title, keeps the client's place.
+4. Removed prospects are re-queued for tiering ONLY if the change touches something
+   tiering reads: the buyer criterion, the headcount ceiling, the industries, the excluded
+   industries or the keywords. That list is `TIERING_SPEC_FIELDS` in
+   `src/lib/sourcing/tier-classification.ts`, and it is the type the tiering code is
+   compiled against, so it cannot fall behind the code.
+
+Both counts are logged at warn on every approval.
+
+A rejection clears the proposal and changes nothing else. The ICP and the search still
+disagree afterwards, so the next comparison files the proposal again unless the targeting
+field is changed back.
+
+**What to check if an approval misbehaves.**
+
+- *"Reload and review it again" on every attempt.* The fingerprint the page was rendered
+  with no longer matches the row. Something re-filed the proposal: look for
+  `proposeIcpFilterSpec: targeting changed` in the log.
+- *The next sourcing run after an approval found only people already held.* Read the
+  `proposal approved` log line. `cursor_decision` says whether the request changed. A
+  reset is correct when it did.
+- *Removed prospects did not come back after an approval.* `requeue_fields` on the same
+  log line is empty when the change touched nothing tiering reads. That is the rule, not
+  a fault.
+
+To see what is waiting, and to retry a proposal that failed:
 
     npx dotenv -e .env.local -- npx tsx scripts/propose-icp-filter-spec.ts
 

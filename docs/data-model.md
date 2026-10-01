@@ -234,8 +234,9 @@ Fields:
   version         — always lowercase v, one decimal: "1.0", "2.1"
   content         — structured document content (JSON)
   icp_filter_spec — ICP rows only. The LIVE search settings (jsonb). Since ADR-061 it is
-                    written only by an approval of a proposal (step 5, not yet built) and by
-                    the one-off stamp of existing clients. Besides the search filters it carries
+                    written only by an approval of a proposal
+                    (approve_icp_filter_spec_proposal, ADR-061 step 5) and by the one-off
+                    stamp of existing clients. Besides the search filters it carries
                     two pieces of metadata no sourcing handler reads: buyer_criterion (who is
                     emailed, ADR-046) and fit_dimensions (the conditions the research fit
                     judge reads, each required or supporting and establishable or not, from
@@ -256,12 +257,21 @@ Fields:
                     icp_filter_spec only. Written by proposeIcpFilterSpec when a targeting
                     field changes, and cleared by it when the fields match the live
                     settings again.
+                    Also cleared by an approval, which makes it the live settings, and
+                    by a rejection, which throws it away. Both go through a database
+                    function that locks the row and refuses unless the proposal is still
+                    the one the operator was shown: approve_icp_filter_spec_proposal and
+                    reject_icp_filter_spec_proposal. Both run as the caller (SECURITY
+                    INVOKER) and only the service role may execute them. The approve
+                    function also resets sourcing_cursors.record_offset and clears
+                    prospects.tiering_reason on removed rows, each only when its caller
+                    switches it on, all in the one transaction.
   icp_filter_spec_approved_at
                   — when the live settings in icp_filter_spec were approved (timestamptz).
   icp_filter_spec_approved_by
                   — the operator who approved them (uuid, references users.id, set to
                     NULL if that user is deleted). Written by the one-off stamp of
-                    existing clients, and from step 5 by the approve route.
+                    existing clients, and by approve_icp_filter_spec_proposal.
                     All three inherit the table's row level security: a client can read
                     their own organisation's, as they already can icp_filter_spec, and
                     no client screen selects them.

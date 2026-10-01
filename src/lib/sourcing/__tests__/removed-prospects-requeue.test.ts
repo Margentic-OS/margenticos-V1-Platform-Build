@@ -8,12 +8,10 @@
 // persistIcpFilterSpec, on every ICP promotion, whether or not the settings had changed.
 // On 2026-09-30 that is how a wording edit put 62 removed prospects back in front of a
 // search nobody had chosen. From ADR-061 step 4 a promotion re-queues NOTHING, which
-// propose-icp-filter-spec.test.ts asserts for every kind of targeting edit, and the thaw
-// returns in step 5 on the approval of a change that tiering reads.
-//
-// BETWEEN STEP 4 AND STEP 5 NOTHING THAWS A REMOVAL, and that is consistent rather than a
-// gap: in that window nothing can change the live settings either, so no verdict was made
-// under a rule that has since moved.
+// propose-icp-filter-spec.test.ts asserts for every kind of targeting edit. Since step 5
+// the thaw happens on the approval of a change that tiering reads, and is tested where it
+// now lives: approve-icp-filter-spec.test.ts decides WHEN, and
+// approve-icp-filter-spec.live.test.ts proves WHICH ROWS against the real function.
 //
 // The fake honours eq(), is(), not() and limit() by actually filtering and slicing,
 // and throws on anything it does not implement. `tiering_reason: null` is set

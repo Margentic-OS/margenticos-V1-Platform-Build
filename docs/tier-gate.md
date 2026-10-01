@@ -93,8 +93,9 @@ The verdict was absent, and the looser rule admits an absent verdict deliberatel
 The mechanism was the thaw in `persist-icp-filter-spec.ts`: on every ICP promotion it
 cleared `tiering_reason` so the new rules got applied, which turns "rejected" into "not yet
 tiered" until the next tiering run reaches the row. **Since ADR-061 (2026-09-30) a promotion
-clears nothing.** The thaw returns in step 5, on the approval of a change to something
-tiering reads, so a wording revision like the one that day no longer opens this window. There is no standalone tiering cron —
+clears nothing.** Since step 5 (2026-10-01) the thaw happens only when an operator approves
+a change to something tiering reads, inside `approve_icp_filter_spec_proposal`, so a wording
+revision like the one that day no longer opens this window. There is no standalone tiering cron —
 tiering runs only inside `verify-pending` — so that window is real time. On 2026-09-14 it was
 5 hours 17 minutes and cost about $0.42 on two prospects.
 
