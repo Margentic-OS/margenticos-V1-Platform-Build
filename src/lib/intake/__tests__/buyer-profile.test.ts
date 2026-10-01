@@ -346,7 +346,7 @@ const ALLOWED_READERS: Readonly<Record<string, string>> = {
   'src/agents/icp-generation-agent.ts': 'ICP generation: the answers bind ICP schema fields',
   // Reads the stated headcount pair so the spec does not parse prose for a client who
   // answered the question directly.
-  'src/lib/sourcing/persist-icp-filter-spec.ts': 'filter spec: the stated headcount pair',
+  'src/lib/sourcing/propose-icp-filter-spec.ts': 'filter spec: the stated headcount pair',
 }
 
 describe('only the ICP path reads the buyer-targeting answers', () => {

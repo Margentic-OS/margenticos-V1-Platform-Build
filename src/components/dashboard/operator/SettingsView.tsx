@@ -382,7 +382,7 @@ export function SettingsView({ organisation, integrations, clientRequested }: Se
                 <Divider />
                 <ValueRow
                   label="Revenue filter"
-                  hint="When on, sourcing excludes companies outside the revenue band in this client's ICP, and every company the provider holds no revenue figure for. Takes effect at the next ICP approval."
+                  hint="When on, sourcing excludes companies outside the revenue band in this client's ICP, and every company the provider holds no revenue figure for. Changing it files a proposed change to the search settings, which takes effect when you approve it."
                 >
                   <RevenueFilterToggle
                     orgId={organisation.id}

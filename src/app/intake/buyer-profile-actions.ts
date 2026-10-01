@@ -11,6 +11,7 @@
 // caller. A client cannot name someone else's organisation because they are never asked for
 // one.
 
+import { after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import type { BuyerProfile } from '@/lib/intake/buyer-profile'
@@ -23,6 +24,7 @@ import {
 import { flagDocumentsStaleForIntakeEditSafely } from '@/lib/intake/flag-stale-documents'
 import { buyerProfileAnswerChanges } from '@/lib/intake/answer-change'
 import { notifyOperatorOfIntakeEditSafely } from '@/lib/intake/notify-intake-edit'
+import { proposeIcpFilterSpecForOrganisationSafely } from '@/lib/sourcing/propose-icp-filter-spec'
 
 /**
  * The caller's own organisation, from their session. THE ONLY SOURCE OF organisationId here.
@@ -127,6 +129,22 @@ export async function saveBuyerProfile(
       flaggedDocumentTypes,
     })
   }
+
+  // ADR-061. The staff-count pair a client types here is a TARGETING field: the search
+  // settings use it in place of the headcount prose in the ICP. So a save is followed by
+  // the same comparison an ICP promotion gets. It files a proposal for the operator when
+  // the pair differs from the one the live settings were built with, and does nothing when
+  // it does not. It never changes the search.
+  //
+  // CALLED ON EVERY SAVE, not only when changedFields names the headcount. Which answers
+  // are targeting fields is decided in one place, targetingInputs(), and a second list here
+  // of "the fields worth checking" would be the copy that falls behind. A first save also
+  // reports no changed fields at all, by design, and a first headcount answer IS a change
+  // to the search. When nothing relevant moved the comparison costs three reads.
+  //
+  // In after(): the answer is already saved, and where a client has no settings yet this
+  // may call a model. Never throws.
+  after(() => proposeIcpFilterSpecForOrganisationSafely(organisationId))
 
   return { success: true }
 }

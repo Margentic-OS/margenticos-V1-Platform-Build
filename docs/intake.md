@@ -184,7 +184,7 @@ module. The allow-list is two files and each has to say why it is there:
 | file | what it reads | why |
 | --- | --- | --- |
 | `src/agents/icp-generation-agent.ts` | all nine | renders them into the prompt as binding on named schema fields |
-| `src/lib/sourcing/persist-icp-filter-spec.ts` | the headcount pair | so the spec does not parse prose for a client who answered |
+| `src/lib/sourcing/propose-icp-filter-spec.ts` | the headcount pair | so the spec does not parse prose for a client who answered |
 
 The test runs the other way too: a file ON the allow-list that has stopped reading them
 fails it, so an exemption cannot outlive its caller.
@@ -214,9 +214,12 @@ organisations are in that state, so this is the ordinary case rather than the ed
 holds field by field: a client who named countries and skipped the headcount question leaves
 the headcount rules in the prompt untouched.
 
-**Two things that are NOT retroactive.** Nothing regenerates a document, and nothing rebuilds
-a filter spec. A client editing an answer flags the live ICP stale (see below) and an
-operator decides; the spec is rebuilt at the next ICP approval. Prospects already sourced or
+**Two things that are NOT retroactive.** Nothing regenerates a document, and nothing changes
+the live search settings. A client editing an answer flags the live ICP stale (see below) and
+an operator decides. Since ADR-061 (2026-09-30) one answer goes further: the staff-count pair
+is a targeting field in its own right, so saving it files a PROPOSED change to the search
+settings straight away, which shows the operator what the search would become and applies
+only when approved. It no longer waits, unseen, for the next ICP approval. Prospects already sourced or
 uploaded under the old spec are untouched, per ADR-034.
 
 **An edit now flags the ICP stale.** All nine fields moved from `NOT_MAPPED` into

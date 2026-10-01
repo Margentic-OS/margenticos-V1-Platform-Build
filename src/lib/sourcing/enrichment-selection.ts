@@ -45,10 +45,10 @@ import type { RemovalReason } from '@/lib/sourcing/tier-classification'
  * what carries the rejection, and excluding it here is what stops the next run selecting
  * the same prospect forever.
  *
- * It also makes the thaw work by itself. persistIcpFilterSpec clears tiering_reason for
- * an organisation's removed prospects whenever a new filter spec is stored (ADR-037),
- * and that single UPDATE now returns gate-rejected prospects to enrichment eligibility
- * as well. There is no second column to remember to clear, so there is no half-thaw
+ * It also makes the thaw work by itself. Clearing tiering_reason for an organisation's
+ * removed prospects, which happens when a change to the search settings is approved
+ * (ADR-037 as amended by ADR-061), is a single UPDATE, and it returns gate-rejected
+ * prospects to enrichment eligibility as well. There is no second column to remember to clear, so there is no half-thaw
  * where the reason is freed and the row stays unenrichable.
  *
  * BUILT FROM THE CLIENT RATHER THAN TAKING A BUILDER. Passing a part-built query into a

@@ -233,8 +233,9 @@ Fields:
   document_type   — icp / positioning / tov / messaging
   version         — always lowercase v, one decimal: "1.0", "2.1"
   content         — structured document content (JSON)
-  icp_filter_spec — ICP rows only. The filter spec derived when the ICP is approved (jsonb,
-                    written by persistIcpFilterSpec). Besides the search filters it carries
+  icp_filter_spec — ICP rows only. The LIVE search settings (jsonb). Since ADR-061 it is
+                    written only by an approval of a proposal (step 5, not yet built) and by
+                    the one-off stamp of existing clients. Besides the search filters it carries
                     two pieces of metadata no sourcing handler reads: buyer_criterion (who is
                     emailed, ADR-046) and fit_dimensions (the conditions the research fit
                     judge reads, each required or supporting and establishable or not, from
@@ -243,19 +244,24 @@ Fields:
                     INHERITED, since 2026-09-30 (ADR-061 step 3): when a new ICP version
                     is promoted, promote_strategy_doc_version copies this column from the
                     outgoing active row onto the new one, with the three columns below.
-                    A client's first ICP has nothing to inherit and starts NULL. Until
-                    ADR-061 step 4 merges, persistIcpFilterSpec still overwrites the copy
-                    after every promotion, so the end state is unchanged for now.
+                    A client's first ICP has nothing to inherit and starts NULL. Since
+                    step 4 nothing overwrites the copy: the settings on a new version ARE
+                    the previous version's, until a proposal is approved. It also carries
+                    targeting_inputs, the targeting fields it was built from, which is what
+                    lets a prose edit be recognised as one.
   icp_filter_spec_proposed
                   — ICP rows only. A PROPOSED set of search settings, waiting for the
                     operator's approval (jsonb, ADR-061). NULL means nothing is pending.
                     Sourcing, tiering and the buyer gate never read it: they read
-                    icp_filter_spec only. Nothing writes it until step 4.
+                    icp_filter_spec only. Written by proposeIcpFilterSpec when a targeting
+                    field changes, and cleared by it when the fields match the live
+                    settings again.
   icp_filter_spec_approved_at
                   — when the live settings in icp_filter_spec were approved (timestamptz).
   icp_filter_spec_approved_by
                   — the operator who approved them (uuid, references users.id, set to
-                    NULL if that user is deleted). Nothing writes either until step 4.
+                    NULL if that user is deleted). Written by the one-off stamp of
+                    existing clients, and from step 5 by the approve route.
                     All three inherit the table's row level security: a client can read
                     their own organisation's, as they already can icp_filter_spec, and
                     no client screen selects them.

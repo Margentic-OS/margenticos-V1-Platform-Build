@@ -50,6 +50,19 @@ import { logger } from '@/lib/logger'
 // that a live ICP cannot produce prospects. That covers revise and revert as well as approve,
 // which a pre-approval gate never did. NOT BUILT HERE. See the Backlog rows for the flag and
 // for the 14 documents that already have no spec.
+//
+// ─── What ADR-061 changed, 2026-09-30 ───────────────────────────────────────
+//
+// The ordering above is history. `persistIcpFilterSpec` is gone. A new ICP version now
+// INHERITS the live search settings from the version it replaces, inside the promote
+// function, so it is never live without them unless the client has never had any. A change
+// to a targeting field is filed as a PROPOSAL beside the live settings and waits for the
+// operator (`proposeIcpFilterSpec`).
+//
+// So there is still nothing to check at approval time, for a better reason than before:
+// approving a document can no longer leave a client without settings they already had. The
+// case that remains is a client with NO approved settings yet, whose first proposal is
+// waiting. That is what the log line below now points at.
 
 /**
  * Records that an ICP approval passed through without a filter-spec check.
@@ -74,9 +87,10 @@ export async function logUngatedIcpApproval(
   if (suggestion.document_type !== 'icp') return
 
   logger.info(
-    'ICP approved without a filter-spec check: the spec is derived AFTER promotion by ' +
-    'persistIcpFilterSpec, so it cannot exist at approval time. If sourcing later has ' +
-    'nothing to search on, that is where to look.',
+    'ICP approved without a filter-spec check: the new version inherits the live search ' +
+    'settings from the one it replaces, and a targeting change is filed as a proposal for ' +
+    'the operator. If sourcing later has nothing to search on, look for a first proposal ' +
+    'that has not been approved.',
     { suggestion_id: suggestionId, organisation_id: suggestion.organisation_id },
   )
 }

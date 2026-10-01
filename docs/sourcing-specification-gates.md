@@ -98,7 +98,7 @@ that still have no re-evaluation path at all.
 ## The third check, added 2026-08-28: the spec inspector
 
 `inspectFilterSpec` in `src/lib/sourcing/inspect-filter-spec.ts`. Report only, never gates.
-It runs twice: on the spec being WRITTEN (`persistIcpFilterSpec`) and on the spec being READ
+It runs twice: on the spec being PROPOSED (`proposeIcpFilterSpec`, since ADR-061) and on the spec being READ
 (`orchestrator.ts`, step 2.5). Two silences meet here.
 
 **Frozen specs.** `deriveFilterSpec` has exactly one caller and it runs only when a document
@@ -204,9 +204,24 @@ targeting fields.
 **Why it exists.** On 2026-09-30 an edit to two trigger reasons rebuilt one client's search
 and removed 62 prospects, because nothing in the system knew that edit was only words.
 
-**What it connects to. NOTHING YET.** This is step 2 of ADR-061 and it is pure code. No
-route calls it and no setting is written by it. Until step 4 merges, every ICP approval
-still rebuilds the whole search, exactly as before. The functions are:
+**What it connects to, since step 4 (2026-09-30).** `proposeIcpFilterSpec` in
+`src/lib/sourcing/propose-icp-filter-spec.ts` runs after every ICP promotion (approve,
+revise, restore) and when the intake headcount or the revenue switch is saved. It compares
+the current targeting fields with the ones stored inside the live settings.
+
+- **Same:** nothing happens. No model is called and nothing is written. The search, the
+  sourcing cursor and every tiering verdict stay as they were.
+- **Different:** it builds a proposal and stores it in `icp_filter_spec_proposed`, beside
+  the live settings, which it does not touch. Only the parts whose inputs changed are
+  rebuilt. A headcount edit calls no model for the buyer or the geography.
+
+**THERE IS NO APPROVE ROUTE YET.** That is step 5, and the screen is step 6. Until they
+ship, a proposal waits and the client keeps running on the approved settings. To see what
+is waiting, and to retry a proposal that failed:
+
+    npx dotenv -e .env.local -- npx tsx scripts/propose-icp-filter-spec.ts
+
+The functions underneath are:
 
 - `targetingInputs(document, outside)` copies the targeting fields out of a document.
 - `compareTargetingInputs(before, after)` says whether they differ, which fields, and which

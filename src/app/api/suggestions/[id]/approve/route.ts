@@ -22,7 +22,7 @@ import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
-import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+import { proposeIcpFilterSpec } from '@/lib/sourcing/propose-icp-filter-spec'
 
 // The promotion path derives a filter spec in the background, and that makes TWO
 // Anthropic calls: the buyer criterion and the ICP geography. Neither is retried if the
@@ -115,9 +115,11 @@ export async function POST(
   }
 
   // ── 4. No pre-approval check on the filter spec, and that is deliberate ─────
-  // Nothing is checked here. The filter spec is derived AFTER promotion
-  // by persistIcpFilterSpec (called below in after()), so it cannot exist at this point and
-  // refusing on its absence would refuse every ICP. Measured on production 2026-09-08:
+  // Nothing is checked here. When this check was written the filter spec was derived AFTER
+  // promotion, so it could not exist at this point and refusing on its absence would refuse
+  // every ICP. Since ADR-061 the new version INHERITS the live settings and a targeting
+  // change is filed as a proposal (proposeIcpFilterSpec, below in after()), so there is
+  // still nothing here to check. Measured on production 2026-09-08:
   // 0 of 25 ICP suggestions carry a spec in suggested_value, and 0 of 24 ICP documents carry
   // one in content. The call is kept for the log line it emits, which records per approval
   // that nothing was checked. See the module header and the Backlog row.
@@ -172,13 +174,17 @@ export async function POST(
     operator_id: user.id,
   })
 
-  // Persist ICP filter spec, notify client after promotion, then cascade to next agent if eligible.
-  // All run in after() so they don't block the response.
+  // Compare targeting fields, notify client after promotion, then cascade to next agent if
+  // eligible. All run in after() so they don't block the response.
   after(async () => {
-    // persistIcpFilterSpec is safe to call on any document type and never fails the promotion
+    // ADR-061. The new ICP version already carries the live search settings: the promote
+    // function copied them. This only asks whether a TARGETING field changed. If none did,
+    // it does nothing at all. If one did, it files a proposal beside the live settings for
+    // the operator to approve. It never changes the search, re-queues nobody, and is safe
+    // to call on any document type.
     const documentId = newDoc?.id
     if (documentId) {
-      await persistIcpFilterSpec(supabase, documentId)
+      await proposeIcpFilterSpec(supabase, documentId)
     }
     await notifyAfterPromotion(supabase, {
       organisation_id: suggestion.organisation_id,

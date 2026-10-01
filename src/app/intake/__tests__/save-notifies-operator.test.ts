@@ -23,6 +23,7 @@ import { EMPTY_BUYER_PROFILE } from '@/lib/intake/buyer-profile'
 const notify = vi.hoisted(() => vi.fn())
 const flag = vi.hoisted(() => vi.fn())
 const getUser = vi.hoisted(() => vi.fn())
+const proposeForOrganisation = vi.hoisted(() => vi.fn())
 const state = vi.hoisted(() => ({
   existingIntakeValue: null as string | null,
   buyerProfileRow: null as Record<string, unknown> | null,
@@ -34,6 +35,16 @@ vi.mock('@/lib/intake/notify-intake-edit', () => ({
 vi.mock('@/lib/intake/flag-stale-documents', () => ({
   flagDocumentsStaleForIntakeEditSafely: flag,
 }))
+// ADR-061. A headcount typed into intake is a targeting field, so a save runs the settings
+// comparison. after() is made to run at once so that deferred call is observable.
+vi.mock('@/lib/sourcing/propose-icp-filter-spec', () => ({
+  proposeIcpFilterSpecForOrganisationSafely: proposeForOrganisation,
+}))
+vi.mock('next/server', async (importOriginal) => {
+  // Partial, never whole: a whole-module mock silently drops every other export.
+  const actual = (await importOriginal()) as Record<string, unknown>
+  return { ...actual, after: (fn: () => unknown) => fn() }
+})
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
@@ -74,6 +85,8 @@ beforeEach(() => {
   flag.mockResolvedValue([])
   getUser.mockReset()
   getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+  proposeForOrganisation.mockReset()
+  proposeForOrganisation.mockResolvedValue({ outcome: 'unchanged' })
   state.existingIntakeValue = null
   state.buyerProfileRow = null
 })
@@ -147,6 +160,23 @@ describe('saveBuyerProfile', () => {
     const { saveBuyerProfile } = await import('../buyer-profile-actions')
     return saveBuyerProfile({ ...EMPTY_BUYER_PROFILE, ...profile } as never)
   }
+
+  it('runs the settings comparison on a FIRST save, which reports no changed fields', async () => {
+    // ADR-061. A first headcount answer changes the search: the settings use the typed pair
+    // in place of the prose. The notification deliberately treats a first save as "nothing
+    // changed", so the comparison must not be gated on that list.
+    state.buyerProfileRow = null
+    await save({ buyer_headcount_min: 5, buyer_headcount_max: 20 })
+
+    expect(notify).not.toHaveBeenCalled()
+    expect(proposeForOrganisation.mock.calls).toEqual([[ORG]])
+  })
+
+  it('does not run it when nobody is signed in: nothing was saved', async () => {
+    getUser.mockResolvedValue({ data: { user: null } })
+    await save({ buyer_headcount_min: 5, buyer_headcount_max: 20 })
+    expect(proposeForOrganisation).not.toHaveBeenCalled()
+  })
 
   it('does NOT notify on a first save, even when every answer is filled in', async () => {
     // THE BUG THIS PINS: comparing against EMPTY_BUYER_PROFILE instead of a null row makes

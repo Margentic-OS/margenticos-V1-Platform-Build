@@ -211,6 +211,21 @@ export interface ICPFilterSpec {
    * Metadata: no sourcing handler and no tiering rule reads it.
    */
   targeting_inputs?: TargetingInputs
+  /**
+   * Present when a re-derived buyer criterion did not gate and the live one was kept in
+   * its place. ADR-061: the buyer criterion stays applied.
+   *
+   * It records what came back and was set aside, so the operator's panel can say that the
+   * criterion in these settings is the previous one, and why. Metadata: nothing that
+   * sources or tiers reads it.
+   */
+  criterion_held?: {
+    /** The status the re-derivation returned: never `derived` with a usable accept list. */
+    rederived_status: BuyerCriterion['status']
+    /** The derivation's own account of why it does not gate, when it gave one. */
+    reason: string | null
+    held_at: string
+  }
 }
 
 // ─── Layer G: ONE list of spec fields, and a compile-time guard on it ─────────
@@ -300,6 +315,8 @@ export const FILTER_SPEC_METADATA_FIELDS = [
   // The targeting fields the settings were built from. A statement ABOUT the settings,
   // which is what makes a prose edit recognisable as one. See targeting_inputs above.
   'targeting_inputs',
+  // A note that the live buyer criterion was kept over a re-derived one that did not gate.
+  'criterion_held',
 ] as const
 
 export type FilterSpecField = typeof FILTER_SPEC_FIELDS[number]
@@ -585,12 +602,24 @@ export interface SpecOptions {
   statedHeadcount?: { min: number; max: number } | null
 }
 
+/**
+ * How a recorded reason opens when the OPT-IN RULE switched the revenue band off, as
+ * distinct from the derivation proposing it.
+ *
+ * STABLE, AND MATCHED AGAINST STORED SETTINGS. proposeIcpFilterSpec reads this lead on the
+ * reason already stored with a client's live settings to tell the two sources apart. The
+ * rest of the sentence below may be reworded freely, and has been; this lead may not,
+ * because settings written before a rewording still carry the old one.
+ */
+export const REVENUE_NOT_OPTED_IN_LEAD = 'Not opted in.'
+
 /** The recorded reason a stated revenue band is not sent. Operator-facing. */
 export const REVENUE_NOT_OPTED_IN =
-  'Not opted in. This client has not been switched on for the revenue filter in operator ' +
-  "settings, so the band the document states is recorded here and not sent. The provider's " +
+  REVENUE_NOT_OPTED_IN_LEAD + ' This client has not been switched on for the revenue filter in ' +
+  "operator settings, so the band the document states is recorded here and not sent. The provider's " +
   'revenue filter excludes every company it holds no revenue figure for, measured on ' +
-  "2026-09-10 at 78% of one live client's search. A change takes effect at the next ICP approval."
+  "2026-09-10 at 78% of one live client's search. Changing the switch files a proposed " +
+  'change to the search settings, which applies when the operator approves it.'
 
 /**
  * Build a client's filter spec from that client's own ICP, and nothing else.

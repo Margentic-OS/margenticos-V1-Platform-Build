@@ -8,8 +8,8 @@
 // them on the approval card. The client-facing projection strips them.
 //
 // NOTHING READS THEM WHEN THE SEARCH IS BUILT, and they are already in scope at that exact
-// moment: persistIcpFilterSpec loads the whole document content and hands it to the spec
-// derivation, which never looks. So a document that openly says "I do not know this" is
+// moment: the settings derivation is handed the document's targeting fields (ADR-061) and
+// the unresolved list sits beside them in the same document, unread. So a document that openly says "I do not know this" is
 // used to build a search as though it did.
 //
 // Tuning a search built on a field the document itself flags as unestablished is the most

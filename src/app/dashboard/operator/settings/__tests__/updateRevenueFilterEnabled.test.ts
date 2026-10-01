@@ -25,6 +25,23 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
+// after() runs its callback at once, so the test can see work the action defers past the
+// response. Outside a request it would throw, which is the other reason it is mocked.
+vi.mock('next/server', async (importOriginal) => {
+  // Partial, never whole: a whole-module mock silently drops every other export.
+  const actual = (await importOriginal()) as Record<string, unknown>
+  return { ...actual, after: (fn: () => unknown) => fn() }
+})
+
+// ADR-061. The switch is a targeting field, so flipping it runs the settings comparison.
+// What that comparison does is tested in propose-icp-filter-spec.test.ts. What is pinned
+// here is that the action calls it, for the right organisation, and only after a write
+// that succeeded.
+const proposeForOrganisation = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/sourcing/propose-icp-filter-spec', () => ({
+  proposeIcpFilterSpecForOrganisationSafely: proposeForOrganisation,
+}))
+
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -73,6 +90,8 @@ beforeEach(() => {
   updates = []
   updateError = null
   redirects.length = 0
+  proposeForOrganisation.mockReset()
+  proposeForOrganisation.mockResolvedValue({ outcome: 'unchanged' })
 })
 
 describe('an operator can switch it, for one organisation only', () => {
@@ -113,5 +132,27 @@ describe('the refusals', () => {
     const result = await updateRevenueFilterEnabled(ORG, 'false' as unknown as boolean)
     expect(result.error).toMatch(/on or off/)
     expect(updates).toEqual([])
+  })
+})
+
+describe('flipping it files a proposal, and never changes the search by itself (ADR-061)', () => {
+  it('runs the settings comparison for THAT organisation after a successful write', async () => {
+    await updateRevenueFilterEnabled(ORG, true)
+    expect(proposeForOrganisation.mock.calls).toEqual([[ORG]])
+  })
+
+  it('does not run it when the write was refused: the switch did not move', async () => {
+    updateError = { message: 'placeholder database refusal' }
+    await updateRevenueFilterEnabled(ORG, true)
+    expect(proposeForOrganisation).not.toHaveBeenCalled()
+  })
+
+  it('does not run it for a caller who was turned away', async () => {
+    role = 'client'
+    await expect(updateRevenueFilterEnabled(ORG, true)).rejects.toThrow('REDIRECT:/dashboard')
+    role = null
+    await expect(updateRevenueFilterEnabled(ORG, true)).rejects.toThrow('REDIRECT:/login')
+    await updateRevenueFilterEnabled(ORG, 'false' as unknown as boolean)
+    expect(proposeForOrganisation).not.toHaveBeenCalled()
   })
 })

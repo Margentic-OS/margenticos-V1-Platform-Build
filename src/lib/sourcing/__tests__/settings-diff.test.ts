@@ -123,7 +123,10 @@ describe('diffSettings', () => {
     // rest are words about the settings. A metadata field added later lands in neither
     // list, and this test fails until somebody decides which it is.
     const READ = ['buyer_criterion', 'fit_dimensions', 'omitted_axes']
-    const IGNORED = ['notes', 'unmatched_industries', 'omission_reasons', 'targeting_inputs']
+    // criterion_held joined on 2026-09-30 (ADR-061 step 4), and this test is what made the
+    // decision explicit: it is a NOTE that the live criterion was kept, and the criterion
+    // it describes is already compared in full.
+    const IGNORED = ['notes', 'unmatched_industries', 'omission_reasons', 'targeting_inputs', 'criterion_held']
     expect([...READ, ...IGNORED].sort()).toEqual([...FILTER_SPEC_METADATA_FIELDS].sort())
 
     const plants: Record<string, unknown> = {
@@ -131,6 +134,7 @@ describe('diffSettings', () => {
       unmatched_industries: ['a planted unmatched name'],
       omission_reasons: { keywords: 'a planted reason' },
       targeting_inputs: targetingInputs({}, { revenueFilterEnabled: true }),
+      criterion_held: { rederived_status: 'out_of_band', reason: 'a planted reason', held_at: '2026-01-01T00:00:00.000Z' },
     }
     for (const field of IGNORED) {
       const proposed = { ...baseSpec(), [field]: plants[field] } as ICPFilterSpec

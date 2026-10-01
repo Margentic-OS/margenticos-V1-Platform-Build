@@ -127,8 +127,10 @@ export async function tierEnrichedBatch(
     // THE CONSEQUENCE, WHICH IS NOT FREE. This freezes a removal verdict: a removed
     // prospect is never re-examined by this path again. That is ADR-034's shape and
     // it is why this filter must never ship alone. Removals are put back in the
-    // queue by persistIcpFilterSpec when a new ICP filter spec is stored, and by
-    // nothing else. See ADR-037.
+    // queue by exactly one thing. It was every ICP promotion. Since ADR-061 it is the
+    // approval of a change to something tiering reads (step 5), and between steps 4
+    // and 5 nothing re-queues, because nothing can change the live settings either.
+    // See ADR-037 and ADR-061.
     const { data: prospects, error: prospectError } = await supabase
       .from('prospects')
       // apollo_enrichment_data is read for the concurrent-role count only (concurrent-roles.ts),

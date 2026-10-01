@@ -39,14 +39,16 @@ const ROOT = process.cwd()
  */
 const SCANNED = [
   ['src/lib/agents/icp-filter-spec.ts', 'builds the stored spec; held the deleted rule'],
-  ['src/lib/sourcing/persist-icp-filter-spec.ts', 'obtains the bands and passes them in'],
+  ['src/lib/sourcing/propose-icp-filter-spec.ts', 'obtains the bands and passes them in'],
   ['src/test-utils/seniority-fixture.ts', 'supplies bands to every test that needs one'],
   ['src/lib/agents/__tests__/spec-seniority-required.test.ts', 'the refusal tests'],
   // ADDED 2026-09-08 during the merge. It carries the ICP document fixture the deleted rule
   // used to read, and it still named a buyer type and a band in it. Nothing reads that field
   // any more, so the values were inert, but a fixture is exactly where vocabulary comes back:
   // it is the least-read file in a change and the first one copied into the next test.
-  ['src/lib/sourcing/__tests__/removed-prospects-requeue.test.ts', 'carries the ICP document fixture'],
+  // MOVED 2026-09-30 with the fixture: the ICP document these tests carry now lives in the
+  // proposal test, since ADR-061 took the derivation out of the re-queue test.
+  ['src/lib/sourcing/__tests__/propose-icp-filter-spec.test.ts', 'carries the ICP document fixture'],
 ] as const
 
 /**

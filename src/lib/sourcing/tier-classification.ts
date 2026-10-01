@@ -408,16 +408,17 @@ export async function classifyTier(
   // kinds of evidence and only three were even arguably a second job. Read the output of a
   // new disqualifier before letting it spend or refuse to spend.
   //
-  // Six rows still carry the withdrawn reason with a null tier. They are not re-tiered here:
-  // persist-icp-filter-spec already clears tiering_reason on null-tier rows when a spec is
-  // saved, so they re-tier by themselves at the next ICP approval, and until then they are
-  // blocked from every paid stage, which costs nothing.
+  // Six rows still carry the withdrawn reason with a null tier. They are not re-tiered here.
+  // When this was written they would have re-tiered at the next ICP approval. Since ADR-061
+  // an ICP approval re-queues nothing: they re-tier when a change to the search settings is
+  // approved (step 5). Until then they are blocked from every paid stage, which costs nothing.
 
   // Disqualifier 3b: THERE IS NO CRITERION TO JUDGE BY. Withhold the tier, loudly.
   //
   // This is not a verdict about the prospect. It is a refusal to produce one, and the
   // difference matters because `sourced_tier` is a MATERIALISED VERDICT: nothing
-  // re-evaluates it once written except the spec-change thaw in persist-icp-filter-spec.
+  // re-evaluates it once written except the thaw on an approved settings change (ADR-037,
+  // as amended by ADR-061).
   //
   // WHAT IT USED TO DO, and why that was worse than either alternative. The gate above
   // fails OPEN on `no_criterion`, deliberately, so an unvalidated criterion cannot
@@ -438,9 +439,11 @@ export async function classifyTier(
   //   - Only the TIER is withheld. The pre-enrichment buyer gate in
   //     enrichment-selection.ts reads the same evaluateBuyerCriterion and still fails
   //     open. Nothing about spend changes, so this cannot make a client pay more.
-  //   - It is RECOVERABLE with no new machinery. persistIcpFilterSpec already clears
-  //     tiering_reason for every row with a null tier when a new spec is stored, so the
-  //     moment an ICP carrying a criterion is approved these rows re-tier by themselves.
+  //   - It is RECOVERABLE with no new machinery. Approving settings that carry a gating
+  //     criterion clears tiering_reason for every row with a null tier (ADR-061 step 5),
+  //     so these rows re-tier by themselves. And since ADR-061 this branch should not be
+  //     reachable for a client with approved settings at all: a criterion that does not
+  //     gate never becomes live.
   //   - It is VISIBLE. `removed_no_buyer_criterion` is derived from REMOVAL_REASONS, so
   //     it gets its own always-present count in logClassificationStats, and a non-zero
   //     removal count logs at warn.

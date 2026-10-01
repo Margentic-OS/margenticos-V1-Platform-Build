@@ -1074,11 +1074,19 @@ prospect, so people we were always going to reject cost money first.
      client's documents. This is meant to be read aloud on an onboarding call. It is how you
      check the system's judgement before it starts filtering real prospects.
 
-**Where it is stored.** Inside the existing ICP filter spec, as `buyer_criterion`. It is
-approved with the ICP and re-derived whenever a new ICP is approved. There is no separate
-document and no extra approval step.
+**Where it is stored.** Inside the existing ICP filter spec, as `buyer_criterion`. There is
+no separate document.
 
-**What connects to it.** `persistIcpFilterSpec` calls it after an ICP is promoted.
+**When it runs, since ADR-061 (2026-09-30).** NOT on every ICP approval. It used to be
+re-derived whenever a new ICP was approved, and three identical calls can return different
+criteria, so a wording edit could change who a client emails. It now runs only when a buyer
+profile or a disqualifier in the ICP changes. Its answer goes into a PROPOSAL beside the
+live settings and applies when the operator approves it. If the re-derived criterion does
+not gate (unsettled, or out of band) and the live one does, the live one is kept and the
+proposal says so.
+
+**What connects to it.** `proposeIcpFilterSpec` calls it, after a promotion in which a
+buyer profile or a disqualifier changed.
 `gateProspectsBeforeEnrichment` applies the result before any enrichment spend, and
 `classifyTier` applies the same rule again after enrichment.
 
@@ -1120,10 +1128,17 @@ of the profile it came from, its role, and whether research can establish it. Ev
 checked against the profile; an answer with any source not found there is refused.
 
 **Where it is stored.** Inside the ICP filter spec, as `fit_dimensions`, beside `buyer_criterion`.
-Re-derived whenever a new ICP is approved. No separate document and no extra approval step.
+No separate document.
 
-**What connects to it.** `persistIcpFilterSpec` calls it after an ICP is promoted, in parallel
-with the geography call. `loadClientContext` reads the stored list for the research judge.
+**When it runs, since ADR-061 (2026-09-30).** Only when a targeting field in the ICP changes:
+the company profile's industries, headcount, revenue range or geography, the buyer's title
+or seniority, or a disqualifier. The result rides in the proposal and takes effect when the
+operator approves it. It also reads the summary, the stage and the business model, which are
+not targeting fields, so an edit to ONLY those does not refresh it. That is an accepted cost
+recorded in ADR-061.
+
+**What connects to it.** `proposeIcpFilterSpec` calls it when a targeting field in the
+document changed, in parallel with the geography call when that runs too. `loadClientContext` reads the stored list for the research judge.
 
 **What to check if it breaks.**
   - If a client's grades look like the judge's own again, check whether their spec has
@@ -1131,7 +1146,8 @@ with the geography call. `loadClientContext` reads the stored list for the resea
     none, and the judge then grades exactly as it did before. The failure is logged as "fit
     dimensions could not be derived".
   - If nearly every prospect comes out cannot_tell, read the list: a required dimension marked
-    establishable that research rarely shows will do that. Re-approving the profile re-derives it.
+    establishable that research rarely shows will do that. Editing the targeting field it
+    was read from files a proposal with a fresh list; re-approving unchanged words does not.
   - If nearly every prospect comes out weak, look for a required dimension worded more strictly
     than the client meant, such as one that names exact titles.
 

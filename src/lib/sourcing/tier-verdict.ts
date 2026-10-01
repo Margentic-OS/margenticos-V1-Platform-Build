@@ -30,10 +30,10 @@
 // WHY THIS IS NOT MATERIALISED INTO email_send_eligible
 //
 // The obvious shortcut is to AND the tier verdict into email_send_eligible at verification
-// time, so every consumer keeps its single flat read. It is wrong, and persist-icp-filter-
-// spec.ts is why: when a new ICP specification is saved it CLEARS tiering_reason on the
+// time, so every consumer keeps its single flat read. It is wrong, and the thaw is why:
+// when a change to the search settings is approved, tiering_reason is CLEARED on the
 // organisation's rejected rows so tiering runs on them again under the new rules
-// (persist-icp-filter-spec.ts:180-183). A tier verdict frozen into the boolean would not be
+// (ADR-037 as amended by ADR-061). A tier verdict frozen into the boolean would not be
 // recomputed by that, because nothing re-runs verification, and the row would sit
 // permanently ineligible after later qualifying.
 //
@@ -94,9 +94,10 @@ export const TIER_NOT_REJECTED_FILTER = 'sourced_tier.not.is.null,tiering_reason
  * Research was bought roughly two hours before the verdict existed. The gate did not fail:
  * the verdict was absent, and this module's looser rule admits an absent verdict on purpose.
  *
- * The mechanism is persist-icp-filter-spec.ts:402, which CLEARS tiering_reason on rejected
- * rows when a new spec is stored so the new rules get applied. That is correct and must
- * stay. Its side effect is that "rejected" becomes "not yet tiered" for as long as it takes
+ * The mechanism was persist-icp-filter-spec.ts, which CLEARED tiering_reason on rejected
+ * rows on every ICP promotion. Since ADR-061 the clearing happens only when a change to
+ * the settings is approved, so a wording revision like that day's no longer causes it.
+ * The clearing itself is correct and stays. Its side effect is that "rejected" becomes "not yet tiered" for as long as it takes
  * the next tiering run to reach the row, and there is no standalone tiering cron: tiering
  * runs only inside verify-pending. On 2026-09-14 that window was 5h17m.
  *

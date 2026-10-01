@@ -1,4 +1,5 @@
-// ADR-061 step 3: a new ICP version inherits the live search settings.
+// ADR-061 steps 3 and 4: a new ICP version inherits the live search settings, and the
+// sourcing cursor follows them onto the new row.
 //
 // WHAT THIS PROVES AND WHAT IT DOES NOT. It reads MIGRATION FILES. Migrations are
 // append-only, so this proves what the newest definition of the promote function said on
@@ -56,10 +57,11 @@ describe('promote_strategy_doc_version, as its newest migration defines it', () 
     // The column list may hold only lowercase names, commas and space. That is what stops
     // the match starting at an EARLIER select in the same function: every other one has an
     // uppercase keyword between its SELECT and this INTO.
-    const read = body.match(/SELECT\s+([a-z_,\s]+?)\s+INTO\s+v_spec,\s*v_proposed,\s*v_approved_at,\s*v_approved_by\s+FROM\s+strategy_documents\s+WHERE([\s\S]*?)LIMIT 1/)
+    const read = body.match(/SELECT\s+([a-z_,\s]+?)\s+INTO\s+v_old_id,\s*v_spec,\s*v_proposed,\s*v_approved_at,\s*v_approved_by\s+FROM\s+strategy_documents\s+WHERE([\s\S]*?)LIMIT 1/)
     expect(read, 'the function does not read the live settings into its variables').not.toBeNull()
     const [, columns, where] = read!
-    expect(columns.split(',').map(c => c.trim())).toEqual(SETTINGS_COLUMNS)
+    // The row's own id first: step 4 needs it to move the cursor.
+    expect(columns.split(',').map(c => c.trim())).toEqual(['id', ...SETTINGS_COLUMNS])
     // From the LIVE row of this organisation's ICP, and no other row.
     expect(where).toMatch(/organisation_id\s*=\s*p_org_id/)
     expect(where).toMatch(/document_type\s*=\s*'icp'/)
@@ -69,7 +71,7 @@ describe('promote_strategy_doc_version, as its newest migration defines it', () 
 
   it('only does so for ICPs', () => {
     const { body } = latestPromoteDefinition()
-    expect(body).toMatch(/IF p_doc_type = 'icp' THEN\s+SELECT\s+icp_filter_spec,/)
+    expect(body).toMatch(/IF p_doc_type = 'icp' THEN\s+SELECT\s+id,\s*icp_filter_spec,/)
   })
 
   it('writes all four onto the new row, in the insert that creates it', () => {
@@ -90,20 +92,36 @@ describe('promote_strategy_doc_version, as its newest migration defines it', () 
     // After the archive there is no active row left to read, and the new row would inherit
     // nothing while every other check here still passed.
     const { body } = latestPromoteDefinition()
-    const read = body.indexOf('INTO v_spec, v_proposed')
+    const read = body.indexOf('INTO v_old_id, v_spec, v_proposed')
     const archive = body.indexOf("SET status = 'archived'")
     expect(read).toBeGreaterThan(-1)
     expect(archive).toBeGreaterThan(-1)
     expect(read).toBeLessThan(archive)
   })
 
-  it('does not touch the sourcing cursor: ADR-061 moved that to step 4', () => {
-    // A cursor that kept its offset while the old path still re-derived the search would
-    // point into a different result set and skip records silently. Step 4 removes the
-    // re-derivation and adds the re-key in the same rollout, and changes this test then.
+  it('moves the sourcing cursor onto the new row, and keeps the offset', () => {
+    // Step 3 pinned the ABSENCE of this, because the old path still re-derived the search
+    // after every promotion and an inherited offset could have pointed into a different
+    // result set. Step 4 removed that re-derivation, so the offset is now valid to keep.
     const { body } = latestPromoteDefinition()
-    expect(body.length).toBeGreaterThan(500)
-    expect(body).not.toMatch(/sourcing_cursors/)
+    const update = body.match(/UPDATE sourcing_cursors\s+SET([\s\S]*?)WHERE([\s\S]*?);/)
+    expect(update, 'the function does not re-key the cursor').not.toBeNull()
+    const [, set, where] = update!
+    expect(set).toMatch(/icp_document_id\s*=\s*v_new_doc\.id/)
+    // The offset is the client's place in the search. It must not be assigned at all:
+    // not reset to zero, and not copied either, since it is already there.
+    expect(set).not.toMatch(/record_offset/)
+    // This organisation's cursor, and only when it points at the row being replaced.
+    expect(where).toMatch(/organisation_id\s*=\s*p_org_id/)
+    expect(where).toMatch(/icp_document_id\s*=\s*v_old_id/)
+  })
+
+  it('re-keys the cursor only for an ICP that replaced a previous one, after the new row exists', () => {
+    const { body } = latestPromoteDefinition()
+    expect(body).toMatch(/IF p_doc_type = 'icp' AND v_old_id IS NOT NULL THEN\s+UPDATE sourcing_cursors/)
+    expect(body.indexOf('UPDATE sourcing_cursors')).toBeGreaterThan(body.indexOf('RETURNING * INTO v_new_doc'))
+    // One statement touches the cursor, and nothing else in the function names the table.
+    expect(body.match(/sourcing_cursors/g)?.length).toBe(1)
   })
 
   it('still names all three roles when it restates who may call it', () => {

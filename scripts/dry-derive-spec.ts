@@ -52,7 +52,7 @@ async function main() {
 
     // Geography first, because it is the half that changed and the half that can refuse.
     // Its failure is reported and the derivation is skipped, which is exactly what
-    // persistIcpFilterSpec does in production: it fails closed and writes no spec at all.
+    // proposeIcpFilterSpec does in production: it fails closed and files no proposal at all.
     let geography: ResolvedGeography | null = null
     try {
       geography = await resolveIcpGeography({

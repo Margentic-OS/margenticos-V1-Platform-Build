@@ -66,8 +66,8 @@ vi.mock('next/server', async (importOriginal) => {
   return { ...actual, after: (fn: () => Promise<unknown>) => fn() }
 })
 
-vi.mock('@/lib/sourcing/persist-icp-filter-spec', () => ({
-  persistIcpFilterSpec: vi.fn().mockResolvedValue(undefined),
+vi.mock('@/lib/sourcing/propose-icp-filter-spec', () => ({
+  proposeIcpFilterSpec: vi.fn().mockResolvedValue({ outcome: 'unchanged' }),
 }))
 
 vi.mock('@/lib/agents/cascade/trigger-cascade', () => ({

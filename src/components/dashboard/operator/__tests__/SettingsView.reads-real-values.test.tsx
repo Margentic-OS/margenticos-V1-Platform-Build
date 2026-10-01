@@ -257,6 +257,6 @@ describe('the revenue filter shows the stored value, and is off unless opted in'
 
   it('says when a change takes effect, beside the control', () => {
     render(<SettingsView organisation={ORG} integrations={REGISTRY} clientRequested />)
-    expect(screen.getByText(/takes effect at the next ICP approval/i)).toBeInTheDocument()
+    expect(screen.getByText(/takes effect when you approve it/i)).toBeInTheDocument()
   })
 })

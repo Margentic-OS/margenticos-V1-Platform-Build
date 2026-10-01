@@ -29,7 +29,7 @@ import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
-import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+import { proposeIcpFilterSpec } from '@/lib/sourcing/propose-icp-filter-spec'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 
 export const dynamic = 'force-dynamic'
@@ -122,11 +122,14 @@ export async function POST(request: NextRequest) {
     operator_user_id: user!.id,
   })
 
-  // An ICP going live without its filter spec breaks sourcing, and promote does not copy
-  // the spec forward. Derived here for the same reason the approve path derives it: the
-  // spec is a function of the content, and the content is what just changed.
+  // ADR-061. A restore brings back the old WORDS and keeps the LIVE search settings: the
+  // promote function copied them onto the restored version. Before ADR-061 this re-derived
+  // the settings from the restored content, so putting back a version whose search had been
+  // good produced a different search. Now it only asks whether the restored version's
+  // TARGETING fields differ from the ones the live settings were built from, and if they do
+  // it files a proposal for the operator. The search does not move here.
   if (result?.id) {
-    await persistIcpFilterSpec(supabase, result.id)
+    await proposeIcpFilterSpec(supabase, result.id)
   }
 
   // Every promotion path calls this one function. Filling a downstream gap is all it

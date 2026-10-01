@@ -2,8 +2,8 @@
 //
 // WHY THIS EXISTS. Two different silent failures meet here.
 //
-// 1. STORED SPECS ARE FROZEN. deriveFilterSpec has exactly one caller,
-//    persistIcpFilterSpec, which runs only when a document is promoted. Nothing
+// 1. STORED SPECS ARE FROZEN. deriveFilterSpec runs only when a targeting field changes
+//    (proposeIcpFilterSpec, ADR-061), and its result waits for approval. Nothing
 //    recomputes a spec on read. So changing deriveFilterSpec leaves every existing row
 //    on the old shape, and production carries a MIXED POPULATION of spec shapes.
 //    Every reader casts (`icpDoc.icp_filter_spec as ICPFilterSpec`) with no runtime

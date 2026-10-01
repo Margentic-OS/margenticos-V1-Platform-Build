@@ -23,8 +23,9 @@
 //
 // Measured against production instead: 25 real ICP suggestions, 25 refusals, 0 allowances.
 // `icp_filter_spec` appears in NO suggestion's suggested_value and NO document's content. It
-// is a COLUMN written by persistIcpFilterSpec AFTER promotion. The spec is created BY
-// approval, so a pre-approval gate on it can never pass.
+// is a COLUMN, never part of a suggestion. When this was written the column was derived
+// AFTER promotion; since ADR-061 it is inherited from the outgoing version by the promote
+// function. Either way a pre-approval gate on a suggestion's contents can never find it.
 //
 // The rewrite would have refused every ICP approval in production. Its predecessor's
 // accidental fail-open was the only reason approval worked at all.
@@ -123,7 +124,7 @@ describe('logUngatedIcpApproval blocks nothing, and cannot', () => {
     // The assertion that matters, and it is load-bearing precisely because it looks trivial.
     // The previous version of this file asserted a REFUSAL and would have blocked every ICP
     // approval in production. Measured 2026-09-08: 0 of 25 real ICP suggestions carry a spec,
-    // because the spec is derived AFTER promotion. A void return is what stops a future
+    // because the spec was never part of a suggestion. A void return is what stops a future
     // caller reintroducing a branch on a decision this function is not entitled to make.
     const result = await logUngatedIcpApproval(
       makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid')
@@ -134,7 +135,9 @@ describe('logUngatedIcpApproval blocks nothing, and cannot', () => {
     await logUngatedIcpApproval(makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid')
 
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining('derived AFTER promotion'),
+      // Reworded 2026-09-30 with ADR-061: the settings are inherited now, not derived
+      // after promotion. What is pinned is that the line still says no check was made.
+      expect.stringContaining('without a filter-spec check'),
       expect.objectContaining({ organisation_id: 'org-uuid' }),
     )
   })

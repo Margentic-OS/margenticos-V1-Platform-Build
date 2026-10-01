@@ -78,11 +78,18 @@ export async function readCursor(
   const storedOffset = typeof data.record_offset === 'number' ? data.record_offset : 0
   const storedDocument = (data.icp_document_id as string | null) ?? null
 
-  // AN ICP CHANGE INVALIDATES THE POSITION. The offset indexes into one result set, and a new
-  // spec is a different query, so carrying it over would skip the first N records of a set
-  // nobody has read. Only reset when BOTH sides are known: a null on either side means we
-  // cannot tell whether the query changed, and resetting on "don't know" would quietly
-  // restart a client at the top.
+  // A CURSOR KEYED TO A DIFFERENT DOCUMENT IS RESET. The offset indexes into one result set,
+  // and this function cannot tell whether a different document means a different query, so
+  // it does not carry the offset over: that could skip the first N records of a set nobody
+  // has read. Only reset when BOTH sides are known: a null on either side means we cannot
+  // tell whether the query changed, and resetting on "don't know" would quietly restart a
+  // client at the top.
+  //
+  // SINCE ADR-061 THIS IS A BACKSTOP, NOT THE NORMAL PATH. A new ICP version inherits the
+  // live search settings unchanged, so it builds the same query, and the promote function
+  // moves the cursor's key onto the new version with the offset kept. A promotion therefore
+  // no longer arrives here with a mismatched document. What still does is a cursor left on
+  // some older version, which the promote function deliberately does not touch.
   if (storedDocument !== null && icpDocumentId !== null && storedDocument !== icpDocumentId) {
     logger.info('sourcing cursor: ICP changed, position reset', {
       organisation_id: organisationId,

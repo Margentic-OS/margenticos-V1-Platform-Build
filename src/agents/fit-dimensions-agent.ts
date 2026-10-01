@@ -33,8 +33,9 @@
 //
 // ─── FAILURE ─────────────────────────────────────────────────────────────────
 //
-// It throws. The caller (persistIcpFilterSpec) catches and stores the spec WITHOUT dimensions,
-// which leaves that client's judge grading the way it did before this existed. A dimension list
+// It throws. The caller (proposeIcpFilterSpec, since ADR-061) catches and carries the LIVE
+// dimensions into the proposal, or none where the client has none,
+// which leaves that client's judge grading the way it did before the call. A dimension list
 // that was guessed at would change every grade silently; a missing one changes nothing.
 
 import Anthropic from '@anthropic-ai/sdk'

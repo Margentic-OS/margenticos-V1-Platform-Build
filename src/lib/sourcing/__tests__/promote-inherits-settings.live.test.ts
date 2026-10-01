@@ -1,4 +1,4 @@
-// ADR-061 step 3, against the real function in the TEST database.
+// ADR-061 steps 3 and 4, against the real function in the TEST database.
 //
 // The unit test beside this file reads the migration. This one runs it. A migration can say
 // one thing while the database holds another, and only calling the function shows which.
@@ -178,5 +178,73 @@ describe('a new ICP version inherits the live search settings', () => {
     expect(third.icp_filter_spec).toEqual(NEWER)
     // And the archived first version still holds its own, untouched.
     expect((await readSettings(first)).icp_filter_spec).toEqual({ marker: 'settings as of version 1' })
+  })
+})
+
+describe('the sourcing cursor follows the settings onto the new version (step 4)', () => {
+  async function seedCursor(organisationId: string, documentId: string | null, offset: number) {
+    const { error } = await untyped.from('sourcing_cursors').insert({
+      organisation_id: organisationId, icp_document_id: documentId, record_offset: offset,
+    })
+    expect(error).toBeNull()
+  }
+  async function readCursorRow(organisationId: string) {
+    const { data, error } = await untyped
+      .from('sourcing_cursors').select('icp_document_id, record_offset')
+      .eq('organisation_id', organisationId).single()
+    expect(error).toBeNull()
+    return data!
+  }
+
+  it('moves the key to the new version and keeps the offset', async () => {
+    const org = await seedOrganisation('inherit-cursor')
+    const first = await seedActiveDocument(org, 'icp', { icp_filter_spec: LIVE_SETTINGS })
+    await seedCursor(org, first, 500)
+
+    const promoted = await promote(org, 'icp', { words: 'prose edited' })
+
+    expect(await readCursorRow(org)).toEqual({ icp_document_id: promoted.id, record_offset: 500 })
+  })
+
+  it('leaves alone a cursor keyed to some OLDER version: it cannot vouch for that query', async () => {
+    const org = await seedOrganisation('inherit-cursor-old')
+    const older = await seedActiveDocument(org, 'icp', { icp_filter_spec: { marker: 'older' } })
+    await promote(org, 'icp', { words: 'second' })
+    // Put the cursor back on the archived first version, as a stale cursor would be.
+    const { error } = await untyped.from('sourcing_cursors').upsert(
+      { organisation_id: org, icp_document_id: older, record_offset: 300 },
+      { onConflict: 'organisation_id' },
+    )
+    expect(error).toBeNull()
+
+    await promote(org, 'icp', { words: 'third' })
+
+    // Untouched. readCursor sees a different document and resets, which re-reads and
+    // loses nothing.
+    expect(await readCursorRow(org)).toEqual({ icp_document_id: older, record_offset: 300 })
+  })
+
+  it('never moves a cursor when a document of another type is promoted', async () => {
+    const org = await seedOrganisation('inherit-cursor-other')
+    const icp = await seedActiveDocument(org, 'icp', { icp_filter_spec: LIVE_SETTINGS })
+    await seedActiveDocument(org, 'positioning')
+    await seedCursor(org, icp, 120)
+
+    await promote(org, 'positioning', { words: 'second positioning' })
+
+    expect(await readCursorRow(org)).toEqual({ icp_document_id: icp, record_offset: 120 })
+  })
+
+  it('never moves ANOTHER organisation\'s cursor', async () => {
+    const promoting = await seedOrganisation('inherit-cursor-a')
+    const bystander = await seedOrganisation('inherit-cursor-b')
+    const mine = await seedActiveDocument(promoting, 'icp', { icp_filter_spec: LIVE_SETTINGS })
+    const theirs = await seedActiveDocument(bystander, 'icp', { icp_filter_spec: LIVE_SETTINGS })
+    await seedCursor(promoting, mine, 40)
+    await seedCursor(bystander, theirs, 900)
+
+    await promote(promoting, 'icp', { words: 'prose edited' })
+
+    expect(await readCursorRow(bystander)).toEqual({ icp_document_id: theirs, record_offset: 900 })
   })
 })

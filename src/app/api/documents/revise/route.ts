@@ -47,7 +47,7 @@ import { renderDocumentPlainText } from '@/lib/documents/render-plain-text'
 import { logger } from '@/lib/logger'
 import { LIVE_DOCUMENT_STATUSES } from '@/lib/documents/live-document-statuses'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
-import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+import { proposeIcpFilterSpec } from '@/lib/sourcing/propose-icp-filter-spec'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import { revisionGateFailureTemplate, revisionGateFailureSubject } from '@/lib/email/templates/revision-gate-failure'
 
@@ -366,13 +366,19 @@ export async function POST(request: NextRequest) {
   // revising their own prospect profile broke sourcing until somebody regenerated
   // through the other path, and nothing said why.
   //
-  // In after() for the same reason the approval path does it: persistIcpFilterSpec makes
-  // an LLM call to derive the buyer criterion, and this request has already spent most of
-  // its 300 seconds running the revision agent. It never throws and never fails the
-  // promotion.
+  // WHAT THE FIX BECAME, 2026-09-30 (ADR-061). The fix above was to derive the spec on
+  // this path as the approve path did. Both now do something narrower. The new version
+  // inherits the live settings from the promote function, so it is never live without
+  // them, and proposeIcpFilterSpec only asks whether a TARGETING field changed. A revision
+  // that rewrites wording does nothing to the search. One that changes who is targeted
+  // files a proposal for the operator, and the live settings stay in force until then.
+  //
+  // Still in after(): when a targeting field did change it may call a model, and this
+  // request has already spent most of its 300 seconds running the revision agent. It never
+  // throws and never fails the promotion.
   after(async () => {
     if (result?.id) {
-      await persistIcpFilterSpec(admin, result.id)
+      await proposeIcpFilterSpec(admin, result.id)
     }
     // Revisions may unlock the next agent in the sequence.
     // admin is service-role so allThreeActive() is not filtered by RLS.

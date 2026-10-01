@@ -9,10 +9,18 @@
 // 'client_revision' had a NULL spec, and every one from the suggestion path had a
 // populated one. A clean split along the code path.
 //
-// The assertion is that persistIcpFilterSpec is called with the id of the NEW document,
-// not the one that was revised. Passing the old id would derive a spec from stale content
-// and write it to a row that is already archived, which is the version of this fix that
-// would look right and do nothing.
+// The assertion is that the settings step is called with the id of the NEW document, not
+// the one that was revised. Passing the old id would act on a row that is already archived,
+// which is the version of this fix that would look right and do nothing.
+//
+// ─── WHAT THE SETTINGS STEP IS NOW, 2026-09-30 (ADR-061) ─────────────────────
+//
+// It was persistIcpFilterSpec, which derived the settings afresh. It is proposeIcpFilterSpec,
+// which compares the new version's TARGETING fields with the ones the live settings were
+// built from, and files a proposal only when they differ. The new version is never live
+// without settings in the first place, because the promote function copies them onto it.
+// This file still pins the same two things: the call happens on this path, and it is given
+// the NEW id. What the call does is tested in propose-icp-filter-spec.test.ts.
 //
 // ─── WHAT CHANGED HERE, 2026-09-07 ───────────────────────────────────────────
 //
@@ -65,9 +73,9 @@ vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(() => ({ auth: { getUser: mockGetUser } })),
 }))
 
-const persistIcpFilterSpec = vi.fn().mockResolvedValue(undefined)
-vi.mock('@/lib/sourcing/persist-icp-filter-spec', () => ({
-  persistIcpFilterSpec: (...args: unknown[]) => persistIcpFilterSpec(...args),
+const proposeIcpFilterSpec = vi.fn().mockResolvedValue({ outcome: 'unchanged' })
+vi.mock('@/lib/sourcing/propose-icp-filter-spec', () => ({
+  proposeIcpFilterSpec: (...args: unknown[]) => proposeIcpFilterSpec(...args),
 }))
 
 const triggerCascadeIfEligible = vi.fn().mockResolvedValue(undefined)
@@ -99,7 +107,7 @@ function request(body: unknown) {
 beforeEach(() => {
   vi.clearAllMocks()
   rpcCalls.length = 0
-  persistIcpFilterSpec.mockResolvedValue(undefined)
+  proposeIcpFilterSpec.mockResolvedValue({ outcome: 'unchanged' })
   triggerCascadeIfEligible.mockResolvedValue(undefined)
   mockGetUser.mockResolvedValue({ data: { user: { id: USER } }, error: null })
 
@@ -123,8 +131,8 @@ beforeEach(() => {
   })
 })
 
-describe('a client revision to the prospect profile derives its filter spec', () => {
-  it('calls persistIcpFilterSpec with the NEW document id, and still runs the sequencer', async () => {
+describe('a client revision to the prospect profile runs the settings comparison', () => {
+  it('calls proposeIcpFilterSpec with the NEW document id, and still runs the sequencer', async () => {
     const { POST } = await import('../route')
     const res = await POST(request({
       document_id: OLD_DOC_ID,
@@ -132,11 +140,11 @@ describe('a client revision to the prospect profile derives its filter spec', ()
     }))
 
     expect(res.status).toBe(200)
-    expect(persistIcpFilterSpec).toHaveBeenCalledTimes(1)
-    expect(persistIcpFilterSpec.mock.calls[0][1]).toBe(NEW_DOC.id)
-    expect(persistIcpFilterSpec.mock.calls[0][1]).not.toBe(OLD_DOC_ID)
+    expect(proposeIcpFilterSpec).toHaveBeenCalledTimes(1)
+    expect(proposeIcpFilterSpec.mock.calls[0][1]).toBe(NEW_DOC.id)
+    expect(proposeIcpFilterSpec.mock.calls[0][1]).not.toBe(OLD_DOC_ID)
 
-    // The spec derivation was inserted into the same after() block the cascade already
+    // The settings step was inserted into the same after() block the cascade already
     // occupied. Both must run: a fix that quietly replaced one deferred call with another
     // would pass the assertion above and break first-generation for new clients.
     expect(triggerCascadeIfEligible).toHaveBeenCalledTimes(1)

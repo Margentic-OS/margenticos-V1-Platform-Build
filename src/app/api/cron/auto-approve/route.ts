@@ -15,7 +15,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
-import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+import { proposeIcpFilterSpec } from '@/lib/sourcing/propose-icp-filter-spec'
 import { plainTextForSuggestedValue } from '@/lib/documents/plain-text-for-suggestion'
 import { logUngatedIcpApproval } from '@/lib/sourcing/log-ungated-icp-approval'
 import { sendTransactionalEmail } from '@/lib/email/send'
@@ -145,11 +145,12 @@ export async function POST(request: NextRequest) {
       })
       succeeded++
 
-      // Persist ICP filter spec, notify client, and cascade in sequence.
-      // persistIcpFilterSpec is safe to call on any document type and never fails the promotion
+      // Compare targeting fields, notify client, and cascade in sequence.
+      // ADR-061: the new version inherits the live settings. This files a proposal only when
+      // a targeting field changed, and never changes the search. Safe on any document type.
       const documentId = (newDoc as unknown as { id?: string } | null)?.id
       if (documentId) {
-        await persistIcpFilterSpec(supabase, documentId)
+        await proposeIcpFilterSpec(supabase, documentId)
       }
       await notifyAfterPromotion(supabase, {
         organisation_id: suggestion.organisation_id,

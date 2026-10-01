@@ -1,10 +1,19 @@
-// The batch-cap fix and the re-queue that must ship with it.
+// The batch-cap fix, and where its other half went.
 //
-// Two halves of one behaviour, tested together on purpose:
-//   1. tierEnrichedBatch skips prospects that already carry a tiering_reason, so
-//      decided rows stop eating the batch cap.
-//   2. persistIcpFilterSpec clears tiering_reason for the org's removed prospects,
-//      so the filter in (1) does not turn a removal into a permanent verdict.
+// tierEnrichedBatch skips prospects that already carry a tiering_reason, so decided rows
+// stop eating the batch cap. That filter freezes a removal verdict, and ADR-037 says it
+// must never ship without something that thaws one.
+//
+// THE THAW USED TO BE TESTED HERE, AND IT HAS MOVED. Until ADR-061 it ran inside
+// persistIcpFilterSpec, on every ICP promotion, whether or not the settings had changed.
+// On 2026-09-30 that is how a wording edit put 62 removed prospects back in front of a
+// search nobody had chosen. From ADR-061 step 4 a promotion re-queues NOTHING, which
+// propose-icp-filter-spec.test.ts asserts for every kind of targeting edit, and the thaw
+// returns in step 5 on the approval of a change that tiering reads.
+//
+// BETWEEN STEP 4 AND STEP 5 NOTHING THAWS A REMOVAL, and that is consistent rather than a
+// gap: in that window nothing can change the live settings either, so no verdict was made
+// under a rule that has since moved.
 //
 // The fake honours eq(), is(), not() and limit() by actually filtering and slicing,
 // and throws on anything it does not implement. `tiering_reason: null` is set
@@ -16,72 +25,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tierEnrichedBatch } from '@/lib/sourcing/tiering-trigger'
-import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
-import { seniorityFixture } from '@/test-utils/seniority-fixture'
-import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 import { clearIndustryMappingCache } from '@/lib/sourcing/industry-mapping'
-import { logger } from '@/lib/logger'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
-import { aTargetableCode } from '@/test-utils/geography-fixture'
 
 vi.mock('@sentry/nextjs', () => ({
   withScope: (fn: (s: unknown) => void) => fn({ setExtra() {}, setContext() {} }),
   captureMessage: () => {},
   captureException: () => {},
   flush: async () => true,
-}))
-
-// ─── Geography is mocked, and it has to be, for a reason worth stating ────────
-//
-// persistIcpFilterSpec now resolves the client's countries before it writes anything, and
-// that step FAILS CLOSED: if it cannot resolve, no spec is written and the re-queue below
-// never runs. That is the correct production behaviour and it is tested in
-// geography-exclusion.test.ts and spec-geography-required.test.ts.
-//
-// It is not the subject here. This file is about the thaw: that a new filter spec clears
-// the tiering_reason on rows the OLD spec removed. Left unmocked, the resolution would
-// throw on a fake database with no integrations_registry, and all five tests would fail
-// for a reason that has nothing to do with re-queueing.
-//
-// THE BUYER CRITERION IS NOW MOCKED, AND THE REASON IT STOPPED BEING OPTIONAL MATTERS.
-//
-// It used to be deliberately unmocked, because it failed OPEN: it threw on the fake, was
-// caught, and the spec was written anyway, without job titles. That asymmetry was the
-// point of leaving it visible.
-//
-// It no longer fails open, because the SAME CALL now also derives the seniority bands, and
-// deriveFilterSpec refuses a spec with none. So a derivation that throws no longer produces
-// a partial spec; it produces no spec at all, and therefore no re-queue either.
-//
-// That is a deliberate policy change. It is asserted directly in
-// spec-seniority-required.test.ts, which pins the refusal itself; mocking it back to a
-// failure here would re-test the same branch through five layers of fake. What this file
-// keeps is the re-queue behaviour on the path where the derivation SUCCEEDS, which is the
-// path it was written for.
-vi.mock('@/agents/buyer-criterion-agent', () => ({
-  deriveBuyerCriterionWithVocabulary: async () => ({
-    criterion: {
-      status: 'derived', accept: [{ fragment: 'a-fragment', rank: 'primary' }], reject: [],
-      statement: 's', evidence: [], unsettled_reason: null, sanity: null,
-      derived_at: new Date(0).toISOString(), model: 'test',
-    },
-    vocabulary: { sells: 's', usedFor: 'u', nameWords: [] },
-    // Bands taken from the provider's own list rather than written out. See the fixture.
-    seniority: seniorityFixture(),
-  }),
-}))
-
-// The fit dimension derivation is a paid model call and is never reached from this file.
-vi.mock('@/agents/fit-dimensions-agent', () => ({
-  deriveFitDimensions: async () => ({ dimensions: [], derived_at: new Date(0).toISOString(), model: 'test' }),
-}))
-
-vi.mock('@/lib/sourcing/resolve-icp-geography', () => ({
-  resolveIcpGeography: async () => ({
-    countries: [aTargetableCode()],
-    removed_by_exclusion: [],
-    unresolved_phrases: [],
-  }),
 }))
 
 const ORG = '11111111-2222-3333-4444-555555555555'
@@ -199,48 +150,6 @@ function makeSupabase(tables: Record<string, Row[]>) {
   return { client, updates }
 }
 
-// A real IcpDocument shape. deriveFilterSpec reads tier_1/tier_2 company_profile
-// directly, so a loose fixture throws inside persistIcpFilterSpec's catch-all and
-// the function returns BEFORE the re-queue, which looks exactly like the re-queue
-// not working.
-// THE BUYER FIELDS ARE DELIBERATELY CONTENTLESS. They used to name a buyer type and a
-// seniority band, because the deleted rule READ buyer_profile.seniority and branched on the
-// words in it. Nothing reads that field now, so these values were inert, but a fixture is
-// where vocabulary comes back: it is the least-read file in a change and the first one
-// copied into the next test. The industries stay real because validateCanonicalIndustry
-// rejects anything else, and they are taken from the canonical list rather than typed out.
-function icpContent() {
-  return {
-    jtbd_statement: 'Grow pipeline without hiring.',
-    summary: 'A description of this client, in their own words.',
-    tier_1: {
-      company_profile: {
-        revenue_range: 'GBP 500K to 5M',
-        headcount: '5-20 people',
-        industries: [CANONICAL_INDUSTRIES[0]],
-      },
-      buyer_profile: { title: 'a role this market uses', seniority: 'as the document states it' },
-      disqualifiers: [],
-    },
-    tier_2: {
-      company_profile: {
-        revenue_range: 'GBP 500K to 5M',
-        headcount: '21-50 people',
-        industries: [CANONICAL_INDUSTRIES[1]],
-      },
-      buyer_profile: { title: 'a role this market uses', seniority: 'as the document states it' },
-      disqualifiers: [],
-    },
-    tier_3: {
-      company_profile: {
-        revenue_range: 'GBP 500K to 5M',
-        headcount: '51-100 people',
-        industries: [],
-      },
-    },
-  }
-}
-
 function tieringTables(prospects: Row[], specIndustries = ['Management Consulting']) {
   return {
     strategy_documents: [{
@@ -297,104 +206,5 @@ describe('tierEnrichedBatch: already-classified prospects do not eat the batch c
 
     const result = await tierEnrichedBatch(client, ORG, 100)
     expect(result.prospects_classified).toBe(2)
-  })
-})
-
-describe('persistIcpFilterSpec: re-queue on spec change', () => {
-  function persistTables(prospects: Row[]) {
-    return {
-      strategy_documents: [{
-        id: 'doc-1',
-        organisation_id: ORG,
-        document_type: 'icp',
-        content: icpContent(),
-      }],
-      prospects,
-    }
-  }
-
-  it('clears tiering_reason for the org\'s removed prospects', async () => {
-    const rows = [
-      prospect({ id: 'removed', tiering_reason: 'industry_not_consulting' }),
-      prospect({ id: 'fresh' }),
-      prospect({ id: 'survivor', sourced_tier: 'tier_1', tiering_reason: 'tier_1 (score 90)' }),
-    ]
-    const { client } = makeSupabase(persistTables(rows))
-
-    await persistIcpFilterSpec(client, 'doc-1')
-
-    expect(rows.find(r => r.id === 'removed')!.tiering_reason).toBeNull()
-    // A survivor keeps its verdict: re-tiering something already published to a
-    // client is a different decision with different consequences.
-    expect(rows.find(r => r.id === 'survivor')!.tiering_reason).toBe('tier_1 (score 90)')
-    expect(rows.find(r => r.id === 'survivor')!.sourced_tier).toBe('tier_1')
-  })
-
-  it('does not touch another organisation\'s removed prospects', async () => {
-    const rows = [
-      prospect({ id: 'mine', tiering_reason: 'not_decision_maker' }),
-      prospect({ id: 'theirs', organisation_id: OTHER_ORG, tiering_reason: 'not_decision_maker' }),
-    ]
-    const { client } = makeSupabase(persistTables(rows))
-
-    await persistIcpFilterSpec(client, 'doc-1')
-
-    expect(rows.find(r => r.id === 'mine')!.tiering_reason).toBeNull()
-    expect(rows.find(r => r.id === 'theirs')!.tiering_reason).toBe('not_decision_maker')
-  })
-
-  it('logs the re-queue at warn, with the org and the count', async () => {
-    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-
-    const { client } = makeSupabase(persistTables([
-      prospect({ id: 'r1', tiering_reason: 'not_decision_maker' }),
-      prospect({ id: 'r2', tiering_reason: 'industry_not_consulting' }),
-      prospect({ id: 'fresh' }),
-    ]))
-
-    await persistIcpFilterSpec(client, 'doc-1')
-
-    const line = warn.mock.calls.find(c => String(c[0]).includes('re-queued for tiering'))
-    expect(line).toBeDefined()
-
-    const payload = line![1] as Record<string, unknown>
-    expect(payload.requeued_count).toBe(2)
-    expect(payload.organisation_id).toBe(ORG)
-  })
-
-  it('logs at info, not warn, when there is nothing to re-queue', async () => {
-    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-    const info = vi.spyOn(logger, 'info').mockImplementation(() => {})
-
-    const { client } = makeSupabase(persistTables([prospect({ id: 'fresh' })]))
-
-    await persistIcpFilterSpec(client, 'doc-1')
-
-    expect(warn.mock.calls.find(c => String(c[0]).includes('re-queued for tiering'))).toBeUndefined()
-    expect(info.mock.calls.find(c => String(c[0]).includes('no removed prospects to re-queue'))).toBeDefined()
-  })
-})
-
-describe('the two halves together', () => {
-  it('a removed prospect is re-classified after a spec change, and not before', async () => {
-    const rows = [prospect({ id: 'removed', tiering_reason: 'industry_not_consulting' })]
-
-    // Before: the tiering run does not see it.
-    const first = makeSupabase(tieringTables(rows))
-    expect((await tierEnrichedBatch(first.client, ORG, 100)).prospects_classified).toBe(0)
-
-    // A new filter spec is stored for the organisation.
-    const persist = makeSupabase({
-      strategy_documents: [{
-        id: 'doc-1', organisation_id: ORG, document_type: 'icp',
-        content: icpContent(),
-      }],
-      prospects: rows,
-    })
-    await persistIcpFilterSpec(persist.client, 'doc-1')
-
-    // After: it is back in the queue and gets a fresh verdict.
-    const second = makeSupabase(tieringTables(rows))
-    expect((await tierEnrichedBatch(second.client, ORG, 100)).prospects_classified).toBe(1)
   })
 })

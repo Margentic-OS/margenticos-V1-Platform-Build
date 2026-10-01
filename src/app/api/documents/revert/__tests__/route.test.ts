@@ -24,8 +24,8 @@ vi.mock('@supabase/ssr', () => ({ createServerClient: vi.fn(() => ({})) }))
 
 // Both are called after a successful revert. Neither is what this file is about, and a
 // real call would reach the network.
-vi.mock('@/lib/sourcing/persist-icp-filter-spec', () => ({
-  persistIcpFilterSpec: vi.fn().mockResolvedValue(undefined),
+vi.mock('@/lib/sourcing/propose-icp-filter-spec', () => ({
+  proposeIcpFilterSpec: vi.fn().mockResolvedValue({ outcome: 'unchanged' }),
 }))
 vi.mock('@/lib/agents/cascade/trigger-cascade', () => ({
   triggerCascadeIfEligible: vi.fn().mockResolvedValue(undefined),

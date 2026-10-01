@@ -3,7 +3,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { logger } from '@/lib/logger'
+import { proposeIcpFilterSpecForOrganisationSafely } from '@/lib/sourcing/propose-icp-filter-spec'
 
 // Generous. A booking link is a vendor-generated URL and some carry long path segments and
 // query strings. The cap exists to refuse a paste of something that is not a URL at all,
@@ -232,6 +234,12 @@ export async function updateRevenueFilterEnabled(
     organisation_id: orgId,
     enabled,
   })
+
+  // ADR-061. The switch is a TARGETING field. Flipping it used to take effect silently at
+  // the next ICP approval, whenever that was. It now files a proposal straight away, which
+  // shows the operator what the search would send with the band on or off, and applies
+  // only when approved. It never changes the search by itself. Never throws.
+  after(() => proposeIcpFilterSpecForOrganisationSafely(orgId))
 
   revalidatePath('/dashboard/operator/settings')
 

@@ -494,8 +494,8 @@ function parseModelResponse(raw: string): ModelResponse {
 /**
  * Derive one client's buyer criterion.
  *
- * Throws on transport or parse failure. The caller treats a throw as "no criterion",
- * which fails OPEN — see persistIcpFilterSpec.
+ * Throws on transport or parse failure. Since ADR-061 the caller, proposeIcpFilterSpec,
+ * treats a throw as "no proposal": the live settings, criterion included, stay in force.
  */
 export async function deriveBuyerCriterion(
   input: BuyerCriterionInput,
@@ -507,7 +507,7 @@ export async function deriveBuyerCriterion(
  * The same single call, returning the client's vocabulary alongside the criterion.
  *
  * TWO ENTRY POINTS, ONE CALL, and the split exists so the spec derivation's type does not
- * change. persistIcpFilterSpec wants a BuyerCriterion and storing a vocabulary inside it
+ * change. proposeIcpFilterSpec wants a BuyerCriterion and storing a vocabulary inside it
  * would put two new keys into every client's stored spec to serve a feature that does not
  * write specs at all.
  */

@@ -90,9 +90,11 @@ Measured from `agent_runs` on the live organisation, 2026-09-14:
 Research was bought roughly two hours before the verdict existed. **The gate did not fail.**
 The verdict was absent, and the looser rule admits an absent verdict deliberately.
 
-The mechanism is the `persist-icp-filter-spec.ts` thaw described in the next section: it
-clears `tiering_reason` so the new rules get applied, which turns "rejected" into "not yet
-tiered" until the next tiering run reaches the row. There is no standalone tiering cron —
+The mechanism was the thaw in `persist-icp-filter-spec.ts`: on every ICP promotion it
+cleared `tiering_reason` so the new rules got applied, which turns "rejected" into "not yet
+tiered" until the next tiering run reaches the row. **Since ADR-061 (2026-09-30) a promotion
+clears nothing.** The thaw returns in step 5, on the approval of a change to something
+tiering reads, so a wording revision like the one that day no longer opens this window. There is no standalone tiering cron —
 tiering runs only inside `verify-pending` — so that window is real time. On 2026-09-14 it was
 5 hours 17 minutes and cost about $0.42 on two prospects.
 
@@ -111,8 +113,8 @@ edited one of them yet.
 `email_send_eligible` means one thing and only one thing: THIS ADDRESS IS DELIVERABLE.
 
 The tempting shortcut is to AND the tier verdict into it at verification time so every
-consumer keeps one flat read. It goes stale. `persist-icp-filter-spec.ts` clears
-`tiering_reason` on an organisation's rejected rows when a new ICP specification is saved, so
+consumer keeps one flat read. It goes stale. When a change to the search settings is
+approved (ADR-061), `tiering_reason` is cleared on the organisation's rejected rows, so
 tiering runs on them again under the new rules. A tier verdict frozen into the boolean would
 not be recomputed by that, because nothing re-runs verification, and the row would sit
 permanently ineligible after later qualifying.

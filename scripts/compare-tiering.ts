@@ -8,7 +8,7 @@
  *
  * WRITES NOTHING, and that is the entire point of it existing next to run-tiering.ts.
  * `sourced_tier` is a materialised verdict: nothing re-evaluates it once written except
- * the thaw in persistIcpFilterSpec. So a change to classifyTier is invisible until it is
+ * the thaw on an approved settings change (ADR-061). So a change to classifyTier is invisible until it is
  * applied, and applying it to find out what it does is the wrong order. This runs the new
  * code against the stored rows and prints the movement before anything is committed to.
  *
