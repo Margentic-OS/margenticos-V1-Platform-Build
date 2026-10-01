@@ -534,6 +534,37 @@ describe('the floor: the buyer criterion stays applied', () => {
     }
   })
 
+  it('sets aside the WHOLE answer of a held call, including an axis it proposed switching off', async () => {
+    // Found by mutation testing. The same call that returns the criterion returns the
+    // seniority bands and may propose switching an axis off. When the criterion is held,
+    // the bands are overwritten by the verbatim carry-back, so a version of the code that
+    // kept the rest of that call's answer passed every other test here. The part that
+    // would have leaked is the switch-off: a search axis turned off on the say-so of a
+    // call whose main answer had just been rejected.
+    models.criterion.mockResolvedValue({
+      criterion: criterion({ status: 'out_of_band' }),
+      vocabulary: { sells: 's', usedFor: 'u', nameWords: [] },
+      seniority: {
+        ...seniorityFixture(4),
+        omitted: ['keywords'],
+        omittedReasons: { keywords: 'the held call proposed this' },
+      },
+    })
+    const { tables, document } = world({ content: buyerEdit() })
+    const live = snapshot(document.icp_filter_spec) as ICPFilterSpec
+    expect(live.keywords.length).toBeGreaterThan(0)
+    const { client } = makeSupabase(tables)
+
+    expect(await proposeIcpFilterSpec(client, DOC)).toMatchObject({ criterion_held: true })
+
+    const proposal = proposalIn(document)!
+    const diff = diffSettings(live, proposal)
+    expect(diff.axes_switched_off).toEqual([])
+    expect(proposal.omitted_axes).toEqual(live.omitted_axes)
+    expect(proposal.omission_reasons).toEqual(live.omission_reasons)
+    expect(diff.field_changes).toEqual([])
+  })
+
   it('a criterion with an empty accept list does not gate either, whatever its status says', async () => {
     models.criterion.mockResolvedValue({
       criterion: criterion({ accept: [] }),
