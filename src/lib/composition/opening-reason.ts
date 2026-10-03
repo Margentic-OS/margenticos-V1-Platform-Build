@@ -57,7 +57,9 @@ const clean = (value: unknown) => (typeof value === 'string' ? value.trim() : ''
  * stored Email 1. `triggers` is the client's trigger list as it reads today.
  */
 export function openingReasonVerdict(input: {
-  tier: 'research' | 'firm_fact' | 'template'
+  // 'writer_v2' is a sequence writer v2 wrote whole. It is never held to an old-path trigger
+  // reason: that writer argues from the client's playbook, and its own checks ran when it wrote.
+  tier: 'research' | 'firm_fact' | 'template' | 'writer_v2'
   judge: unknown
   triggers: ReadonlyArray<TriggerWithReason>
 }): OpeningReasonVerdict {

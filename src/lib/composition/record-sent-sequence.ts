@@ -71,9 +71,16 @@ export async function recordSentSequence(
       body: e.body,
     })),
     email1_fingerprint: followups.email1_fingerprint,
-    // Which Email 1 tier went out, and why (firm-fact tier, 2026-09-30).
-    opening_tier: composed.opening.tier,
+    // Which Email 1 tier went out, and why (firm-fact tier, 2026-09-30). An old-path column:
+    // a writer v2 sequence records its tier in writer_tier instead, below.
+    opening_tier: composed.opening.tier === 'writer_v2' ? null : composed.opening.tier,
     opening_detail: composed.opening.detail,
+    // Writer v2 (2026-10-03): which writer, tier and playbook version, IN PLACE OF the variant.
+    // variant_id above is null for a personalised or semi-personalised v2 sequence; a CHECK on
+    // the table keeps it required everywhere else.
+    sequence_writer: composed.writer ? 'v2' : 'v1',
+    writer_tier: composed.writer?.tier ?? null,
+    playbook_version: composed.writer?.playbook_version ?? null,
   })
 
   if (insertError) {

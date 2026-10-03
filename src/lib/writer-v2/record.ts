@@ -43,14 +43,14 @@ export type ShippableWriterV2 =
 
 /**
  * Whether a stored record may be composed and sent. A missing, malformed or trial record is
- * NOT shippable, and upload holds the prospect rather than falling back to old copy: with the
+ * NOT shippable (a trial record only inside a dry run that asks for it), and upload holds the prospect rather than falling back to old copy: with the
  * switch on, the old writer's columns are stale by construction.
  */
-export function shippableWriterV2(raw: unknown): ShippableWriterV2 {
+export function shippableWriterV2(raw: unknown, options: { allowTrialPlaybook?: boolean } = {}): ShippableWriterV2 {
   if (raw === null || raw === undefined) return { ok: false, why: 'no writer v2 sequence has been written for this prospect yet' }
   const r = raw as Partial<WriterV2Record>
   if (r.record_version !== 1) return { ok: false, why: 'the stored writer v2 sequence is in a shape this code does not read' }
-  if (r.playbook_source !== 'document') return { ok: false, why: 'the stored writer v2 sequence was written from a trial playbook file, not the approved messaging document' }
+  if (r.playbook_source !== 'document' && !(options.allowTrialPlaybook && r.playbook_source === 'file')) return { ok: false, why: 'the stored writer v2 sequence was written from a trial playbook file, not the approved messaging document' }
   if (r.tier === 'template') return { ok: true, record: r as WriterV2Record }
   if (r.tier !== 'personalised' && r.tier !== 'semi_personalised') return { ok: false, why: 'the stored writer v2 sequence has no tier' }
   const emails = r.emails ?? []

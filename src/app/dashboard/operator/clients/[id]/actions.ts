@@ -13,6 +13,7 @@ import {
   fetchComposeDocs,
   composeSequence,
   getComposeServiceClient,
+  type WriterV2NotReadyError,
 } from '@/lib/composition/compose-sequence'
 import { composedToVariables, assertCompleteVariables } from '@/lib/composition/custom-variables'
 import { recordSentSequence } from '@/lib/composition/record-sent-sequence'
@@ -249,6 +250,12 @@ export type UploadLeadsResult =
        * Absent on the early returns that happen before anything is composed.
        */
       heldWithoutApprovedReasonCount?: number
+      /**
+       * Writer v2 clients only: prospects with no sequence that may ship (none written yet,
+       * or one written from a trial playbook). Back to pending with the reason; never sent
+       * on the old writer's copy. Absent on the early returns.
+       */
+      heldWithoutWriterV2Count?: number
     }
   | { ok: false; error: string }
 
@@ -672,6 +679,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   let compositionFailureCount = 0
   let heldWithoutFollowupCount = 0
   let heldWithoutApprovedReasonCount = 0
+  let heldWithoutWriterV2Count = 0
   const now = new Date().toISOString()
 
   // ═══ THE CLIENT'S APPROVED TRIGGER REASONS, READ ONCE PER SEGMENT, CHECKED ═══
@@ -723,6 +731,10 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
         // Operator note 5. Checked FIRST: an opening that fails this needs its research run
         // again, and telling the operator to run the follow-up backfill for it would send
         // them to a script that cannot help. See opening-reason.ts.
+        // THE TWO HOLDS BELOW ARE OLD-PATH RULES. A writer v2 sequence (composed.writer set)
+        // passes both by construction: its tier is 'writer_v2' or 'template', and both rules
+        // apply only to the old writer's 'research' tier. Its own checks ran when it was
+        // written, and a sequence that failed them was stored as the template tier.
         const reasonVerdict = openingReasonVerdict({
           tier: composed.opening.tier,
           judge: row.opening_judge,
@@ -807,6 +819,22 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
         byExternalId.get(externalId)!.push(lead)
 
       } catch (err) {
+        // WRITER V2, NOT READY: HELD, not failed. The prospect goes back to pending with the
+        // reason, and the next upload takes it once its sequence is written.
+        // By NAME, not instanceof: a test that mocks the composition module whole has no class
+        // to compare against, and the check would throw instead of answering.
+        if (err instanceof Error && err.name === 'WriterV2NotReadyError') {
+          const why = (err as WriterV2NotReadyError).why
+          heldWithoutWriterV2Count++
+          logger.warn('handleUploadLeads: held, no writer v2 sequence that may ship', { prospect_id: row.id, why })
+          const { error: holdErr } = await supabase
+            .from('prospects')
+            .update({ outbound_upload_status: 'pending', outbound_upload_error: `writer v2: ${why}`.slice(0, 480) })
+            .eq('id', row.id)
+            .eq('organisation_id', orgId)
+          if (holdErr) logger.warn('handleUploadLeads: could not release a held prospect', { prospect_id: row.id, error: holdErr.message })
+          return
+        }
         // Fail closed: exclude this lead, mark it failed in DB.
         compositionFailureCount++
         const message = err instanceof Error ? err.message : String(err)
@@ -839,6 +867,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     composition_failures: compositionFailureCount,
     held_without_followup: heldWithoutFollowupCount,
     held_without_approved_reason: heldWithoutApprovedReasonCount,
+    held_without_writer_v2: heldWithoutWriterV2Count,
     campaigns_with_leads: byExternalId.size,
   })
 
@@ -846,8 +875,8 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     // Prospects were held for a follow-up: that is a result, not a fault, and the operator
     // needs the count and the next step rather than a generic error. A composition failure
     // beside it does not change that: both counts travel, and the panel shows both.
-    if (heldWithoutFollowupCount > 0 || heldWithoutApprovedReasonCount > 0) {
-      return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount, heldWithoutFollowupCount, heldWithoutApprovedReasonCount }
+    if (heldWithoutFollowupCount > 0 || heldWithoutApprovedReasonCount > 0 || heldWithoutWriterV2Count > 0) {
+      return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount, heldWithoutFollowupCount, heldWithoutApprovedReasonCount, heldWithoutWriterV2Count }
     }
     return { ok: false, error: 'No prospects ready for composition. Check approval, shell sync, and campaign assignment.' }
   }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
@@ -938,7 +967,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
         .in('id', nonRejectedIds)
         .eq('outbound_upload_status', 'uploading')
     }
-    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount, heldWithoutFollowupCount, heldWithoutApprovedReasonCount }
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount, heldWithoutFollowupCount, heldWithoutApprovedReasonCount, heldWithoutWriterV2Count }
   }
 
   // Upload to outbound provider — one batch per campaign.
@@ -987,6 +1016,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     compositionFailureCount,
     heldWithoutFollowupCount,
     heldWithoutApprovedReasonCount,
+    heldWithoutWriterV2Count,
   }
 
   } catch (err) {

@@ -297,8 +297,9 @@ async function main() {
       continue
     }
     // Spread across variants: no more than two of one variant per tier.
-    if (onlyIds.length === 0 && (seenVariants.get(seq.variant_id) ?? 0) >= 2) continue
-    seenVariants.set(seq.variant_id, (seenVariants.get(seq.variant_id) ?? 0) + 1)
+    const variantKey = seq.variant_id ?? 'writer v2'
+    if (onlyIds.length === 0 && (seenVariants.get(variantKey) ?? 0) >= 2) continue
+    seenVariants.set(variantKey, (seenVariants.get(variantKey) ?? 0) + 1)
     counts[composedTier] ??= { shown: 0, pending: 0 }
     counts[composedTier].shown++
     if (isPending) counts[composedTier].pending++

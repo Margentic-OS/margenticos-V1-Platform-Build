@@ -37,6 +37,8 @@ import { OPT_OUT_FOOTER } from './opt-out-footer'
 import { checkComposedQuestionCount } from '@/lib/style/composed-question-count'
 import { assignVariantDeterministically } from './variant-assignment'
 import type { OfferAngleCandidate } from './offer-angle'
+import { shippableWriterV2, type WriterV2Tier } from '@/lib/writer-v2/record'
+import { composeWriterV2Emails, type WriterV2Sender } from './writer-v2-compose'
 
 // Private type alias derived from getServiceClient (defined at bottom of file).
 // Using the actual inferred return type avoids generic parameter conflicts with createClient overloads.
@@ -119,7 +121,11 @@ export interface FollowupRecord {
 export interface ComposedSequence {
   prospect_id: string
   client_id: string
-  variant_id: string
+  /**
+   * The variant the copy was composed from. NULL ONLY for a writer v2 personalised or
+   * semi-personalised sequence, which comes from no variant: reporting reads `writer` instead.
+   */
+  variant_id: string | null
   /** The document this sequence was composed from. Recorded so a stored send can be read
    *  against the copy that produced it, rather than against whatever is live later. */
   messaging_doc_id: string
@@ -130,7 +136,42 @@ export interface ComposedSequence {
    * (sent_sequences.opening_tier / opening_detail) so replies can be compared by tier.
    * For 'template', detail.reason says why the firm-fact tier did not apply.
    */
-  opening: { tier: 'research' | 'firm_fact' | 'template'; detail: Record<string, unknown> | null }
+  opening: { tier: 'research' | 'firm_fact' | 'template' | 'writer_v2'; detail: Record<string, unknown> | null }
+  /**
+   * Present only when the client's sequence_writer_v2_enabled switch is on: which writer v2
+   * tier this prospect received and the playbook version it was written from. Recorded on the
+   * send IN PLACE OF the variant (sent_sequences.sequence_writer / writer_tier /
+   * playbook_version). For the template tier the variant is recorded as well.
+   */
+  writer?: { version: 'v2'; tier: WriterV2Tier; playbook_version: number }
+}
+
+/**
+ * Thrown when the client is on writer v2 and this prospect has no sequence that may ship. The
+ * upload HOLDS the prospect on it (back to pending with the reason), never fails it and never
+ * falls back to the old writer's copy, which is stale by construction once the switch is on.
+ */
+export class WriterV2NotReadyError extends Error {
+  constructor(readonly why: string) {
+    super(`writer v2: ${why}`)
+    this.name = 'WriterV2NotReadyError'
+  }
+}
+
+/**
+ * The client's writer v2 switch and sign-off, from the organisation embedded in the prospect
+ * read. READ IN THE SAME QUERY AS THE PROSPECT, so there is no second read that could fail on
+ * its own: if the organisation cannot be read, the prospect read fails and nothing composes.
+ * An embed that is absent altogether is a test double that predates writer v2, and reads as
+ * the switch off; an embed that is present and null means the read reached no organisation,
+ * which never happens for a real prospect (the foreign key is NOT NULL), and throws.
+ */
+function writerV2SettingsFrom(prospect: ProspectRow): { enabled: boolean; sender: WriterV2Sender | null } {
+  const org = prospect.organisation
+  if (org === undefined) return { enabled: false, sender: null }
+  if (org === null) throw new Error(`compose-sequence: prospect ${prospect.id} has no readable organisation, so its writer v2 switch is unknown`)
+  const sender = org.name && org.founder_first_name ? { firstName: org.founder_first_name, company: org.name } : null
+  return { enabled: org.sequence_writer_v2_enabled === true, sender }
 }
 
 // Pre-fetched approved docs for a segment — passed into composeSequence to avoid
@@ -196,6 +237,10 @@ interface ProspectRow {
   company_industry?: string | null
   company_headcount?: number | null
   apollo_enrichment_data?: unknown
+  /** Writer v2's stored sequence. Read only when the client's switch is on. */
+  writer_v2_sequence?: unknown
+  /** The client's writer v2 switch and sign-off, embedded in the same read. */
+  organisation?: { sequence_writer_v2_enabled: boolean | null; name: string | null; founder_first_name: string | null } | null
 }
 
 // Where email 1's opening line came from. Only 'research' represents a real, prospect-
@@ -323,6 +368,12 @@ export async function composeSequence({
   dryRun?: {
     firmFact?: unknown
     followups?: { email2: string | null; email3: string | null; email1Fingerprint: string | null }
+    /**
+     * Stands in for prospects.writer_v2_sequence and turns writer v2 on for this composition,
+     * whatever the client's switch says. allowTrialPlaybook lets a trial run compose a
+     * sequence written from a playbook file; nothing outside a dry run can.
+     */
+    writerV2?: { sequence: unknown; allowTrialPlaybook?: boolean }
   }
 }): Promise<ComposedSequence> {
   const supabase = getServiceClient()
@@ -341,6 +392,54 @@ export async function composeSequence({
     messagingDoc = fetched.content
     messagingDocId = fetched.doc_id
   }
+
+  // ═══ WRITER V2, when the client's switch is on ═══
+  //
+  // A personalised or semi-personalised sequence is composed from the stored emails and
+  // returned here: no variant, no trigger, no template line. The footer goes on through
+  // finaliseForReading, the same single call site as every other email.
+  //
+  // A template-tier sequence falls through to the template path below with every column the
+  // OLD writer fills set aside, so the prospect gets the approved template and nothing an
+  // earlier old-path run left on the row. Nothing is "partly v2".
+  const settings = writerV2SettingsFrom(prospect)
+  const writerV2 = dryRun?.writerV2 ? { ...settings, enabled: true } : settings
+  let writerV2Template: { playbook_version: number } | null = null
+  if (writerV2.enabled) {
+    const shippable = shippableWriterV2(dryRun?.writerV2 ? dryRun.writerV2.sequence : prospect.writer_v2_sequence, { allowTrialPlaybook: dryRun?.writerV2?.allowTrialPlaybook === true })
+    if (!shippable.ok) throw new WriterV2NotReadyError(shippable.why)
+    const record = shippable.record
+    if (record.tier !== 'template') {
+      if (!writerV2.sender) throw new WriterV2NotReadyError('the client has no name or founder first name for the sign-off')
+      const emails = finaliseForReading(composeWriterV2Emails(record, writerV2.sender, prospect.first_name))
+      const email1 = emails.find(e => e.sequence_position === 1)
+      return {
+        prospect_id,
+        client_id,
+        variant_id: null,
+        messaging_doc_id: record.messaging_doc_id ?? messagingDocId,
+        emails,
+        // The writer wrote every follow-up, so each position is generated, by construction.
+        followups: {
+          arm: 'generated',
+          email1_fingerprint: fingerprintEmail1(email1?.body ?? ''),
+          positions: { 2: { mode: 'generated', fell_back_reason: null }, 3: { mode: 'generated', fell_back_reason: null } },
+        },
+        opening: { tier: 'writer_v2', detail: { writer_tier: record.tier, fact_used: record.fact_used?.fact_id ?? null, angles: record.angles } },
+        writer: { version: 'v2', tier: record.tier, playbook_version: record.playbook_version },
+      }
+    }
+    prospect.personalisation_trigger = null
+    prospect.personalisation_question = null
+    prospect.personalisation_subject = null
+    prospect.followup_email2 = null
+    prospect.followup_email3 = null
+    prospect.followup_email1_fingerprint = null
+    prospect.firm_fact = null
+    writerV2Template = { playbook_version: record.playbook_version }
+  }
+  // The dry run's stand-ins are old-path copy, so a writer v2 template sequence ignores them.
+  const standIns = writerV2Template ? undefined : dryRun
 
   // Step 3 — Assign a variant if the prospect has none, and write both variant_id and messaging_doc_id.
   const variantId = await resolveVariant(supabase, prospect, messagingDoc, client_id, messagingDocId, dryRun !== undefined)
@@ -501,7 +600,7 @@ export async function composeSequence({
       messagingContent: messagingDoc,
       variantId,
       prospectId: prospect.id,
-      firmFact: dryRun?.firmFact !== undefined ? dryRun.firmFact : (prospect.firm_fact ?? null),
+      firmFact: standIns?.firmFact !== undefined ? standIns.firmFact : (prospect.firm_fact ?? null),
       company: companyRecord,
       headcount: typeof prospect.company_headcount === 'number' ? prospect.company_headcount : null,
       templateEmail1Body: variantEmails.find(e => e.sequence_position === 1)?.body ?? '',
@@ -680,7 +779,7 @@ export async function composeSequence({
 
   // The stored copy, BY POSITION. One entry per follow-up the writer can generate; Email 1
   // is personalised by a different mechanism and the breakup has no generated form.
-  const dryFollowups = dryRun?.followups
+  const dryFollowups = standIns?.followups
   const storedProse: Record<number, string | null> = {
     2: dryFollowups ? dryFollowups.email2 : (prospect.followup_email2 ?? null),
     3: dryFollowups ? dryFollowups.email3 : (prospect.followup_email3 ?? null),
@@ -854,6 +953,7 @@ export async function composeSequence({
     emails: emailsWithFooter,
     followups,
     opening,
+    ...(writerV2Template ? { writer: { version: 'v2' as const, tier: 'template' as const, playbook_version: writerV2Template.playbook_version } } : {}),
   }
 }
 
@@ -1331,7 +1431,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, personalisation_subject, followup_email2, followup_email3, followup_email1_fingerprint, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name, firm_fact, company_industry, apollo_enrichment_data, company_headcount')
+    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, personalisation_subject, followup_email2, followup_email3, followup_email1_fingerprint, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name, firm_fact, company_industry, apollo_enrichment_data, company_headcount, writer_v2_sequence, organisation:organisations(sequence_writer_v2_enabled, name, founder_first_name)')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()
@@ -1342,7 +1442,8 @@ async function fetchProspect(
     )
   }
 
-  return data as ProspectRow
+  // A many-to-one embed: one organisation object per prospect, whatever the generated types say.
+  return data as unknown as ProspectRow
 }
 
 async function resolveVariant(

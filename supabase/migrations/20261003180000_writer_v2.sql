@@ -24,7 +24,7 @@
 -- prospects are operator-ALL with client SELECT on their own rows; sent_sequences is
 -- service-role only (read back 2026-10-01). No grant changes.
 --
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-10-03, production and test database; 5 columns and 4 constraints read back; switch off for every client)
 
 ALTER TABLE public.organisations
   ADD COLUMN IF NOT EXISTS sequence_writer_v2_enabled boolean NOT NULL DEFAULT false;
