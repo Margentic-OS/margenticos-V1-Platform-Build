@@ -28,7 +28,7 @@ import {
   type FollowupOutcome,
 } from './followup-frame'
 import { resolveBuyer } from './resolve-buyer'
-import { holdsPersonalisation, reasonTheWritersArgueFrom, resolveApprovedReason, type ApprovedReason, type TriggerWithReason } from './approved-reason'
+import { holdsPersonalisation, reasonTheWritersArgueFrom, resolveApprovedReason, resolveBriefLink, type ApprovedReason, type TriggerWithReason } from './approved-reason'
 import { checkBridgeStatesReason } from './reason-match'
 import { checkFactWithinDefinition } from './trigger-definition'
 import { logger } from '@/lib/logger'
@@ -119,6 +119,12 @@ export interface ProduceOpeningInput {
    * writer is briefed as it was before, with a warning logged.
    */
   triggers?: ReadonlyArray<TriggerWithReason> | null
+  /**
+   * EXPERIMENT ARM B (exp-relevance-gate, not for merge). The opening argues from the
+   * selected fact's brief link instead of a trigger's approved reason, and a fact with no
+   * usable link is held. Every check after the gate is unchanged. See resolveBriefLink.
+   */
+  relevanceMode?: boolean
   /**
    * WHETHER THE NEED-MATCH CHECK BLOCKS, OR ONLY REPORTS. Defaults to REPORT.
    *
@@ -446,9 +452,20 @@ export function candidatesForThread(
  * ONLY THE FACT-CHECK READS THIS. The writer's own gates read buildFindingsEvidence, where a
  * name or a number must trace to something research actually found.
  */
-export function evidenceWithApprovedReason(candidates: ObservationCandidate[], approvedReason: string | null): string {
+export function evidenceWithApprovedReason(candidates: ObservationCandidate[], approvedReason: string | null, origin: 'approved' | 'brief_link' = 'approved'): string {
   const evidence = buildFindingsEvidence(candidates)
   if (!approvedReason) return evidence
+  // EXPERIMENT ARM B: the line is labelled as what it is, a general statement written from
+  // the client's brief for this kind of event, and still NOT a finding about this reader.
+  if (origin === 'brief_link') {
+    return (
+      `${evidence}
+${candidates.length + 1}. A general statement about firms where this kind of event happens, written from ` +
+      `the client's brief. It is NOT a finding about this reader: ${approvedReason}
+` +
+      '   source: the client\'s brief | not research about this reader'
+    )
+  }
   return (
     `${evidence}
 ${candidates.length + 1}. A general statement, approved in advance. It is true of firms ` +
@@ -483,6 +500,7 @@ export async function produceOpening({
   icpBuyerTitle,
   positioningText,
   triggers,
+  relevanceMode = false,
   needMatchMode = 'report',
   uniqueness,
   onAttempt,
@@ -520,7 +538,9 @@ export async function produceOpening({
   //
   // BEFORE the frame is read and before anything is paid for: a prospect held here costs
   // nothing more than the research that found it had no approved reason.
-  const approved = resolveApprovedReason(candidates, selectedCandidateId, triggers)
+  const approved = relevanceMode
+    ? resolveBriefLink(candidates, selectedCandidateId)
+    : resolveApprovedReason(candidates, selectedCandidateId, triggers)
   if (holdsPersonalisation(approved)) {
     logger.info('research/produce-opening: not written, the selected fact has no approved reason behind it', {
       prospect_id: ctx.id,
@@ -528,7 +548,12 @@ export async function produceOpening({
       state: approved.state,
       selected_candidate_id: selectedCandidateId ?? null,
     })
-    return { ...notWrittenOpening('no_approved_reason', NO_APPROVED_REASON_REASON), approved_reason: approved }
+    return {
+      ...notWrittenOpening('no_approved_reason', approved.state === 'not_relevant'
+        ? `Not written (arm B): the selected fact has no usable brief link: ${approved.why}.`
+        : NO_APPROVED_REASON_REASON),
+      approved_reason: approved,
+    }
   }
   if (approved.state === 'not_checked') {
     // WARN, because this is the rule NOT being applied, and that has to be visible. It is
@@ -672,6 +697,7 @@ export async function produceOpening({
     selectionReason,
     prospectReason: reasonForWriter,
     reasonIsApproved: approvedReasonText !== null,
+    reasonOrigin: relevanceMode ? 'brief_link' : 'approved',
     supportingCandidateId,
     p3: frame.p3,
     // frame.cta is deliberately NOT passed. See WriteAndJudgeParams.
@@ -712,7 +738,7 @@ export async function produceOpening({
         question,
         // WITH THE APPROVED REASON AS ONE MORE NUMBERED LINE, where there is one. See
         // evidenceWithApprovedReason. Only this verifier reads the longer list.
-        findingsEvidence: evidenceWithApprovedReason(candidates, approvedReasonText),
+        findingsEvidence: evidenceWithApprovedReason(candidates, approvedReasonText, relevanceMode ? 'brief_link' : 'approved'),
         prospectId: ctx.id,
         companyName: ctx.company_name ?? null,
       })

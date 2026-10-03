@@ -673,7 +673,7 @@ async function runOne(
  * renderer applies no coherence logic of its own: there is nothing here to keep in step
  * with the rule, which is the point of enforcing it upstream.
  */
-function renderSequence(
+export function renderSequence(
   messagingContent: MessagingContent,
   variantId: string,
   firstName: string | null,

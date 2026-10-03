@@ -27,6 +27,7 @@ import { findAssumedCapacityClaims } from '@/lib/style/assumed-capacity'
 import { fleschKincaidGrade, MAX_READING_GRADE } from '@/lib/style/reading-grade'
 import { stripProperNouns } from '@/lib/style/sentence-frames'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
+import { parseBriefRelevance, briefIneligibility } from './relevance-brief'
 import { TRIGGER_REASON_MAX_WORDS, TRIGGER_REASON_MAX_GRADE } from '@/agents/trigger-evidence-gate'
 import {
   readStoredFitDimensions, readDimensionAnswers, gradeFromDimensions, type FitDimension,
@@ -232,6 +233,13 @@ export interface ClientDocContext {
    * Absent reads as "the check does not run", never as an empty document.
    */
   positioningText?:   string | null
+  /**
+   * EXPERIMENT ARM B (exp-relevance-gate, not for merge). The client's brief rendered by
+   * renderRelevanceBrief. Present only when the experiment harness sets it: relevance is then
+   * judged from the brief, the triggers become ranking hints, and selection is not restricted
+   * to trigger matches. Absent, everything is exactly as on the base branch.
+   */
+  relevanceBrief?:    string | null
 }
 
 /**
@@ -550,7 +558,7 @@ function extractDatedSignalFromText(text: string, now: Date): string | null {
   return null
 }
 
-function detectRecencySignal(
+export function detectRecencySignal(
   rawData: RawSourceData,
   now: Date,
 ): DetectedSignal {
@@ -746,6 +754,9 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
     // quirk. Anything that is not a whole position in a 1-based list reads as "matched
     // none", because a position we cannot place is not a match we can rank on.
     matched_trigger: parsePosition(o.matched_trigger),
+    // Arm B only: the key exists only when the model wrote the block, so the base path's
+    // candidates are unchanged.
+    ...(o.brief_relevance !== undefined ? { brief_relevance: parseBriefRelevance(o.brief_relevance) } : {}),
     is_reshare: asBool(o.is_reshare),
     scores,
     passes_all,
@@ -1320,6 +1331,8 @@ export function parseSynthesisResponse(
    * gets the last-resort fallback, which is the behaviour every caller had before this.
    */
   triggers: ReadonlyArray<{ trigger: string; reason: string }> = [],
+  /** EXPERIMENT ARM B: relevance from the brief, triggers as ranking hints only. */
+  relevanceMode = false,
 ): SynthesisOutput {
   const reasoning = parseReasoningBlock(raw)
   const jsonStr   = extractJson(raw)
@@ -1366,8 +1379,26 @@ export function parseSynthesisResponse(
     }
   }
 
+  // ═══ EXPERIMENT ARM B: RELEVANT IS THE BRIEF VERDICT, CHECKED IN CODE ═══
+  //
+  // The model scores RELEVANT from the brief question. Code then requires the verdict, a
+  // link, a kind that is not excluded, and a date within twelve months, and rewrites the
+  // relevant score to that answer so every downstream rule (passes_all, hasUsableCandidate,
+  // the mention_only tier) reads the same verdict. The trigger pool is NOT applied: triggers
+  // are hints for ranking only, so selection is passed no trigger list.
+  if (relevanceMode) {
+    const now = new Date()
+    for (const c of candidates) {
+      const why = briefIneligibility(c, now)
+      c.scores = { ...c.scores, relevant: why === null }
+      c.score_total = SIX_TESTS.filter(t => c.scores[t]).length
+      c.passes_all = c.score_total === SIX_TESTS.length
+      if (why) c.rejection_reason = [c.rejection_reason, `Brief: ${why}.`].filter(Boolean).join(' ')
+    }
+  }
+
   const { winner, relevance: selectedRelevance, demotionReason, basis } =
-    selectCandidate(candidates, modelPreferredId, undefined, triggers)
+    selectCandidate(candidates, modelPreferredId, undefined, relevanceMode ? [] : triggers)
   if (basis?.set_aside_model_pick) {
     // INFO, and it says which: a model choice that was set aside has to be reviewable.
     logger.info('synthesis: the model chose a fact with no approved trigger reason; a matched one was chosen instead', {
@@ -1407,7 +1438,21 @@ export function parseSynthesisResponse(
 
   let prospect_reason = ''
   let reasonSource: 'prospect' | 'trigger' | 'relevance_fallback' | 'none' = 'none'
-  if (prospectReasonFaults.length === 0) {
+  const briefLink = relevanceMode ? winner?.brief_relevance?.link ?? '' : ''
+  if (relevanceMode) {
+    // ARM B: the winner's link IS the reason. Its shape faults are reported, not acted on:
+    // the writer and the reason check downstream hold the copy to the same rules as arm A.
+    if (briefLink) {
+      prospect_reason = briefLink
+      reasonSource = 'prospect'
+      const linkFaults = findProspectReasonFaults(briefLink)
+      if (linkFaults.length > 0) {
+        logger.info('synthesis (arm B): the brief link has shape faults, reported only', {
+          prospect_id: prospect.id, link: briefLink, faults: linkFaults,
+        })
+      }
+    }
+  } else if (prospectReasonFaults.length === 0) {
     prospect_reason = rawProspectReason
     reasonSource = 'prospect'
   } else if (approvedTriggerReason) {
@@ -1944,7 +1989,7 @@ export function synthesisFromMessage(
   // The material is built only when there is a dimension list to check quotations for.
   const dimensions = clientCtx.fitDimensions?.length ? clientCtx.fitDimensions : null
   const material = dimensions ? buildSynthesisUserMessage(prospect, rawData, detectedSignal) : ''
-  const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal, dimensions, material, clientCtx.triggers)
+  const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal, dimensions, material, clientCtx.triggers, !!clientCtx.relevanceBrief)
 
   // Scrubbing rewrites the trigger (em dashes become full stops, AI tells are replaced),
   // so the readability verdict is recomputed on the text that actually ships.

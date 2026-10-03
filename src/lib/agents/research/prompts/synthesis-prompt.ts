@@ -19,9 +19,23 @@ import { formatFitDimensions, type FitDimension } from '../fit-dimensions'
  * client with a broken prompt: relevance falls back to the problems the client solves,
  * exactly as before.
  */
-function renderTriggers(triggers?: ReadonlyArray<{ trigger: string; reason?: string; definition?: string }>): string {
+function renderTriggers(triggers?: ReadonlyArray<{ trigger: string; reason?: string; definition?: string }>, asHints = false): string {
   const list = (triggers ?? []).filter(t => typeof t?.trigger === 'string' && t.trigger.trim().length > 0)
   if (list.length === 0) return ''
+  // EXPERIMENT ARM B: the same list, offered as hints. Nothing is required to match it.
+  if (asHints) {
+    return [
+      '',
+      'TRIGGER HINTS. ' + String(list.length) + ' kinds of event this client has noticed often come before a',
+      'buyer wants what they sell, strongest first. They are HINTS FOR RANKING ONLY. A fact does',
+      'not need to match one to be relevant, and matching one does not make it relevant: the',
+      'brief below decides. Where a candidate is an instance of one, record its number in',
+      '"matched_trigger"; otherwise null.',
+      '',
+      list.map((t, i) => '  ' + String(i + 1) + '. ' + t.trigger.trim()).join('\n'),
+      '',
+    ].join('\n')
+  }
   // THE REASON IS PRINTED UNDER ITS TRIGGER, on its own line, because it is the thing the
   // model has to APPLY rather than merely match. A reason rendered inline with the event
   // reads as part of the event and gets matched against the prospect as though it were
@@ -87,7 +101,55 @@ export interface PromptContext {
    * every client had before, byte for byte.
    */
   fitDimensions?:     FitDimension[] | null
+  /** EXPERIMENT ARM B: the client's brief, rendered. Present only in the experiment harness. */
+  relevanceBrief?:    string | null
 }
+
+// ═══ EXPERIMENT ARM B TEXT (exp-relevance-gate, not for merge) ═══
+// Rule Zero: no market, service or pain is named here. The brief supplies all of it.
+
+const ARM_B_RELEVANT = `RELEVANT: judged from THE CLIENT'S BRIEF above, and from nothing else. For each
+  candidate, answer one question:
+
+    Given this fact, would this prospect value the client's outcome NOW?
+
+  "The client's outcome" means one of the outcomes the brief lists, reached through
+  what the brief says the client does. Answer yes only when you can write a one-sentence
+  link from this fact to that outcome that a SCEPTICAL reader would accept: someone who
+  knows the fact and the offer, owes you nothing, and would say "that does not follow" at
+  the first stretch. Something going well can be relevant (an expanding firm may value
+  the outcome more, not less), and something going badly can be irrelevant (a difficulty
+  the client's offer does not touch). A list of trigger hints may appear above; a hint
+  match is neither required nor sufficient.
+
+  Record the answer in "brief_relevance" on every candidate, and set the relevant score to
+  the same answer.
+
+  THE LINK. One sentence, under 20 words, plain words a thirteen-year-old follows. It says
+  why this KIND of event points to the outcome, about firms in general ("a firm that ...",
+  "firms that ..."), never about this reader: no "you", no "your", no claim that this firm
+  has a problem, is short of anything, or must do anything. It names no figure the fact does
+  not give. It stays inside what the brief says the client does and never touches what the
+  brief says the client never claims. If you cannot write one a sceptical reader would
+  accept, the answer is no and the link is null.
+
+  HARD CHECKS, applied in code to your labels and dates. A candidate failing any of them
+  cannot be used however strong its link:
+    • It must carry a machine-readable date within the last twelve months.
+    • Label its kind in "fact_kind": "event" (a thing that happened on a date), "content"
+      (something they published or said), "ongoing_state" (a standing fact, such as how
+      long something has run), "founding" (when the firm or role began), "tagline" (a
+      slogan or positioning line from their site), or "ended_role" (a role or engagement
+      that has finished). Founding, tagline and ended_role are never used.
+    • A content candidate must say what the content says, not only that it exists: its
+      topic or its point, in the words of the source.`
+
+const ARM_B_FILTER = `─────────────────────────────────────────────────────────────────────
+THE CLIENT'S POSITIONING, FOR CONTEXT
+─────────────────────────────────────────────────────────────────────
+
+The text below describes the client's positioning. It is context for the link. It does
+not add a second relevance test: the brief question above is the only one.`
 
 /**
  * THE PER-PROSPECT SIGNAL, WHICH IS WHY THIS IS NOT IN THE SYSTEM PROMPT.
@@ -110,6 +172,15 @@ export function buildSignalBlock(signalObservation: string | null): string {
 }
 
 export function buildSynthesisPrompt(ctx: PromptContext): string {
+  // EXPERIMENT ARM B when the harness supplies a brief. Absent, the prompt is byte-identical
+  // to the base branch: every B branch below interpolates the original text otherwise, and no
+  // skip marker is ever emitted.
+  const B = !!ctx.relevanceBrief
+  const prompt = buildSynthesisPromptText(ctx, B)
+  return B ? prompt.replace(/<<ARM_B_SKIP_START>>[\s\S]*?<<ARM_B_SKIP_END>>/g, '') : prompt
+}
+
+function buildSynthesisPromptText(ctx: PromptContext, B: boolean): string {
   return `You are a prospect research synthesist working for ${ctx.clientName}.
 
 Your job is to review research gathered from multiple public sources about a prospect and
@@ -119,7 +190,7 @@ hook in outbound communication. You also assess ICP fit and whether the prospect
 ## About ${ctx.clientName}
 
 ${ctx.icpSummary}
-${renderTriggers(ctx.triggers)}
+${renderTriggers(ctx.triggers, B)}${B ? '\n' + ctx.relevanceBrief + '\n' : ''}
 ${ctx.positioningSummary}
 
 ${ctx.tovRules}
@@ -332,7 +403,7 @@ VERIFIABLE: confirmable by a human in 30 seconds from the cited source.
 
 INFERENTIAL: implies something the prospect would agree with, beyond the fact.
 
-RELEVANT: passes EITHER of two tests, and the first one is checked first.
+${B ? ARM_B_RELEVANT + '\n\n<<ARM_B_SKIP_START>>' : ''}RELEVANT: passes EITHER of two tests, and the first one is checked first.
 
   TEST 1, THE CLIENT'S TRIGGERS. If a TRIGGERS block appears above, a candidate
   is relevant when it is an instance of one of those triggers. Name which one in
@@ -358,7 +429,7 @@ RELEVANT: passes EITHER of two tests, and the first one is checked first.
   narrow it to a problem domain the documents do not name. A candidate that
   matches no trigger and connects to no problem named there is trivia, however
   interesting it is.
-
+${B ? '<<ARM_B_SKIP_END>>' : ''}
 USEFUL: tells the prospect something, or frames something they had not
 articulated.
 
@@ -394,7 +465,10 @@ A RESHARE IS SOMETHING THEY AMPLIFIED, NOT SOMETHING THEY WROTE, and the
 observation must say they SHARED it. Never write that they said, posted, wrote
 or announced something they reshared.
 
-WRITE THE REASON FOR THIS PROSPECT.
+${B ? `WRITE THE REASON FOR THIS PROSPECT. It is the link of the candidate you chose, copied
+exactly into prospect_reason. Choose among candidates whose brief answer is yes.
+
+<<ARM_B_SKIP_START>>` : ''}WRITE THE REASON FOR THIS PROSPECT.
 
 Once you have chosen, write one sentence saying why what YOU FOUND gives THIS
 person a reason to want what the client sells. Not the trigger's principle
@@ -415,7 +489,7 @@ It follows the same rules the principle does:
 WHEN NOTHING MATCHED A TRIGGER, write the reason from the fact alone, under
 exactly the same rules. A prospect with no trigger match is not a prospect with
 no reason; it is one whose reason you have to derive rather than apply.
-
+${B ? '<<ARM_B_SKIP_END>>' : ''}
 A RESHARE OF THEIR OWN FIRM'S ANNOUNCEMENT IS THEIR NEWS. It is as usable as
 anything they wrote themselves, and it is not weaker evidence for being a
 reshare. It must still say they shared it. Mark it with "reshare_of_own_firm".
@@ -605,7 +679,7 @@ platform handles that automatically.
 Never force a weak candidate through. The ICP pain fallback is good copy and
 failing closed is the correct outcome. An honest "no_signal" beats a stretched hook.
 
-The VALUE PROP ALIGNMENT FILTER below still governs RELEVANT. Apply it exactly as
+${B ? ARM_B_FILTER + '\n\n' + ctx.valuePropContext + '\n<<ARM_B_SKIP_START>>' : ''}The VALUE PROP ALIGNMENT FILTER below still governs RELEVANT. Apply it exactly as
 strictly as before. What has changed is WHAT gets evaluated, not how strictly.
 
 ─────────────────────────────────────────────────────────────────────
@@ -660,7 +734,7 @@ RELEVANCE ORDERING (when multiple signals exist)
 A conversation starter referencing someone's alma mater, home city, sports team, or
 personal interest is NOT relevant unless it directly connects to their business situation.
 A candidate of this type scores relevant: false.
-
+${B ? '<<ARM_B_SKIP_END>>' : ''}
 ─────────────────────────────────────────────────────────────────────
 QUALIFICATION ASSESSMENT
 ─────────────────────────────────────────────────────────────────────
@@ -854,15 +928,16 @@ ${ctx.fitDimensions?.length ? `  "fit_dimensions": {
       },
       "opposite_reading": "The strongest opposite conclusion the same evidence supports.",
       "inference_direction": "only_reading" or "compatible_with_both" or "ambiguous_unhandled",
-      "matched_trigger": null or the NUMBER of the trigger in the TRIGGERS block this is an instance of,
-      "is_reshare": true if the source post was marked RESHARE, false otherwise,
+      "matched_trigger": null or the NUMBER of the trigger in the ${B ? 'TRIGGER HINTS' : 'TRIGGERS'} block this is an instance of,
+${B ? `      "brief_relevance": { "would_value_now": true or false, "link": "one sentence a sceptical reader would accept, about firms in general, or null", "fact_kind": "event" or "content" or "ongoing_state" or "founding" or "tagline" or "ended_role" },
+` : ''}      "is_reshare": true if the source post was marked RESHARE, false otherwise,
       "reshare_of_own_firm": true when what they reshared was their own company's announcement rather than an unrelated third party's,
       "rejection_reason": null or "one sentence: which test it failed and why"
     }
   ],
   "selected_candidate_id": "c1" or null,
   "supporting_candidate_id": null or the id of a SECOND event that strengthens the same reason,
-  "prospect_reason": "ONE SENTENCE, under 15 words, reading grade 6 or below: why what you found gives THIS person a reason to want what the client sells",
+  "prospect_reason": ${B ? '"the link of the candidate named in selected_candidate_id, copied exactly"' : '"ONE SENTENCE, under 15 words, reading grade 6 or below: why what you found gives THIS person a reason to want what the client sells"'},
   "qualification_status": "qualified" or "flagged_for_review" or "disqualified",
   "qualification_reason": null or "one sentence: what specific evidence was found",
   "confidence": "high" or "medium" or "low",

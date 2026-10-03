@@ -53,6 +53,7 @@
 // guess.
 
 import type { ObservationCandidate } from './types'
+import { briefIneligibility } from './relevance-brief'
 
 /** One of the client's triggers. Structurally the same as synthesize.ts's ClientTrigger. */
 export interface TriggerWithReason {
@@ -88,9 +89,14 @@ export type ApprovedReason =
    * by resolveApprovedReason, which is deterministic; set by produce-opening after the check.
    */
   | { state: 'outside_definition'; trigger: string; triggerIndex: number; verdict: 'outside' | 'unusable'; why: string }
+  /**
+   * EXPERIMENT ARM B (exp-relevance-gate, not for merge): the selected fact has no usable
+   * brief link, so there is no reason to argue from. Set only by resolveBriefLink.
+   */
+  | { state: 'not_relevant'; why: string }
 
 /** The states that hold personalisation. One list, read by the gate and by its tests. */
-export const HOLDING_STATES = ['no_selection', 'no_trigger_matched', 'trigger_has_no_reason', 'outside_definition'] as const
+export const HOLDING_STATES = ['no_selection', 'no_trigger_matched', 'trigger_has_no_reason', 'outside_definition', 'not_relevant'] as const
 export type HoldingState = (typeof HOLDING_STATES)[number]
 
 export function holdsPersonalisation(approved: ApprovedReason): approved is Extract<ApprovedReason, { state: HoldingState }> {
@@ -175,4 +181,32 @@ export function resolveApprovedReason(
  */
 export function reasonTheWritersArgueFrom<T extends string | null | undefined>(approved: ApprovedReason, fallback: T): string | T {
   return approved.state === 'approved' ? approved.reason : fallback
+}
+
+/**
+ * EXPERIMENT ARM B: the reason the writer argues from is the selected fact's brief link.
+ * Returned as 'approved' (with no definition, so no definition check runs) so every
+ * downstream check is exactly arm A's: the writer's second-line block, the fact-check with
+ * the reason as one more labelled line, and the reason-match check. The trigger is recorded
+ * only as the hint the fact matched, when it matched one.
+ *
+ * The eligibility rule is re-applied here rather than trusted from synthesis, so a stored
+ * candidate read back later is held to the same rule.
+ */
+export function resolveBriefLink(
+  candidates: ReadonlyArray<Pick<ObservationCandidate, 'id' | 'date' | 'brief_relevance' | 'matched_trigger_text'>>,
+  selectedCandidateId: string | null | undefined,
+  now: Date = new Date(),
+): ApprovedReason {
+  if (!selectedCandidateId) return { state: 'no_selection' }
+  const selected = candidates.find(c => c.id === selectedCandidateId)
+  if (!selected) return { state: 'no_selection' }
+  const why = briefIneligibility(selected, now)
+  if (why) return { state: 'not_relevant', why }
+  return {
+    state: 'approved',
+    reason: selected.brief_relevance!.link!,
+    trigger: selected.matched_trigger_text ?? '(no trigger hint matched)',
+    triggerIndex: 0,
+  }
 }

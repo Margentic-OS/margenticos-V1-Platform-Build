@@ -213,6 +213,12 @@ export interface ObservationCandidate {
    */
   matched_trigger_text?: string | null
   /**
+   * EXPERIMENT ARM B (exp-relevance-gate, not for merge): the model's answer, from the
+   * client's brief, to "would this prospect value the client's outcome now, given this
+   * fact?", the one-sentence link, and the fact's kind. Absent outside arm B.
+   */
+  brief_relevance?: import('./relevance-brief').BriefRelevance
+  /**
    * True when the underlying post was somebody else's, amplified by the prospect. It is not
    * their event, so it ranks below their own, and the observation has to say they SHARED it.
    */

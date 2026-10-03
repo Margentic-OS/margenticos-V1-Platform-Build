@@ -357,6 +357,8 @@ export interface OpeningResult {
  * the prompt never contained, and passed whatever the guard did.
  */
 export const APPROVED_REASON_HEADING = 'THAT REASON WAS APPROVED IN ADVANCE, WORD FOR WORD.'
+/** EXPERIMENT ARM B (exp-relevance-gate, not for merge). */
+export const BRIEF_LINK_HEADING = 'THAT REASON LINKS THIS KIND OF EVENT TO WHAT THE CLIENT OFFERS, FROM THE CLIENT\'S BRIEF.'
 
 export function buildWriterAssignment(params: {
   clientName: string
@@ -379,6 +381,8 @@ export function buildWriterAssignment(params: {
    * second line states that reason and adds nothing to it. See approved-reason.ts.
    */
   reasonIsApproved?: boolean
+  /** EXPERIMENT ARM B: 'brief_link' swaps the heading's first sentence; everything else is identical. */
+  reasonOrigin?: 'approved' | 'brief_link'
   /** A second event that strengthens the same reason. Optional, and usually absent. */
   supportingEvent?: string | null
 }): string {
@@ -402,7 +406,7 @@ export function buildWriterAssignment(params: {
     // sentence about "the firm" or "your firm" is read as a claim about this reader's
     // situation, which no finding supports, and is rejected. Measured 2026-10-01 on the
     // first trial of this block, which said neither: 1 of 8 openings survived.
-    ? `\n${APPROVED_REASON_HEADING} It is a statement about firms like the\n` +
+    ? `\n${params.reasonOrigin === 'brief_link' ? BRIEF_LINK_HEADING : APPROVED_REASON_HEADING} It is a statement about firms like the\n` +
       'reader\'s, not a finding about this reader.\n\n' +
       'Your second line is that reason, pointed at this event. Open by pointing at what happened,\n' +
       'in a few words, then say what the reason says it points to. Keep the reason\'s own words\n' +
@@ -2344,6 +2348,8 @@ export interface WriteAndJudgeParams {
   prospectReason?: string | null
   /** True when prospectReason is the client's approved trigger reason, verbatim. See buildWriterAssignment. */
   reasonIsApproved?: boolean
+  /** EXPERIMENT ARM B: where the reason came from. 'brief_link' relabels the heading only. */
+  reasonOrigin?: 'approved' | 'brief_link'
   /** The id of a second candidate that strengthens the same reason. Optional. */
   supportingCandidateId?: string | null
   /**
@@ -2587,6 +2593,7 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     clientName: params.clientName, buyer: params.buyer,
     prospectReason: params.prospectReason ?? null,
     reasonIsApproved: params.reasonIsApproved ?? false,
+    reasonOrigin: params.reasonOrigin ?? 'approved',
     supportingEvent,
   })
 
