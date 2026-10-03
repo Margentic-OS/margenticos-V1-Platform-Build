@@ -1846,3 +1846,29 @@ describe('the source line opens in a different form in each email of a sequence 
     })).toContain('source_opening_repeated')
   })
 })
+
+describe('every angle a sequence could use is supported by the client\'s own documents (reading file 7, fix 2)', () => {
+  const unsupportedFor = (mutate: (doc: Doc) => void) => {
+    const doc = baseDoc()
+    mutate(doc)
+    return run(doc).filter(v => v.rule === 'angle_unsupported')
+  }
+  it('the invented client, with both passages cited for every usable angle, has no such fault (control)', () => {
+    expect(unsupportedFor(() => {})).toEqual([])
+  })
+  it('PLANTED: an angle with no consequence passage is a brief fault, before anything is written', () => {
+    const found = unsupportedFor(d => { delete d.brief.pain_angles[0].consequence_support })
+    expect(found).toHaveLength(1)
+    expect(found[0].where).toBe('brief.pain_angles.PA1')
+    expect(found[0].variant).toBe('*')
+  })
+  it('PLANTED: a link the documents do not make (null) is never written about', () => {
+    expect(unsupportedFor(d => { d.brief.pain_angles[1].link_support = null })[0].detail).toContain('do not support how the offer answers it')
+  })
+  it('PLANTED: a passage that names no client document is refused', () => {
+    expect(unsupportedFor(d => { d.brief.pain_angles[2].consequence_support = { source: 'operator notes, reading file 4', quote: 'growth can stall and it gets harder' } })).toHaveLength(1)
+  })
+  it('an angle no sequence can use (a declared conflict) needs no passage (control)', () => {
+    expect(unsupportedFor(d => { delete d.brief.pain_angles[3].consequence_support; delete d.brief.pain_angles[3].link_support })).toEqual([])
+  })
+})

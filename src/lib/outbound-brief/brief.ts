@@ -97,6 +97,104 @@ export interface PainAngle {
    */
   resolved_by: string[]
   source: string
+  /**
+   * WHERE THE CLIENT'S OWN DOCUMENTS SAY THIS (reading file 7, fix 2, 2026-10-03): "each
+   * pain unit's consequence and offer link must be supported by the client's own documents;
+   * where the documents don't support a causal link, never invent one."
+   *
+   *   consequence_support  the document passage that says this symptom leads to this
+   *                        consequence.
+   *   link_support         the document passage that says what the client does answers
+   *                        this pain (the outcomes in resolved_by).
+   *
+   * OPTIONAL HERE, so a brief already live still reads. REQUIRED FOR NEW COPY: the template
+   * validator refuses, before anything is paid for, any angle a sequence could be written
+   * about that lacks either, and the run script checks each quote is in the named document.
+   * null means the documents were read and do not support it: the angle is not written
+   * about until the client confirms the link (Notion Backlog, before first paying client).
+   */
+  consequence_support?: AngleSupport | null
+  link_support?: AngleSupport | null
+}
+
+/**
+ * One passage of the client's own documents. `source` names the document and the field
+ * ("positioning.best_fit_characteristics.must_haves[1]"); `quote` is copied from it, word
+ * for word, so code can find it there.
+ */
+export interface AngleSupport {
+  source: string
+  quote: string
+}
+
+/** The client's own documents an AngleSupport may cite: the strategy documents, by type. */
+export const CLIENT_DOCUMENT_TYPES = ['icp', 'positioning', 'tov', 'messaging'] as const
+export type ClientDocumentType = (typeof CLIENT_DOCUMENT_TYPES)[number]
+
+/** The document an AngleSupport cites, read from the first segment of its source. */
+export function supportDocumentType(support: AngleSupport): ClientDocumentType | null {
+  const head = (support.source ?? '').trim().split(/[.[\s]/)[0]?.toLowerCase() ?? ''
+  return (CLIENT_DOCUMENT_TYPES as readonly string[]).includes(head) ? head as ClientDocumentType : null
+}
+
+/**
+ * Why an angle cannot be written about yet, or [] when both its consequence and its offer
+ * link cite the client's own documents. Shape only: whether each quote is really in the
+ * document is checked where the documents are read (the run script).
+ */
+export function angleSupportFaults(angle: Pick<PainAngle, 'id' | 'consequence_support' | 'link_support'>): string[] {
+  const faults: string[] = []
+  for (const [field, what] of [['consequence_support', 'its consequence'], ['link_support', 'how the offer answers it']] as const) {
+    const support = angle[field]
+    if (support === undefined) {
+      faults.push(`${angle.id}: ${field} is missing: cite the passage of the client's documents that supports ${what}, or set it to null if they do not, and the angle is held until the client confirms it`)
+    } else if (support === null) {
+      faults.push(`${angle.id}: the client's documents do not support ${what} (${field} is null), so it is never written about: confirm it with the client, or drop the angle`)
+    } else if (supportDocumentType(support) === null) {
+      faults.push(`${angle.id}: ${field}.source "${support.source}" does not name one of the client's documents (${CLIENT_DOCUMENT_TYPES.join(', ')})`)
+    } else if (typeof support.quote !== 'string' || support.quote.trim().length < 8) {
+      faults.push(`${angle.id}: ${field}.quote must be copied from that document`)
+    }
+  }
+  return faults
+}
+
+/** Text compared for a quote: lower case, curly quotes straightened, whitespace collapsed. */
+export function normaliseForQuote(text: string): string {
+  return text.toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ').trim()
+}
+
+/** Every string in a document's content, joined: what a quote is looked for in. */
+export function documentText(content: unknown): string {
+  const out: string[] = []
+  const walk = (v: unknown) => {
+    if (typeof v === 'string') out.push(v)
+    else if (Array.isArray(v)) v.forEach(walk)
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk)
+  }
+  walk(content)
+  return out.join(' \n ')
+}
+
+/**
+ * Every support passage, on an angle a sequence could use, whose quote is not in the
+ * document it names. `documents` maps a document type to that client's active document's
+ * text (documentText). A document that is absent finds nothing, so it is reported too.
+ */
+export function quotesNotFound(brief: OutboundBrief, documents: Partial<Record<ClientDocumentType, string>>): string[] {
+  const missing: string[] = []
+  for (const angle of usableAngles(brief)) {
+    for (const field of ['consequence_support', 'link_support'] as const) {
+      const support = angle[field]
+      if (!support) continue
+      const type = supportDocumentType(support)
+      const text = type ? documents[type] : undefined
+      if (!type || !text || !normaliseForQuote(text).includes(normaliseForQuote(support.quote))) {
+        missing.push(`${angle.id}.${field}: "${support.quote}" is not in the ${type ?? 'named'} document`)
+      }
+    }
+  }
+  return missing
 }
 
 export type ProofPlacement = 'offer' | 'value_note'

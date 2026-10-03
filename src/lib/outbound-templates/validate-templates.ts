@@ -66,6 +66,7 @@ import { findAmbiguousReferents } from '@/lib/style/ambiguous-referent'
 import { findStiffForms } from '@/lib/style/stiff-forms'
 import { findConsecutiveRepeats, findRepeatedPhrases, wordsInCommon } from '@/lib/style/repetition'
 import {
+  angleSupportFaults,
   briefItemIndex,
   conflictedAngleIds,
   forbiddenPhrases,
@@ -73,6 +74,7 @@ import {
   mostBuyersAngles,
   neutralOutcomeIds,
   proofIds,
+  usableAngles,
   type OutboundBrief,
 } from '@/lib/outbound-brief/brief'
 import { unreachablePeerKinds } from '@/lib/sourcing/peer-kind'
@@ -1191,6 +1193,12 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
   })
 
   const mostBuyers = mostBuyersAngles(brief).map(a => a.id)
+  // EVERY ANGLE A SEQUENCE COULD BE WRITTEN ABOUT IS SUPPORTED BY THE CLIENT'S OWN DOCUMENTS
+  // (reading file 7, fix 2): its consequence and how the offer answers it. A BRIEF fault,
+  // because no rewrite of the copy can supply a causal link the documents do not make.
+  for (const angle of usableAngles(brief)) {
+    for (const fault of angleSupportFaults(angle)) docPush(`brief.pain_angles.${angle.id}`, 'angle_unsupported', fault)
+  }
   // THE PEER RUNG NEEDS A FRAME THAT DOES NOT NAME THE SITE. Its clause is built from the
   // prospect's stored record, not read on their website, so "Your site shows you run ..."
   // would credit their site with a data provider's label. Composition uses only a frame
