@@ -80,7 +80,7 @@ describe('the brief-only seam', () => {
   it('states the length budget when it is given one', () => {
     const brief = inventedBrief()
     const prompt = buildGenerationPrompt(brief, planAngles(brief), variantKeysFor(brief), { min: 39, max: 50 })
-    expect(prompt).toContain('pain + offer + question together are 39 to 50 words')
+    expect(prompt).toContain('pain + lead_in + offer + question together are 39 to 50 words')
   })
 
   it('returns no brief for a document without a valid one', () => {
@@ -198,7 +198,7 @@ describe('scopeHitsFromJudge', () => {
   type Claim = { claim: string; covered_by: string | null; violates: string | null; manual_task?: unknown }
   const claimOf = (c: Claim) => ({ manual_task: false, ...c })
   const clean = (n: number | string, claims: Claim[] = []) =>
-    ({ n, claims: claims.map(claimOf), proof_used: [] as unknown[], excludes: null as string | null, idiom: null as string | null, ambiguous: null as string | null, unnatural: null as string | null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false })
+    ({ n, claims: claims.map(claimOf), proof_used: [] as unknown[], excludes: null as string | null, idiom: null as string | null, ambiguous: null as string | null, unnatural: null as string | null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false, consequence_follows: true, question_matches: true })
   const verdict = (lines: unknown, r = refs) => scopeHitsFromJudge(lines, r, brief)
   const reasons = (lines: unknown, r = refs) => verdict(lines, r).hits.map(h => h.reason).join(' | ')
 
@@ -270,8 +270,67 @@ describe('scopeHitsFromJudge', () => {
     const close: ScopeLineRef[] = [{ variant: 'A', line: 'email4.p2', text: 'If the pages nobody translated become a priority, reply.', kind: 'close', angle: 'PA1' }]
     expect(reasons([{ ...clean(1), self_diagnosis: true }], close)).toContain('diagnosis')
   })
-  it('ignores those flags on a line that is neither a pain nor a close', () => {
-    expect(verdict([{ ...clean(1), asserts_about_reader: true, self_diagnosis: true, narrow_consequence: true }, clean(2)]).hits).toEqual([])
+  it('ignores the diagnosis and consequence flags on a line that is neither a pain nor a close', () => {
+    // Line 1 is an offer. Since 2026-10-03 asserts_about_reader IS read on an offer (below),
+    // so it is left false here: what this proves is that the two pain questions are not.
+    expect(verdict([{ ...clean(1), self_diagnosis: true, narrow_consequence: true, consequence_follows: false }, clean(2)]).hits).toEqual([])
+  })
+
+  // ── The scope judge's questions of 2026-10-03 ──
+  it('PLANTED: an offer that states something about the reader, or implies they already have the outcome, is refused', () => {
+    expect(reasons([{ ...clean(1), asserts_about_reader: true }, clean(2)])).toContain('implies they already have what the offer provides')
+    // The same answer of false passes (control).
+    expect(verdict([{ ...clean(1), asserts_about_reader: false }, clean(2)]).hits).toEqual([])
+  })
+  it('PLANTED: a pain whose consequence does not follow from its symptom is refused, at that line', () => {
+    const { hits } = verdict([clean(1), { ...clean(2), consequence_follows: false }])
+    expect(hits.map(h => [h.line, h.reason])).toEqual([['email1.pain', 'the consequence does not follow from the pain before it; say what that symptom leads to']])
+  })
+  it.each([
+    ['missing', (l: Record<string, unknown>) => { delete l.consequence_follows }],
+    ['a string', (l: Record<string, unknown>) => { l.consequence_follows = 'true' }],
+  ])('PLANTED: a pain whose consequence_follows answer is %s is an unanswered question, never a pass', (_name, mutate) => {
+    const pain: Record<string, unknown> = { ...clean(2) }
+    mutate(pain)
+    expect(reasons([clean(1), pain])).toContain('the scope judge did not say whether the consequence follows from the pain')
+  })
+  it('consequence_follows is not asked of an offer: a missing answer there costs nothing (control)', () => {
+    const offer: Record<string, unknown> = { ...clean(1) }
+    delete offer.consequence_follows
+    expect(verdict([offer, clean(2)]).hits).toEqual([])
+  })
+
+  describe('question_matches: an ask is about the pain of its own email (2026-10-03)', () => {
+    const PAIN = 'Exporters tell us a new market can start slowly.'
+    const ask: ScopeLineRef[] = [{ variant: 'A', line: 'email2.p3', text: 'Is a slow start abroad a problem for you?', kind: 'ask', painAbove: PAIN }]
+    it('PLANTED: an ask the judge says asks about something else is refused, and the pain is named', () => {
+      expect(reasons([{ ...clean(1), question_matches: false }], ask)).toBe(`the question does not ask about this email's pain: "${PAIN}"`)
+    })
+    it.each([
+      ['missing', (l: Record<string, unknown>) => { delete l.question_matches }],
+      ['a string', (l: Record<string, unknown>) => { l.question_matches = 'false' }],
+    ])('PLANTED: an ask whose question_matches answer is %s is an unanswered question, never a pass', (_name, mutate) => {
+      const line: Record<string, unknown> = { ...clean(1) }
+      mutate(line)
+      expect(reasons([line], ask)).toContain('the scope judge did not say whether the question matches its email')
+    })
+    it('an ask the judge says matches passes (control)', () => {
+      expect(verdict([{ ...clean(1), question_matches: true }], ask).hits).toEqual([])
+    })
+    it('an ask with no pain above it is not asked: a missing answer there costs nothing (control)', () => {
+      const line: Record<string, unknown> = { ...clean(1), question_matches: false }
+      expect(verdict([line], [{ ...ask[0], painAbove: undefined }]).hits).toEqual([])
+    })
+    it('lineRefsFor gives every ask the pain above it: Email 1\'s question both wordings, a follow-up ask its own email\'s pain', () => {
+      const refs = lineRefsFor({ A: inventedVariants().A }, 'exporters', inventedBrief())
+      const painAbove = (line: string) => refs.find(r => r.line === line)?.painAbove
+      expect(painAbove('email1.question')).toBe(painAbove('email1.offer'))
+      expect(painAbove('email1.question.alt')).toContain(' / ')
+      expect(painAbove('email2.p3')).toBe('When we chat to exporters, a lot of them say a new market starts slower than hoped. So growth plans can slip, and the launch can cost more than it should.')
+      expect(painAbove('email3.p3')).toBe('Talking to exporters, we hear that free tools came first and buyers noticed the errors.')
+      // A pain line has none: it is the pain (control).
+      expect(painAbove('email1.pain')).toBeUndefined()
+    })
   })
   it('rejects a pain or a break-up line that states something about the reader as a fact (rule 1)', () => {
     // The validator reads the form of a pain sentence, in paragraphs of kind pain only. A
@@ -402,7 +461,7 @@ describe('scopeHitsFromJudge', () => {
     // The slotted offer is judged against the same pain and outcome as its slot_free form.
     const slotted = all.find(r => r.line === 'email3.p2.slotted')!
     expect(slotted.kind).toBe('offer')
-    expect(slotted.painAbove).toBe('Some firms tried free tools first and buyers noticed the errors.')
+    expect(slotted.painAbove).toBe('Talking to exporters, we hear that free tools came first and buyers noticed the errors.')
     expect(SCOPE_JUDGE_SYSTEM_PROMPT).toContain("[the reader's firm]")
   })
   it('rejects an offer that does not answer the pain above it, and names that pain (note 2)', () => {
@@ -606,9 +665,9 @@ describe('what the scope judge is shown', () => {
     expect(refs.find(r => r.line === 'email4.p2')).toMatchObject({ kind: 'close', angle: 'PA1' })
     // An offer is shown with the pain it sits under: both wordings in Email 1, the pain
     // paragraph of its own email in a follow-up.
-    expect(refs.find(r => r.line === 'email1.offer.alt')?.painAbove).toContain('exporters often tell us buyers abroad leave too soon.')
-    expect(refs.find(r => r.line === 'email1.offer')?.painAbove).toContain(' / exporters say buyers in new places often leave pages')
-    expect(refs.find(r => r.line === 'email3.p2')?.painAbove).toBe('Some firms tried free tools first and buyers noticed the errors.')
+    expect(refs.find(r => r.line === 'email1.offer.alt')?.painAbove).toContain('When we chat to exporters, a lot of them say buyers abroad leave too soon.')
+    expect(refs.find(r => r.line === 'email1.offer')?.painAbove).toContain(" / Talking to exporters, we hear that buyers leave pages they can't read.")
+    expect(refs.find(r => r.line === 'email3.p2')?.painAbove).toBe('Talking to exporters, we hear that free tools came first and buyers noticed the errors.')
     expect(refs.find(r => r.line === 'email1.pain')?.painAbove).toBeUndefined()
   })
   it('sees BOTH forms of a line that uses {for_whom}: the slot-free one and the one tier 2 ships', () => {
@@ -622,7 +681,7 @@ describe('what the scope judge is shown', () => {
     expect(text('email1.subject.slotted')).toBe('[their customers] abroad')
     // A line with no {for_whom} has one form, with the peer label filled in.
     expect(refs.filter(r => r.line.startsWith('email1.pain')).map(r => r.line)).toEqual(['email1.pain', 'email1.pain.alt'])
-    expect(text('email1.pain')).toContain('exporters often tell us')
+    expect(text('email1.pain')).toContain('When we chat to exporters, a lot of them say')
     // No placeholder ever reaches the judge.
     expect(refs.some(r => /\{[a-z_]+\}/.test(r.text))).toBe(false)
   })
@@ -642,7 +701,7 @@ describe('what the scope judge is TOLD about an offer', () => {
   it('PLANTED: the tag says the pain above and the outcome sold', () => {
     const refs = lineRefsFor(inventedVariants(), 'exporters', brief)
     const tagged = scopeLineTag(refs.find(r => r.variant === 'B' && r.line === 'email1.offer')!)
-    expect(tagged).toContain('offer; the pain stated above it: "exporters often tell us a new market is slow to pick up.')
+    expect(tagged).toContain('offer; the pain stated above it: "When we chat to exporters, many of them say a new market is slow to pick up.')
     expect(tagged).toContain('the outcome it sells: O1 "Buyers abroad can read your pages and buy."')
     expect(scopeLineTag(refs.find(r => r.variant === 'A' && r.line === 'email1.pain')!)).toBe('pain PA1')
   })
@@ -693,15 +752,16 @@ describe('the generator is told the same rules the judge and the validator hold'
     const client = { messages: { create: async (params: { messages: Array<{ content: string }> }) => {
       seen.push(params.messages[0].content)
       const n = params.messages[0].content.split('## LINES\n')[1].split('\n').filter(l => /^\d+\. \[/.test(l)).length
-      return { stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text', text: JSON.stringify({ lines: Array.from({ length: n }, (_, i) => ({ n: i + 1, claims: [], proof_used: [], excludes: null, idiom: null, ambiguous: null, unnatural: null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false })) }) }] }
+      return { stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text', text: JSON.stringify({ lines: Array.from({ length: n }, (_, i) => ({ n: i + 1, claims: [], proof_used: [], excludes: null, idiom: null, ambiguous: null, unnatural: null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false, consequence_follows: true, question_matches: true })) }) }] }
     } } } as unknown as Anthropic
     const usage: Parameters<typeof runScopeJudge>[3] = []
     await runScopeJudge(client, inventedBrief(), { B: inventedVariants().B }, usage)
     expect(seen).toHaveLength(1)
     expect(seen[0]).toContain('## OUTCOMES\n[{"id":"O1","statement":"Buyers abroad can read your pages and buy."}')
     expect(seen[0]).toMatch(/\d+\. \[offer; the pain stated above it: "[^"]+"[^\]]*; the outcome it sells: O1 "[^"]+"\] \(email1\.offer\) We turn your key pages/)
-    // Each line carries its own name, so the judge can see which lines are one email.
-    expect(seen[0]).toMatch(/\d+\. \[ask\] \(email2\.p3\) /)
+    // Each line carries its own name, so the judge can see which lines are one email. An ask
+    // now carries the pain above it too (question_matches, 2026-10-03).
+    expect(seen[0]).toMatch(/\d+\. \[ask; the pain stated above it: "[^"]+"\] \(email2\.p3\) /)
     expect(SCOPE_JUDGE_SYSTEM_PROMPT).toContain('(email2.p3) is the third paragraph of Email 2, read straight after (email2.p2)')
   })
 })
@@ -747,6 +807,44 @@ describe('toVariantLines', () => {
     const v = toVariantLines({ email1: { offer_angle: 'something' } }, { ...plan, neutralOffer: true }, 1)
     expect(v.email1.offer_angle).toBeNull()
   })
+
+  // ── The lead-in (2026-10-03) ──
+  const LEAD_IN = { text: 'If {company} is seeing this too,', slots: ['company'], slot_free: "If you're seeing this too,", from: ['PA1'] }
+  it('PLANTED: keeps the model\'s lead-in, with its slot_free form, and drops any second wording of it', () => {
+    const v = toVariantLines({ email1: { lead_in: { ...LEAD_IN, alt: { ...LEAD_IN, text: 'If {company} sees this too,' } } } }, plan, 1)
+    expect(v.email1.lead_in).toEqual(LEAD_IN)
+    expect(v.email1.lead_in).not.toHaveProperty('alt')
+  })
+  it('an answer with no lead-in leaves none, so the validator says it is missing (control)', () => {
+    const v = toVariantLines({ email1: { offer_angle: 'a problem' } }, plan, 1)
+    expect(v.email1).not.toHaveProperty('lead_in')
+  })
+  it('PLANTED: a stored lead-in goes back to the model as it was, and a repair that leaves it out keeps it', () => {
+    const raw = linesToRaw(inventedVariants().A)
+    expect(raw.email1?.lead_in).toMatchObject({ text: 'If {company} is seeing this too,', slot_free: "If you're seeing this too," })
+    const merged = mergeRepair(raw, { email1: { question: { text: 'Do buyers abroad leave?', slots: [], slot_free: null, from: ['PA1'] } } })
+    expect(merged.email1?.lead_in).toEqual(raw.email1?.lead_in)
+    // A repair that rewrites it is taken (control).
+    const rewritten = mergeRepair(raw, { email1: { lead_in: { ...LEAD_IN, text: 'If {company} sees this too,', slot_free: 'If you see this too,' } } })
+    expect(rewritten.email1?.lead_in?.text).toBe('If {company} sees this too,')
+  })
+  it('PLANTED: the writer is told the lead-in and the named source, and the JSON shape carries both', () => {
+    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).toContain('- lead_in: ONE clause that leads into the offer and names the reader\'s firm')
+    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).toContain('"lead_in":  { "text": "If {company} ...,", "slots": ["company"], "slot_free": "If you ...,"')
+    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).toContain('NAME THE SOURCE, CONVERSATIONALLY')
+    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).toContain('NEVER A FACELESS SOURCE')
+    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).toContain('"pain":     { "text": "When we chat to {peer_group}, ..."')
+    // The withdrawn instruction is gone (control on the old wording).
+    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).not.toContain('pain: begins with {peer_group}')
+  })
+  it('PLANTED: the client\'s colloquialisms reach the writer from the brief, and an absent list is sent empty', () => {
+    const brief = inventedBrief()
+    brief.colloquialisms = ['no worries']
+    expect(buildGenerationPrompt(brief, planAngles(brief), variantKeysFor(brief))).toMatch(/"colloquialisms": \[\s*"no worries"\s*\]/)
+    const none = inventedBrief()
+    delete none.colloquialisms
+    expect(buildGenerationPrompt(none, planAngles(none), variantKeysFor(none))).toContain('"colloquialisms": []')
+  })
 })
 
 describe('buildMessagingContent', () => {
@@ -763,7 +861,10 @@ describe('buildMessagingContent', () => {
     expect(content.firm_fact_tier).toEqual({ enabled: false })
     const e1 = content.variants.A.emails[0]
     expect(e1.body).not.toMatch(/\{(does|for_whom|peer_group)\}/)
-    expect(e1.body.startsWith('{{first_name}}\n\nExporters often tell us')).toBe(true)
+    expect(e1.body.startsWith('{{first_name}}\n\nWhen we chat to exporters, a lot of them say')).toBe(true)
+    // The lead-in is stored in its slot-free form, joined in front of the offer (2026-10-03).
+    expect(e1.body).toContain("\n\nIf you're seeing this too, we translate your pages")
+    expect(content.variants.A.lines.email1.lead_in.text).toBe('If {company} is seeing this too,')
     expect(e1.body.endsWith('Sam\nQuillmere')).toBe(true)
     expect(content.variants.A.lines.email1.pain.text).toContain('{peer_group}')
     expect(content.variants.A.emails.map((e: any) => e.sequence_position)).toEqual([1, 2, 3, 4])
@@ -832,6 +933,8 @@ describe('email1WordBudget, held against the validator it predicts', () => {
     // 85 word ceiling (75 until 2026-10-02), less greeting 1, opener 15, sign-off 2, a
     // four-word label (3 more than the one word a slot counts as) and a five-word customer
     // group (4 more).
+    // The lead-in (2026-10-03) is counted with the lines, in the form the template is checked
+    // in, its slot-free one: a long name is held at composition, not here.
     expect(email1WordBudget(brief, INVENTED_SIGNOFF)).toEqual({ min: 39, max: 60 })
   })
   it('a longer sign-off and no {for_whom} move it', () => {
@@ -841,7 +944,7 @@ describe('email1WordBudget, held against the validator it predicts', () => {
   it('the maximum passes the word band and one word more does not (the pair, not each side)', () => {
     const { max } = email1WordBudget(brief, INVENTED_SIGNOFF)
     const own = (v: ReturnType<typeof inventedVariants>['A']) =>
-      [v.email1.pain.text, v.email1.offer.text, v.email1.question.text].join(' ').trim().split(/\s+/).length
+      [v.email1.pain.text, v.email1.lead_in?.slot_free ?? '', v.email1.offer.text, v.email1.question.text].join(' ').trim().split(/\s+/).length
     const bandRules = (extra: number) => {
       const variants = inventedVariants()
       // One wording per line, so there is exactly one combination to measure.
@@ -877,7 +980,7 @@ function fakeModel(opts: {
   })
   const cleanJudge = (lineCount: number) => JSON.stringify({
     lines: Array.from({ length: lineCount }, (_, i) => ({
-      n: i + 1, claims: [], proof_used: [], excludes: null, idiom: null, ambiguous: null, unnatural: null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false,
+      n: i + 1, claims: [], proof_used: [], excludes: null, idiom: null, ambiguous: null, unnatural: null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false, consequence_follows: true, question_matches: true,
     })),
   })
   const reply = (text: string) => ({ stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text', text }] })
@@ -1663,29 +1766,35 @@ describe('a fault only the brief can fix stops the run before anything is paid f
     expect(routed.briefFaults).toEqual([])
   })
 
-  it('PLANTED: a brief whose kind and peer label say the same word makes NO call of any kind, and the error names the brief', async () => {
-    // The peer brief without its after_opener label: "Can see you run a software company."
-    // then "Software makers often tell us ...". Measured on a stub run: 13 repair calls and
-    // $3.22 before the cap stopped it, every one asked to fix a label the writer cannot touch.
+  it('PLANTED: a brief whose kind can never be used makes NO call of any kind, and the error names the brief', async () => {
+    // Until 2026-10-03 this was planted as a kind and a peer label that say the same word
+    // ("you run a software company", "Software makers ..."), refused at the brief as
+    // peer_opener_repeat. That check is withdrawn with the after-opener label: the reader's
+    // own group is named. The brief fault that remains is a kind on an industry no stored
+    // record can resolve to, which the brief validator refuses before the template
+    // validator's second net is reached.
     const brief = inventedPeerBrief()
-    delete brief.peer_group_default.after_opener
+    brief.peer_groups[0].industry = 'Software And Apps'
     const fake = fakeModel()
     const run = generateOutboundTemplates({ brief, signoff: INVENTED_SIGNOFF, apiKey: 'unused', client: fake.client })
     await expect(run).rejects.toThrow(/brief/)
+    await expect(run).rejects.toThrow(/Software And Apps/)
     await expect(run).rejects.not.toBeInstanceOf(OutboundTemplateFailure)
     expect(fake.calls).toEqual([])
   })
 
-  it('the same brief with its after_opener label writes and passes (control)', async () => {
+  it('the peer brief as it stands, with no after_opener label, writes and passes (control)', async () => {
+    const brief = inventedPeerBrief()
+    expect(brief.peer_group_default.after_opener).toBeUndefined()
     const fake = fakeModel()
-    const result = await generateOutboundTemplates({ brief: inventedPeerBrief(), signoff: INVENTED_SIGNOFF, apiKey: 'unused', client: fake.client, keep: { opener_frames: ['Your site says {does}.', 'Can see {does}.'], variants: inventedVariants() } })
+    const result = await generateOutboundTemplates({ brief, signoff: INVENTED_SIGNOFF, apiKey: 'unused', client: fake.client, keep: { opener_frames: ['Your site says {does}.', 'Can see {does}.'], variants: inventedVariants() } })
     expect(Object.keys(result.variants).sort()).toEqual(['A', 'B'])
     expect(fake.calls.map(c => c.kind)).toEqual(['label', 'judge', 'judge'])
   })
 })
 
 describe('the reviewer\'s "unnatural" answer: what the brief may excuse, and what a misplaced quote leaves behind', () => {
-  const clean = (n: number) => ({ n, claims: [], proof_used: [], excludes: null, idiom: null, ambiguous: null, unnatural: null as string | null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false })
+  const clean = (n: number) => ({ n, claims: [], proof_used: [], excludes: null, idiom: null, ambiguous: null, unnatural: null as string | null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false, consequence_follows: true, question_matches: true })
   const line = (text: string): ScopeLineRef[] => [{ variant: 'A', line: 'email2.p2', text, kind: 'pain', angle: 'PA2' }]
   const judged = (text: string, quote: string, brief = inventedBrief()) => scopeHitsFromJudge([{ ...clean(1), unnatural: quote }], line(text), brief)
   const steadyBrief = () => {
@@ -1823,9 +1932,18 @@ describe('a frame word the peer label repeats costs no variant repair (second ro
     brief.peer_group_default.label = 'trade show exhibitors'
     return brief
   }
+  // Variant A names its source with {peer_group} in Email 1, Email 2 and Email 3. Under a
+  // three-word default label that is "trade show exhibitors" three times in one sequence,
+  // which phrase_repeat refuses (see the report of 2026-10-03: the label is the brief's).
+  // This test is about the FRAME, so Email 3's pain here says its source without the slot.
+  const variantsForFrames = () => {
+    const variants = inventedVariants()
+    variants.A.followups[1].paragraphs[0] = { text: 'We often hear that free tools came first and buyers noticed the errors.', slots: [], slot_free: null, from: ['PA3', 'T1'], kind: 'pain' }
+    return variants
+  }
   const answer = (frames: string[]) => (call: FakeCall) => ({
     opener_frames: frames,
-    variants: call.kind === 'repair' ? {} : Object.fromEntries(Object.entries(inventedVariants()).map(([k, v]) => [k, linesToRaw(v)])),
+    variants: call.kind === 'repair' ? {} : Object.fromEntries(Object.entries(variantsForFrames()).map(([k, v]) => [k, linesToRaw(v)])),
   })
 
   it('PLANTED: the finding goes to the frames: no variant is sent for repair, and one call rewrites the frames', async () => {
@@ -1851,7 +1969,7 @@ describe('a frame word the peer label repeats costs no variant repair (second ro
 })
 
 describe('floor two excuses the brief\'s own sentence in the shapes the prompt asks for (second round, 2026-10-02)', () => {
-  const clean = (n: number) => ({ n, claims: [], proof_used: [], excludes: null, idiom: null, ambiguous: null, unnatural: null as string | null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false })
+  const clean = (n: number) => ({ n, claims: [], proof_used: [], excludes: null, idiom: null, ambiguous: null, unnatural: null as string | null, fragment: false, slot_reads: true, sells_outcome: true, resolves_pain: true, asserts_about_reader: false, self_diagnosis: false, narrow_consequence: false, consequence_follows: true, question_matches: true })
   const judged = (text: string, quote: string) =>
     scopeHitsFromJudge([{ ...clean(1), unnatural: quote }], [{ variant: 'A', line: 'email2.p2', text, kind: 'pain', angle: 'PA2' }], inventedBrief())
 

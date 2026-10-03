@@ -48,7 +48,8 @@ const say = (text: string) => ({
   usage: { input_tokens: 1, output_tokens: 1 },
 })
 
-const FLOOR_PASS = say('CLAIMS_PRIVATE: NO\nREASON: everything here is visible from outside.')
+// Both floor answers, since 2026-10-03: a reply missing QUESTION_TIES_BACK fails closed.
+const FLOOR_PASS = say('CLAIMS_PRIVATE: NO\nREASON: everything here is visible from outside.\nQUESTION_TIES_BACK: YES\nQUESTION_REASON: it asks about what the opening names.')
 
 function script(bridge: string) {
   createMock.mockImplementation(async (args: { system: unknown; messages: { content: string }[] }) => {

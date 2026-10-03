@@ -31,6 +31,15 @@ export const WRITER_STOPPED_LABELS = {
 
 export const WRITER_STOPPED_CODES = Object.keys(WRITER_STOPPED_LABELS) as NotWrittenReason[]
 
+/**
+ * A fact OUTSIDE ITS TRIGGER'S DEFINITION (2026-10-03) is stopped under the code
+ * no_approved_reason, because NotWrittenReason belongs to the Email 1 writer's file and the
+ * hold is the same hold. The label above would then say the fact matched no approved
+ * reason, which is untrue: it matched one and was not what the trigger counts. So the
+ * recorded state, trigger_data.judge.approved_reason.state, picks this label instead.
+ */
+export const OUTSIDE_DEFINITION_LABEL = 'The fact found is not what its trigger\'s definition counts'
+
 export interface WriterStoppedProspect {
   id: string
   name: string
@@ -50,7 +59,7 @@ export async function listWriterStoppedProspects(
 ): Promise<{ ok: true; prospects: WriterStoppedProspect[] } | { ok: false; error: string }> {
   const { data, error } = await serviceRole
     .from('prospects')
-    .select('id, first_name, last_name, company_name, job_title, research_ran_at, synthesis_note:trigger_data->>relevance_reason, stopped_code:trigger_data->judge->>not_written_reason')
+    .select('id, first_name, last_name, company_name, job_title, research_ran_at, synthesis_note:trigger_data->>relevance_reason, stopped_code:trigger_data->judge->>not_written_reason, approved_state:trigger_data->judge->approved_reason->>state')
     .eq('organisation_id', organisationId)
     .filter('trigger_data->judge->>not_written_reason', 'in', `(${WRITER_STOPPED_CODES.map(c => `"${c}"`).join(',')})`)
     .order('research_ran_at', { ascending: false })
@@ -67,7 +76,9 @@ export async function listWriterStoppedProspects(
       job_title: p.job_title ?? null,
       research_ran_at: p.research_ran_at ?? null,
       synthesis_note: typeof p.synthesis_note === 'string' ? p.synthesis_note : null,
-      stopped_because: WRITER_STOPPED_LABELS[p.stopped_code as NotWrittenReason] ?? String(p.stopped_code ?? ''),
+      stopped_because: p.approved_state === 'outside_definition'
+        ? OUTSIDE_DEFINITION_LABEL
+        : WRITER_STOPPED_LABELS[p.stopped_code as NotWrittenReason] ?? String(p.stopped_code ?? ''),
     })),
   }
 }

@@ -8,29 +8,31 @@
 // the registered name. Nobody writes "The Northtown Company, Inc. can win more clients".
 //
 // ═════════════════════════════════════════════════════════════════════════════
-// THE SHORTER NAME (operator note 2 on the fifth reading, 2026-10-02)
+// THE SHORT NAME (the sixth reading, 2026-10-03)
 //
-// Until the fifth reading this file held "a market's own word stays": "Northtown
-// Consulting" was said in full, on the reasoning that "Consulting" is one market's word
-// and no market's words are stripped. The operator replaced that, in these words:
+// The operator, in his words: "short names drop trailing descriptors and initialisms;
+// places and trade words keep the full name". His three examples were a firm's name with
+// an initialism and two descriptors after it, said as its first word; a name of two
+// ordinary words and a descriptor, said as the two words; and one ordinary word and a
+// descriptor, said as the word. All three are real firms' names and are not written here;
+// the tests use invented names of the same shapes ("Quillon HCM Consulting Group" is
+// "Quillon", "Amber Ridge Consulting" is "Amber Ridge", "Harbour Consulting" is "Harbour").
 //
-//   "Company short names, deterministic: drop trailing generic business words (Consulting,
-//   Group, Advisors, Partners, Solutions, legal forms) when the remainder is distinctive;
-//   keep the full name if the remainder is a place or a common word; 'your firm' when
-//   nothing distinctive remains."
+// WHAT CHANGED FROM THE FIFTH READING. Then, a remainder was said only when one of its
+// words was on no list of common English words, so "Harbour Consulting" and "Quiet Harbour
+// Group" kept their full names: code could not tell a brand of ordinary words from a trade
+// said in ordinary words, and the full name was the safe side. The operator's examples are
+// exactly those shapes, and he wants them shortened. So A COMMON ENGLISH WORD NO LONGER
+// KEEPS THE FULL NAME. What still does is a place, and a trade the firm's OWN RECORD names.
 //
-// WHY THE OLD RULE WENT. Nobody says "Kessel Consulting" in the middle of a sentence about
+// WHY A SHORT NAME AT ALL. Nobody says "Kessel Consulting" in the middle of a sentence about
 // that firm. Its own people say "Kessel", and so does anyone who has dealt with it. The
 // registered style, said in full every time, is how a database talks, and a follow-up that
 // talks like a database has shown the reader the merge.
 //
-// WHY A PLACE OR A COMMON WORD KEEPS THE FULL NAME. Dropping "Consulting" is safe only
-// while what is left still points at one firm. "Kessel" does. "Summit" does not: it is a
-// word before it is a name, and "so Summit can win the right clients" reads as a sentence
-// with something missing. "Denver" is worse, because it is a city, and the sentence is
-// then about the city. In both, the generic word is the part that makes the name a firm's
-// name, so it stays. The full name is never the wrong thing to call a firm. It is only
-// longer.
+// WHY A PLACE KEEPS THE FULL NAME. "so Denver can win the right clients" is a sentence
+// about a city. The generic word is the part that makes "Denver Consulting" a firm's name,
+// so it stays. The full name is never the wrong thing to call a firm. It is only longer.
 //
 // ═════════════════════════════════════════════════════════════════════════════
 // WHAT IT DOES, AND WHAT IT REFUSES TO DO
@@ -46,15 +48,22 @@
 // comma left hanging. What is left is the firm's name as the record holds it: "Kessel
 // Consulting", "Northtown Design".
 //
-// STEP TWO, THE REMAINDER. Trailing GENERIC BUSINESS WORDS come off the full name, one
-// after another, from the end. There are two classes, and the difference matters once:
+// STEP TWO, THE REMAINDER. Trailing words come off the full name, one after another, from
+// the end:
 //
-//   ENTITY words   say that a business exists: Group, Partners, Associates, Holdings ...
-//   SERVICE words  say that it sells services, in general: Consulting, Advisory,
-//                  Solutions ... and, with them, every one of the calling client's OWN
-//                  generic words: the words true of every firm that client writes to,
-//                  from its brief. A client that writes to hauliers gets "Kessel" from
-//                  "Kessel Haulage". Another client gets "Kessel Haulage".
+//   ENTITY words    say that a business exists: Group, Partners, Associates, Holdings ...
+//   SERVICE words   say that it sells services, in general: Consulting, Advisory,
+//                   Solutions ... and, with them, every one of the calling client's OWN
+//                   generic words: the words true of every firm that client writes to,
+//                   from its brief. A client that writes to hauliers gets "Kessel" from
+//                   "Kessel Haulage". Another client gets "Kessel Haulage".
+//   THE FIRM'S OWN  trade words, from its stored industry and keywords (firmTradeWords),
+//   TRADE WORDS     taken as service words. With logistics on its record "Kessel
+//                   Logistics Solutions" is "Kessel". Never the only word left.
+//   INITIALISMS     two to five capitals, letters only, standing after another word:
+//                   "Quillon HCM" is "Quillon", "Kessel UK" is "Kessel". Never the only
+//                   word left ("The QTX Company" is "QTX"), and never after an "and" or "&",
+//                   where it is the other half of a partnership ("Marlow & KMR").
 //
 // An "and" or "&" left at the end goes with the word it joined on. Where that word was an
 // ENTITY word ("Marlow & Associates") the other side of the join is the name, and it
@@ -63,8 +72,9 @@
 // Consulting". The trade word goes too, but ONLY in the one shape code can read:
 //
 //   - exactly ONE word stands in front of the joined word, and
-//   - the joined word is a common English word. (One of the client's generic words goes
-//     as well, in any shape, because it is a service word in its own right.)
+//   - the joined word is a common English word (common-words.data.ts). One of the client's
+//     generic words or the firm's trade words goes as well, in any shape, because it is a
+//     service word in its own right.
 //
 // So "Kessel Tax & Advisory" is "Kessel". "Kessel Real Estate & Advisory" is "Kessel Real
 // Estate": two words stand in front, and taking one of them cut a two-word trade in half
@@ -81,73 +91,51 @@
 // comma stays in the remainder, the remainder cannot be said, and neither can the full
 // name, so it is "your firm" ("Kessel Trennick, Tax & Advisory").
 //
-// STEP THREE, WHICH OF THE TWO IS SAID. The remainder, when it is DISTINCTIVE. It is, when
-// both of these hold:
+// AND WHEN NOTHING STANDS IN FRONT ("Tax & Advisory", "Tax, Audit & Advisory"), what is
+// left is the trade by this same reading, and a trade keeps the full name (the sixth
+// reading). "so Tax can win the right clients" is the sentence that prevents.
 //
-//   - taken whole it is not a place ("New York", "North Texas", "Greater Manchester"), nor
-//     a nationality, a weekday or a month ("American", "Friday"), which are treated as
-//     places (place-names.data.ts, beside this file)
-//   - at least ONE of its words is distinctive: three characters or more, and not a place,
-//     not a common English word (common-words.data.ts), not one of the calling client's
-//     generic words and not one of the firm's OWN TRADE WORDS (see below)
+// STEP THREE, WHICH OF THE TWO IS SAID. The remainder, when at least ONE of its words
+// names something: three characters or more, and not a place, a nationality, a weekday or
+// a month (place-names.data.ts, beside this file), not one of the calling client's generic
+// words and not one of the firm's own trade words. A common English word counts. And when
+// it passes every refusal below.
 //
-// Two readings of "a word" were added by the second round of the review (2026-10-02):
-//
-//   - a word INSIDE A LISTED PLACE OF SEVERAL WORDS is not distinctive: any run of two
-//     words or more that is a place taken whole. "Los Angeles Tax Advisors" keeps its full
-//     name, where "los" and "angeles" alone are on no list and it went out as "Los Angeles
-//     Tax". "Kessel Hong Kong Consulting" is still "Kessel Hong Kong", through "Kessel"
-//   - a HYPHENATED word is distinctive only when, with its hyphens read as spaces, it is
-//     not a place taken whole, and at least one of its parts is distinctive. "Asia-Pacific",
-//     "Real-Estate" and "North-Texas" are not; "Marlow-Kessel" is
-//
-// and when it passes every refusal below. So a remainder of one word and a remainder of
-// several are held to the same test. "Kessel Marsh" is distinctive by "Kessel". "Real
-// Estate", "Human Resources" and "IT Support" are not, and neither is "Quiet Harbour":
-// every word is ordinary, and code cannot tell a brand made of two ordinary words from a
-// trade said in two words. All of them keep the full name, which is never wrong.
+//   - a word INSIDE A LISTED PLACE OF SEVERAL WORDS names nothing: any run of two words or
+//     more that is a place taken whole. "Los Angeles Advisors" keeps its full name;
+//     "Los Angeles Tax Advisors" is "Los Angeles Tax", through "Tax"
+//   - a HYPHENATED word names something only when, with its hyphens read as spaces, it is
+//     not a place taken whole, and at least one of its parts does. "Asia-Pacific" and
+//     "North-Texas" do not; "Real-Estate" and "Marlow-Kessel" do
+//   - a remainder that, taken whole, is a place ("New York", "North Texas", "Greater
+//     Manchester") names nothing
 //
 // Otherwise the full name, held to the same refusals. And "your firm" (null) in three
 // cases where there is nothing to say:
 //
 //   - NOTHING is left, because every word of the name was a generic business word
 //     ("Consulting Group")
-//   - nothing generic came off, and the name is ONE word that is not distinctive: "Denver
-//     Ltd", "The Summit Company", "Orchard GmbH", "Smith and Co". There is no longer form
-//     to fall back to. THIS CHANGED ON THE FIFTH READING: until then a one-word name was
-//     said as it stood, common word or not. The price is a surname that is also an
-//     ordinary word or a place ("Brown Ltd", "Jackson Ltd"), which becomes "your firm"
-//   - nothing generic came off, and the name is a PLACE in any number of words: "New York
-//     Ltd", "Greater Manchester LLC"
+//   - nothing came off, and the name is ONE word that names nothing: "Denver Ltd", "QX
+//     Ltd", "Logistics Ltd" for a firm whose record names logistics. Since the sixth
+//     reading a common word is a name: "Orchard GmbH" is "Orchard", "Smith and Co" is
+//     "Smith"
+//   - nothing came off, and the name is a PLACE in any number of words: "New York Ltd",
+//     "Greater Manchester LLC"
 //
-// A name of several words that nothing came off is otherwise said as it stands, ordinary
-// words or not ("Higher Ground Design", "Real Estate Ltd" as "Real Estate"). It is the
-// whole of what the firm is called, and this file does not question a whole name.
+// THE FIRM'S OWN TRADE WORDS (the review of the fifth reading). The record says what this
+// firm's trade is, in any market: compose-sequence passes the firm's stored industry and
+// keywords, and firmTradeWords makes the trade words from them. A longer list of trade
+// vocabulary would be one market's wording by another name, so nothing is hardcoded here.
+// They are compared in one form (the second round of the review, 2026-10-02): a word of a
+// name is split on its hyphens and read with its digits, so "E-Commerce" meets the tag
+// "E-Commerce" and "3PL" meets "3PL", and a word of four characters or more that is the
+// start of a trade word, or that a trade word of four or more is the start of, is one
+// ("Telecom" against "telecommunications"). Four, because a three-letter trade word would
+// take a name with it ("law" and "Lawson").
 //
-// THE FIRM'S OWN TRADE WORDS (the review of the fifth reading). The common-word list holds
-// everyday English, so much trade vocabulary is on neither list: "logistics", "analytics",
-// "telecom", and every acronym. "Logistics Solutions" went out as "Logistics". A longer
-// list of trades would be one market's wording, so the answer is BUILT FROM STORED DATA:
-// compose-sequence passes the firm's stored industry and keywords, firmTradeWords makes
-// the trade words from them, and a word that is one of them is not distinctive. With
-// "logistics" among them "Logistics Solutions" keeps its full name. They never come off a
-// name; they only stop a word being said alone.
-//
-// THEY ARE COMPARED IN ONE FORM (the second round of the review, 2026-10-02). A word of a
-// name is split on its hyphens and read with its digits, as the record's text is, so
-// "E-Commerce" meets the tag "E-Commerce" and "3PL" meets "3PL". And a word of four
-// characters or more that is the start of a trade word, or that a trade word of four or
-// more is the start of, is one: "Telecom" against "telecommunications", "Logistic"
-// against "logistics". Four, because a three-letter trade word would take a name with it
-// ("law" and "Lawson").
-//
-// AN ACRONYM IS A NAME, AND CODE CANNOT TELL "QTX" FROM "CRM". A remainder of one word in
-// capitals, three to five letters, is said unless it spells a listed word (ACE, USA): the
-// operator's own example of a name that must shorten has that shape. "CRM Consulting" has it too, and with no trade words given
-// it goes out as "CRM". The trade words are what catch it: when the record's keywords
-// hold CRM, "CRM Consulting" keeps its full name. When they do not, nothing here can know.
-// The other cost of the trade words: a record whose keywords hold the firm's own name
-// keeps that firm at its full name. That is the safe side.
+// AN ACRONYM IS A NAME WHEN IT IS THE WHOLE NAME. "CRM Consulting" with no trade words given
+// goes out as "CRM", because code cannot tell "QTX" from "CRM". The trade words are what
+// catch it: when the record's keywords hold CRM, "CRM Consulting" keeps its full name.
 //
 // It returns null, and the email keeps its slot-free wording, whenever what would be said
 // reads badly in a sentence or is not a name at all. These apply to the remainder and to
@@ -156,8 +144,8 @@
 //   - nothing left, or one letter
 //   - more than four words, or more than 32 characters: a name that long crowds the line
 //     it sits in, and the templates are validated against a four-word name. A full name
-//     over the cap is still said by its remainder when the remainder fits AND is
-//     distinctive; when it is not, there is nothing to say
+//     over the cap is still said by its remainder when the remainder fits and passes; when
+//     it does not, there is nothing to say
 //   - ANY WORD THAT IS NOT PLAIN LETTERS AND DIGITS, with an apostrophe, a hyphen or a full
 //     stop allowed INSIDE it ("O'Neill", "Northtown-West", "Northtown.io"). So no dash
 //     standing between words, no comma, slash, colon, quote mark or symbol, and no word
@@ -165,12 +153,12 @@
 //     what a word may be, and no longer a list of marks to refuse.
 //   - ENDING ON A WORD NO NAME ENDS ON: of, for, in, at, by, to, the, a, an, and, with,
 //     on, from, or, and the joins and particles of other languages (en, und, og, och, et,
-//     y, e, de, van, von; the second round of the review). A remainder that ends that way
-//     was cut in the middle of a phrase ("Institute of", "Kessel School of", "Kessel en"),
-//     so the full name is said ("Institute of Consulting", "Kessel en Partners"). A full
-//     name that ends that way is not said at all ("Harrowby The", "Northtown And"). THE
-//     COST: a firm whose name really ends on one of them ("Studio A", "Check In", "Kessel
-//     Van") is "your firm". Title case writes the article and the letter the same way
+//     y, e, de, van, von; the second round of the review), and since the merge review any
+//     lower-case word at the end of a name of several words. A remainder that ends that way
+//     was cut in the middle of a phrase ("Institute of", "Kessel en"), so the full name is
+//     said ("Institute of Consulting", "Kessel en Partners"). A full name that ends that
+//     way is not said at all ("Harrowby The", "Northtown And"). THE COST: a firm whose name
+//     really ends on one of them ("Studio A", "Check In", "Kessel Van") is "your firm"
 //   - written all in capitals (longer than a five-letter acronym) or with no capital at
 //     all: the record's casing is not how the firm writes itself, and code will not guess
 //     the case. THE CAPITALS ARE READ ON THE FULL NAME FIRST, before anything comes off:
@@ -208,52 +196,37 @@
 // word of a name MAY be has no such tail: anything else is refused, and the email keeps its
 // slot-free wording, which is the safe side.
 //
-// THE LISTS ARE LISTS, and the paragraph above applies to them. A place nobody listed, a
-// nationality nobody listed and a word above the common-word cut all pass as names. They
-// are allowed to be lists because of which way they fail: a hit costs nothing, because the
-// full name is never wrong, and a miss costs one sentence that calls a firm by a town or
-// by an ordinary word. That cost is NEW with the fifth reading. Before it nothing was
-// shortened and every such firm was called by its full name, so it is worth keeping small.
+// THE LISTS ARE LISTS. A place nobody listed and a nationality nobody listed pass as names.
+// They are allowed to be lists because of which way they fail: a hit costs nothing, because
+// the full name is never wrong, and a miss costs one sentence that calls a firm by a town.
 //
 // ═════════════════════════════════════════════════════════════════════════════
-// THE REVIEW OF THE FIFTH READING, 2026-10-02: what a table of 237 invented names found
+// KNOWN LIMITS, as of the sixth reading
 //
-// The shorter name was run over 237 names by shape, each put through both follow-up
-// sentences. Every row below went out before this review. Each is now a planted test.
-//
-//   "Human Resources Consulting"  ->  "so Human Resources can win the right clients"
-//   "North Texas Advisors"        ->  "Does that match what North Texas sees?"
-//   "Institute of Consulting"     ->  "so Institute of can win the right clients"
-//   "American Consulting Group"   ->  "so American can win the right clients"
-//   "Logistics Solutions"         ->  "so Logistics can win the right clients"
-//   "Kessel Real Estate & Advisory"  ->  "Kessel Real"
-//   "DOYLE CONSULTING"            ->  "DOYLE"
-//   "J Marlow Consulting", written to Jane Marlow  ->  "J Marlow"
-//
-// One mistake sits under the first three: a remainder of two words or more was never read
-// word by word, so anything of two words was a name. The rule now asks of every remainder
-// whether ONE word in it could only be this firm's. The fourth and fifth are words that
-// were on no list: the nationalities, weekdays and months are now closed sets beside the
-// places, and a firm's trade comes from its own record.
-//
-// KNOWN LIMITS, measured after the fix and left as they are:
-//
-//   - a trade word on neither list, with no trade words passed or none that match, is
-//     still said alone: "Analytics Consulting" as "Analytics", "SEO Consultants" as "SEO"
-//   - a common word above the list's cut is a name: "Catalyst Solutions" is "Catalyst"
-//   - a region whose every word is on no list ("Hudson" and "Thames" were added; the next
-//     river was not), and a demonym of a place that is on no list
+//   - A TRADE SAID IN ORDINARY WORDS, which the firm's record does not name, is said alone:
+//     "Real Estate Advisors" is "Real Estate", "IT Support Solutions" is "IT Support",
+//     "Denver Tax Advisors" is "Denver Tax". The fifth reading's review kept these at their
+//     full names through the common-word list; the operator's rule gave that up to shorten
+//     brands of ordinary words, and the record's own trade words are what remain. With
+//     real estate on the record "Real Estate Advisors" keeps its full name
+//   - a trade word on no list, with no trade words passed or none that match, is said
+//     alone: "Analytics Consulting" as "Analytics", "SEO Consultants" as "SEO"
+//   - the firm's own trade words now COME OFF a name, so a record whose keywords hold the
+//     firm's own second word ("Kessel Marsh" with the keyword "Marsh") loses it: "Kessel"
+//   - a trailing word of five capitals or fewer is taken for an initialism even where it
+//     is an ordinary word typed in capitals ("Kessel ROOFS" is "Kessel")
+//   - a region whose every word is on no list, and a demonym of a place that is on no list
 //   - a trade word under four characters that is only the start of the firm's trade word
-//   - a name of several ordinary words that nothing came off is said whole
 //
 // RULE ZERO. The entity words and the legal forms are the same in every market. The
 // service words are the ones that say "sells services" in any market, and they are here by
 // the operator's instruction of the fifth reading, not as one market's trade. A market's
 // OWN word is never written in this file: it comes from the calling client's brief, so
 // "Vantor Marketing" stays as it is for every client whose list does not call marketing
-// generic, and a firm's own trade comes from that firm's record. The words no name ends
-// on and the grammar words are English grammar, not a trade. The values that are not a
-// firm's name are the same in every market too.
+// generic, and a firm's own trade comes from that firm's record. An initialism is a shape
+// of English writing, not a trade. The words no name ends on and the grammar words are
+// English grammar, not a trade. The values that are not a firm's name are the same in every
+// market too.
 
 import { kindIsGeneric } from '@/lib/agents/research/firm-fact-checks'
 import { COMMON_ENGLISH_WORDS } from '@/lib/composition/common-words.data'
@@ -385,7 +358,9 @@ const NO_TRADE_WORDS: ReadonlySet<string> = new Set()
  * purpose (the review of the fifth reading, 2026-10-02). The other way to stop "Logistics
  * Solutions" going out as "Logistics" is a longer list of trade vocabulary, and a list of
  * trades is one market's wording by another name. The record says what this firm's trade
- * is, in any market, and nothing is hardcoded here.
+ * is, in any market, and nothing is hardcoded here. Since the sixth reading (2026-10-03)
+ * the same words also come off the end of a name: "places and trade words keep the full
+ * name" means the trade is never what is SAID, and a trade at the end is a descriptor.
  *
  * Deterministic: no model call.
  */
@@ -456,8 +431,12 @@ type WordSets = { clientWords: ReadonlySet<string>; tradeWords: ReadonlySet<stri
 
 /**
  * Can this ONE word be what makes a remainder a firm's name? Not when it is under three
- * characters ("IT", "of", "QX"), a place, a common English word, one of the calling
- * client's generic words, or one of the firm's own trade words.
+ * characters ("IT", "of", "QX"), a place or a demonym, one of the calling client's generic
+ * words, or one of the firm's own trade words.
+ *
+ * A COMMON ENGLISH WORD IS ONE, since the sixth reading (2026-10-03). Until then it was
+ * not, and "Harbour Consulting" kept its full name. The operator: "short names drop
+ * trailing descriptors", with three examples of ordinary words said alone.
  *
  * A HYPHENATED WORD (the second round of the review, 2026-10-02) is on no list as it
  * stands, so "Asia-Pacific", "Real-Estate" and "North-Texas" were each a name. It is now
@@ -468,7 +447,7 @@ type WordSets = { clientWords: ReadonlySet<string>; tradeWords: ReadonlySet<stri
 function wordIsDistinctive(word: string, sets: WordSets): boolean {
   if (lettersAndDigits(word) < ONE_WORD_NAME_MIN_CHARS) return false
   const listed = listForm(word)
-  if (PLACE_NAMES.has(listed) || DEMONYMS_AND_CALENDAR_WORDS.has(listed) || COMMON_ENGLISH_WORDS.has(listed)) return false
+  if (PLACE_NAMES.has(listed) || DEMONYMS_AND_CALENDAR_WORDS.has(listed)) return false
   const parts = word.split('-').filter(Boolean)
   // "Indo-Pacific", "Trans-Atlantic", "Afro-Caribbean": every part a place, a demonym or a
   // combining form that only ever joins one (merge review, 2026-10-02).
@@ -483,16 +462,50 @@ function withoutHangingComma(words: string[]): string[] {
 }
 
 /**
- * STEP TWO: the full name with its trailing generic business words removed. May be empty,
- * which means every word of the name was one.
+ * A trailing INITIALISM: two to five capitals and nothing else ("HCM", "HR", "UK"). It
+ * comes off the end of a name the way a descriptor does (the sixth reading, 2026-10-03:
+ * "short names drop trailing descriptors and initialisms"). Letters only, so "B2B" and
+ * "SaaS" are not one, and six capitals or more is a word typed in capitals, not an
+ * initialism.
  */
-function withoutGenericWords(full: string[], clientWords: ReadonlySet<string>): string[] {
+const INITIALISM = /^\p{Lu}{2,5}$/u
+
+/**
+ * Is this word of a name one of the FIRM'S OWN trade words? Every part of it that is three
+ * characters or more must be, so "E-Commerce" is (its "E" is set aside) and "Kessel-Freight"
+ * is not.
+ */
+function isTheFirmsTrade(word: string, tradeWords: ReadonlySet<string>): boolean {
+  if (tradeWords.size === 0) return false
+  const parts = word.split('-').filter(part => lettersAndDigits(part) >= ONE_WORD_NAME_MIN_CHARS)
+  return parts.length > 0 && parts.every(part => isATradeWord(part, tradeWords))
+}
+
+/** What step two leaves, and whether what it leaves is a trade joined to a service word. */
+type Remainder = { words: string[]; isATrade: boolean }
+
+/**
+ * STEP TWO: the full name with its trailing generic words removed. May be empty, which
+ * means every word of the name was one.
+ *
+ * Off the end, one after another: an ENTITY word, a SERVICE word, one of the calling
+ * client's generic words, and since the sixth reading (2026-10-03) one of the FIRM'S OWN
+ * trade words and an INITIALISM. The last two never take the only word left: a name made
+ * only of the firm's trade ("Logistics Solutions") or only of an initialism ("QTX Group")
+ * keeps it, and step three decides whether it is said. An initialism with a join in front
+ * of it ("Marlow & KMR") is the other half of a partnership and stays.
+ */
+function withoutGenericWords(full: string[], sets: WordSets): Remainder {
   let words = full
+  let isATrade = false
   for (;;) {
     const last = words[words.length - 1]
-    if (last === undefined) return words
-    const sellsServices = SERVICE_WORDS.has(bare(last)) || clientWords.has(bare(last))
-    if (!sellsServices && !ENTITY_WORDS.has(bare(last))) return words
+    if (last === undefined) return { words, isATrade }
+    const notTheOnlyWord = words.length > 1
+    const sellsServices = SERVICE_WORDS.has(bare(last)) || sets.clientWords.has(bare(last))
+      || (notTheOnlyWord && isTheFirmsTrade(last, sets.tradeWords))
+    const initialism = notTheOnlyWord && INITIALISM.test(last) && !JOIN.test(words[words.length - 2])
+    if (!sellsServices && !initialism && !ENTITY_WORDS.has(bare(last))) return { words, isATrade }
     words = words.slice(0, -1)
     if (JOIN.test(words[words.length - 1] ?? '')) {
       words = words.slice(0, -1)
@@ -504,19 +517,30 @@ function withoutGenericWords(full: string[], clientWords: ReadonlySet<string>): 
       // trade, and "Kessel" for "Kessel Trennick & Advisors", where the joined word is a
       // partner. Anywhere else the join and the service word go and the rest stays.
       // Never the only word left: "Tax & Advisory" keeps "Tax", and is then said in full,
-      // because "Tax" alone is a common word.
-      // A joined word that is one of the CLIENT's generic words needs no test here. It is
-      // a service word, so the loop takes it on its next turn, in any shape.
+      // because "Tax" is marked a trade (below).
+      // A joined word that is one of the CLIENT's generic words, or one of the FIRM's own
+      // trade words, needs no test here. It is taken as a service word, so the loop takes
+      // it on its next turn, in any shape.
       //
       // A LIST OF TRADES (the second round of the review, 2026-10-02): "Kessel Tax, Audit &
       // Advisory". The words in front of the joined one that end in a comma are the list's
       // other items, and they go with it under the same two conditions: exactly one word
       // stands in front of the whole list, and every item is a common word. Before this the
       // comma stayed in the remainder and the firm was "your firm" by accident.
+      //
+      // NOTHING IN FRONT OF THE LIST (the sixth reading, 2026-10-03): "Tax & Advisory",
+      // "Tax, Audit & Advisory". By this rule's own reading the joined words are a trade,
+      // and nothing stands in front of them to be the name. Until the sixth reading "Tax"
+      // kept the full name because it is a common word; a common word no longer does, so
+      // the remainder is marked a trade here, and a trade keeps the full name. The list is
+      // read back to the first word for this ("first > 0"), so "Tax," is never taken for
+      // a name standing in front of "Audit".
       let first = words.length - 1
-      while (first > 1 && /,$/.test(words[first - 1] ?? '')) first--
+      while (first > 0 && /,$/.test(words[first - 1] ?? '')) first--
       const items = words.slice(first).map(word => listForm(word.replace(/,$/, '')))
-      if (sellsServices && first === 1 && items.every(item => COMMON_ENGLISH_WORDS.has(item))) words = words.slice(0, 1)
+      const aListOfTrades = sellsServices && items.every(item => COMMON_ENGLISH_WORDS.has(item))
+      if (aListOfTrades && first === 1) words = words.slice(0, 1)
+      if (aListOfTrades && first === 0) isATrade = true
     }
     words = withoutHangingComma(words)
   }
@@ -525,13 +549,14 @@ function withoutGenericWords(full: string[], clientWords: ReadonlySet<string>): 
 /**
  * STEP THREE: does the remainder still point at one firm? Not when, taken whole, it is a
  * place. And otherwise only when at least ONE of its words is distinctive: three
- * characters or more, not a place, a common word, a client generic word or one of the
+ * characters or more, not a place or a demonym, not a client generic word or one of the
  * firm's own trade words, and not inside a run of words that is a place.
  *
- * Until the review of the fifth reading any remainder of two words or more was a name,
- * on the reasoning that common words together are nobody else's. "Real Estate", "Human
- * Resources" and "North Texas" are common words together, and each went out as the firm.
- * Code cannot tell those from "Quiet Harbour", so all of them keep the full name.
+ * A COMMON WORD COUNTS, since the sixth reading (2026-10-03). The fifth reading's review
+ * held that "Real Estate" and "Quiet Harbour" could not be told apart, and kept both at
+ * their full names. The operator's rule now says both: "Quiet Harbour", and "Real Estate"
+ * unless the firm's own record names real estate as its trade, which is the one place code
+ * can learn that it is a trade.
  *
  * A remainder cut mid-phrase ("Kessel School of") is NOT refused here. nameForASentence
  * refuses any name that ends that way, and a remainder it refuses falls back to the full
@@ -615,11 +640,13 @@ function nameForASentence(words: string[], clientGenericWords: ReadonlySet<strin
  * @param reader              who the email is written to, so a firm named after them is
  *                            not written back to them in the third person.
  * @param tradeWords          THIS FIRM's own trade words, from its stored industry and
- *                            keywords: build them with firmTradeWords. Optional. They
- *                            never come off a name. They only stop a word being said
- *                            alone: with "logistics" among them, "Logistics Solutions"
- *                            keeps its full name. Left out, the function behaves as it
- *                            did before the parameter existed.
+ *                            keywords: build them with firmTradeWords. Optional. Since
+ *                            the sixth reading they come off the END of a name as
+ *                            service words do ("Kessel Logistics Solutions" is
+ *                            "Kessel"), never as the only word left, and a remainder
+ *                            made only of them is not said: with "logistics" among
+ *                            them, "Logistics Solutions" keeps its full name. Left
+ *                            out, no word is read as the firm's trade.
  */
 export function companyShortName(
   companyName: string | null | undefined,
@@ -655,14 +682,15 @@ export function companyShortName(
     tradeWords: new Set([...tradeWords].map(word => tradeForm(word).replace(/ /g, '')).filter(Boolean)),
   }
   // STEP TWO: the remainder.
-  const remainder = withoutGenericWords(full, sets.clientWords)
+  const { words: remainder, isATrade } = withoutGenericWords(full, sets)
   // NOTHING DISTINCTIVE REMAINS. Every word was a generic business word ("Consulting
   // Group", "The Company"), so there is no name here to say, in full or in short.
   if (remainder.length === 0) return null
   // STEP THREE. A distinctive remainder that fails a refusal (the reader's own name, a
   // word typed in capitals, a name cut mid-phrase) falls back to the full name, which
-  // may still pass.
-  const distinctive = remainderIsDistinctive(remainder, sets)
+  // may still pass. A remainder that is the trade joined to a service word ("Tax" from
+  // "Tax & Advisory") is not a name at all, so it falls back the same way.
+  const distinctive = !isATrade && remainderIsDistinctive(remainder, sets)
   if (distinctive) {
     const short = nameForASentence(remainder, clientGenericWords, reader)
     if (short !== null) return short
@@ -671,10 +699,11 @@ export function companyShortName(
   // There is no longer form to fall back to, and two shapes have nothing to say:
   //   - a PLACE, in any number of words: "Denver Ltd", "New York Ltd", "Greater Manchester
   //     LLC", "American Ltd"
-  //   - ONE word that is not distinctive: a common word, a trade word of the firm's own,
-  //     or under three characters. "The Summit Company" is one word once the form is off.
-  //     A full name of one word IS its remainder (nothing can have come off and left
-  //     something), so the verdict above is the verdict on it.
+  //   - ONE word that is not distinctive: a place or demonym, a trade word of the firm's
+  //     own, or under three characters ("QX Ltd"). Since the sixth reading a common word
+  //     is distinctive, so "Orchard GmbH" is "Orchard". A full name of one word IS its
+  //     remainder (nothing can have come off and left something), so the verdict above is
+  //     the verdict on it.
   // "so Denver can win the right clients" is the sentence the place rule exists to
   // prevent. The operator's rule for this case is "your firm".
   if (isAPlace(full) || (full.length === 1 && !distinctive)) return null

@@ -18,7 +18,8 @@
 // preloadedDocs. This prevents a mid-batch race where a client revision between prospect N
 // and prospect N+1 would cause later leads to compose from a new pending version.
 
-import { RUNG_FAILURE_REASONS, decideFirmFactEmail1, decideFollowupFills, decideTemplateEmail1 } from './firm-fact-email1'
+import { RUNG_FAILURE_REASONS, decideEmail1LeadIn, decideFirmFactEmail1, decideFollowupFills, decideTemplateEmail1 } from './firm-fact-email1'
+import { EMAIL_WORD_LIMITS, FACT_EMAIL1_WORD_LIMITS } from '@/agents/messaging-generation-agent'
 import { coherenceForDocument } from './sequence-coherence'
 import { peerKindRecordFromRow } from '@/lib/sourcing/peer-kind'
 import { createClient } from '@supabase/supabase-js'
@@ -112,7 +113,7 @@ export interface FollowupRecord {
    * RETURNED TO THE CALLER, NOT STORED. recordSentSequence does not write it: the body as
    * sent is in sent_sequences.emails, and that is the record of what a prospect received.
    */
-  slot_fills?: Record<number, { company: boolean; for_whom: boolean } | { reason: string }>
+  slot_fills?: Record<number, { company: boolean; for_whom: boolean; peer_group?: boolean } | { reason: string }>
 }
 
 export interface ComposedSequence {
@@ -193,6 +194,7 @@ interface ProspectRow {
    * read the firm's own trade words from the industry and keywords (firmTradeWords).
    */
   company_industry?: string | null
+  company_headcount?: number | null
   apollo_enrichment_data?: unknown
 }
 
@@ -501,6 +503,7 @@ export async function composeSequence({
       prospectId: prospect.id,
       firmFact: dryRun?.firmFact !== undefined ? dryRun.firmFact : (prospect.firm_fact ?? null),
       company: companyRecord,
+      headcount: typeof prospect.company_headcount === 'number' ? prospect.company_headcount : null,
       templateEmail1Body: variantEmails.find(e => e.sequence_position === 1)?.body ?? '',
       now: new Date(),
     })
@@ -756,9 +759,27 @@ export async function composeSequence({
   const forWhomShipped = opening.tier === 'firm_fact'
     ? ((opening.detail as { fills?: { for_whom?: string | null } } | null)?.fills?.for_whom ?? null)
     : null
+  const peerGroupShipped = opening.tier === 'firm_fact'
+    ? ((opening.detail as { fills?: { peer_group?: string | null } } | null)?.fills?.peer_group ?? null)
+    : null
   const slotFills: NonNullable<FollowupRecord['slot_fills']> = {}
   const withSlotFills = applied.emails.map(email => {
     const position = email.sequence_position
+    // EMAIL 1'S LEAD-IN NAMES THE READER'S FIRM (2026-10-03), on every tier, here: after the
+    // Email 1 fingerprint above was taken, so follow-ups written against it still match.
+    if (position === 1) {
+      const leadIn = decideEmail1LeadIn({
+        messagingContent: messagingDoc,
+        variantId,
+        body: email.body,
+        companyName: prospect.company_name ?? null,
+        reader: { firstName: prospect.first_name ?? null, lastName: prospect.last_name ?? null },
+        company: companyRecord,
+        maxWords: opening.tier === 'firm_fact' ? FACT_EMAIL1_WORD_LIMITS.maxWords : EMAIL_WORD_LIMITS.email1MaxWords,
+      })
+      slotFills[1] = leadIn.named ? { company: true, for_whom: false } : { reason: leadIn.reason }
+      return leadIn.named ? { ...email, body: leadIn.body, word_count: leadIn.word_count } : email
+    }
     if (position !== 2 && position !== 3 && position !== 4) return email
     const generated = position !== 4 && proseToApply[position] !== null && !applied.unreadable.includes(position)
     if (generated) return email
@@ -770,12 +791,13 @@ export async function composeSequence({
       forWhom: forWhomShipped,
       reader: { firstName: prospect.first_name ?? null, lastName: prospect.last_name ?? null },
       company: companyRecord,
+      peerGroup: peerGroupShipped,
     })
     if (!decision.filled) {
       slotFills[position] = { reason: decision.reason }
       return email
     }
-    slotFills[position] = { company: decision.fills.company !== null, for_whom: decision.fills.for_whom !== null }
+    slotFills[position] = { company: decision.fills.company !== null, for_whom: decision.fills.for_whom !== null, peer_group: decision.fills.peer_group !== null }
     return { ...email, body: decision.body, word_count: decision.word_count }
   })
   const emailsWithFooter = finaliseForReading(withSlotFills)
@@ -1309,7 +1331,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, personalisation_subject, followup_email2, followup_email3, followup_email1_fingerprint, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name, firm_fact, company_industry, apollo_enrichment_data')
+    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, personalisation_subject, followup_email2, followup_email3, followup_email1_fingerprint, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name, firm_fact, company_industry, apollo_enrichment_data, company_headcount')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()

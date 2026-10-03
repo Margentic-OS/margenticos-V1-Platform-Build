@@ -463,6 +463,41 @@ async function loadMessaging(
  */
 const noApprovedReason = process.argv.includes('--no-approved-reason')
 
+/**
+ * PENDING DOCUMENTS, read in place of the live ones (2026-10-03). A writer-only run is how
+ * a pending messaging suggestion and a pending ICP suggestion are tried on real prospects
+ * BEFORE either is approved: --messaging-suggestion=<uuid> briefs the writer with the
+ * suggested messaging document, --icp-suggestion=<uuid> holds it to the suggested trigger
+ * list (with its definitions). Each must be PENDING, of the right type, and this client's.
+ * Nothing is written either way: the run still has no write path.
+ */
+interface PendingOverrides {
+  messaging?: { content: MessagingContent; doc_id: string; version: string | null }
+  messagingOrg?: string
+  triggers?: Array<{ trigger: string; reason: string; definition?: string }>
+  icpOrg?: string
+}
+
+async function loadPendingSuggestion(supabase: SupabaseClient, id: string, type: 'messaging' | 'icp'): Promise<{ organisation_id: string; content: Record<string, unknown> }> {
+  const { data, error } = await supabase.from('document_suggestions')
+    .select('id, organisation_id, document_type, status, suggested_value').eq('id', id).single()
+  if (error || !data) throw new Error(`suggestion not found: ${id}`)
+  if (data.document_type !== type) throw new Error(`suggestion ${id} is ${data.document_type}, not ${type}`)
+  if (data.status !== 'pending') throw new Error(`suggestion ${id} is ${data.status}, not pending`)
+  return { organisation_id: data.organisation_id as string, content: JSON.parse(data.suggested_value as string) as Record<string, unknown> }
+}
+
+function triggersFromIcp(content: Record<string, unknown>): Array<{ trigger: string; reason: string; definition?: string }> {
+  const list = ((content.tier_1 as { triggers?: unknown } | undefined)?.triggers ?? []) as Array<Record<string, unknown>>
+  return list
+    .filter(t => typeof t.trigger === 'string' && typeof t.reason === 'string' && (t.reason as string).trim() !== '')
+    .map(t => ({
+      trigger: t.trigger as string,
+      reason: t.reason as string,
+      ...(typeof t.definition === 'string' && t.definition.trim() ? { definition: t.definition } : {}),
+    }))
+}
+
 async function runOne(
   supabase: SupabaseClient,
   apiKey: string,
@@ -475,6 +510,8 @@ async function runOne(
    * between them is this boolean, which is what makes the comparison attributable.
    */
   writeFollowups: boolean,
+  /** --messaging-suggestion and --icp-suggestion: pending documents read in place of the live ones. */
+  overrides: PendingOverrides = {},
 ): Promise<ProspectRecord | null> {
   // A PLAIN SELECT, NOT loadProspectContext. That helper stamps prospects.segment_id when
   // it finds it null, which is correct for the agents and is a WRITE. The proxy would
@@ -488,6 +525,10 @@ async function runOne(
   if (error || !p) throw new Error(`prospect not found: ${prospectId}`)
 
   const clientId = p.organisation_id as string
+  // Agent isolation, as for a pinned document: a pending suggestion is operator input and is
+  // proved to be this client's before its copy or its triggers reach this prospect.
+  if (overrides.messagingOrg && overrides.messagingOrg !== clientId) throw new Error(`the messaging suggestion belongs to another organisation than prospect ${prospectId}`)
+  if (overrides.icpOrg && overrides.icpOrg !== clientId) throw new Error(`the ICP suggestion belongs to another organisation than prospect ${prospectId}`)
   const ctx: ProspectContext = {
     id:              p.id as string,
     organisation_id: clientId,
@@ -521,7 +562,7 @@ async function runOne(
     return null
   }
 
-  const messaging = await loadMessaging(supabase, clientId, ctx.segment_id, pinnedDocId)
+  const messaging = overrides.messaging ?? await loadMessaging(supabase, clientId, ctx.segment_id, pinnedDocId)
   const variantId = resolveVariantId(ctx.id, (p.variant_id ?? null) as string | null, messaging.content).variantId
   const clientCtx = await loadClientContext(clientId, ctx.segment_id)
 
@@ -539,7 +580,7 @@ async function runOne(
     positioningText: clientCtx.positioningText,
     // The same list both production paths pass, so an export measures the writer held to
     // the client's approved reasons, as production is.
-    triggers: noApprovedReason ? null : clientCtx.triggers,
+    triggers: noApprovedReason ? null : (overrides.triggers ?? clientCtx.triggers),
     uniqueness,
     onAttempt: o => attempts.push(o),
     writeFollowupEmails: writeFollowups,
@@ -812,6 +853,14 @@ async function main() {
   // THE FLAG. Absent is the production state and the flag-off arm of a comparison.
   const writeFollowups = argv.includes('--followups')
   const pinnedDocId = argv.find(a => a.startsWith('--messaging-doc-id='))?.split('=')[1] ?? null
+  const messagingSuggestionId = argv.find(a => a.startsWith('--messaging-suggestion='))?.split('=')[1] ?? null
+  const icpSuggestionId = argv.find(a => a.startsWith('--icp-suggestion='))?.split('=')[1] ?? null
+  // THE SPEND CAP (2026-10-03): this script is paid, so it carries one. Before each prospect
+  // the run stops if the next one could take it past the cap at REUSE_WORST_USD.
+  const capArg = argv.find(a => a.startsWith('--max-usd='))?.split('=')[1]
+  const capUsd = capArg === undefined ? 3 : Number(capArg)
+  if (!Number.isFinite(capUsd) || capUsd <= 0) throw new Error(`--max-usd must be a positive number, got "${capArg}"`)
+  const REUSE_WORST_USD = 0.10
   const ids = argv.filter(a => !a.startsWith('--'))
   if (!withQuestion && ids.length === 0) {
     console.error('usage: npx tsx --env-file=.env.local scripts/export-writer-run.ts <prospect_id>... | --with-question [--messaging-doc-id=<uuid>]')
@@ -822,6 +871,19 @@ async function main() {
   const apiKey = env('ANTHROPIC_API_KEY')
 
   const targets = await readProspectIds(supabase, withQuestion, ids)
+  const overrides: PendingOverrides = {}
+  if (messagingSuggestionId) {
+    const m = await loadPendingSuggestion(supabase, messagingSuggestionId, 'messaging')
+    overrides.messaging = { content: m.content as MessagingContent, doc_id: `suggestion:${messagingSuggestionId}`, version: null }
+    overrides.messagingOrg = m.organisation_id
+  }
+  if (icpSuggestionId) {
+    const icp = await loadPendingSuggestion(supabase, icpSuggestionId, 'icp')
+    overrides.triggers = triggersFromIcp(icp.content)
+    overrides.icpOrg = icp.organisation_id
+  }
+  if (messagingSuggestionId || icpSuggestionId) console.log(`PENDING documents: messaging ${messagingSuggestionId ?? 'live'}, triggers ${icpSuggestionId ? `from ${icpSuggestionId} (${overrides.triggers?.length} with a reason, ${overrides.triggers?.filter(t => t.definition).length} with a definition)` : 'live'}.`)
+  console.log(`Spend cap $${capUsd.toFixed(2)} (--max-usd=), at a worst case of $${REUSE_WORST_USD.toFixed(2)} a prospect.`)
   console.log(`export-writer-run: ${targets.length} prospects. Writer, floor and judge run per prospect. PAID. Nothing is written.`)
   console.log(pinnedDocId
     ? `messaging document PINNED to ${pinnedDocId}. The active-and-approved rule is bypassed.`
@@ -863,8 +925,13 @@ async function main() {
   let aborted: string | null = null
   try {
     for (const [i, id] of targets.entries()) {
+      const spent = records.reduce((t, r) => t + r.usd, 0)
+      if (spent + REUSE_WORST_USD > capUsd) {
+        console.log(`STOPPED at the spend cap: $${spent.toFixed(2)} spent, the next prospect could pass $${capUsd.toFixed(2)}. ${targets.length - i} not run.`)
+        break
+      }
       console.log(`[${i + 1}/${targets.length}] ${id}`)
-      const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId, writeFollowups)
+      const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId, writeFollowups, overrides)
       if (rec) {
         records.push(rec)
         // Appended BEFORE the console line, so the file is ahead of the log rather than

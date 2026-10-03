@@ -18,6 +18,9 @@ const ABBREVIATIONS = [
   // a person, and every one of these ended a "sentence" that had not ended.
   'Inc.', 'Ltd.', 'Co.', 'Corp.', 'plc.', 'LLC.', 'L.L.C.', 'GmbH.', 'S.A.', 'Pty.',
   'Jr.', 'Sr.', 'No.', 'Nos.', 'Dept.', 'Est.',
+  // MONTH ABBREVIATIONS, added 2026-10-03 (operator: "Sept"-style abbreviations allowed). The
+  // cost is the one the suffixes carry: "in Dec. The firm" no longer splits.
+  'Jan.', 'Feb.', 'Mar.', 'Apr.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Sept.', 'Oct.', 'Nov.', 'Dec.',
 ]
 
 /**

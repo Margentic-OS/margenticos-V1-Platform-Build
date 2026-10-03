@@ -63,7 +63,8 @@ const writerReply = (observation: string) => say([
   `SUBJECT: ${SUBJECT}`,
 ].join('\n'))
 
-const FLOOR_PASS = say('CLAIMS_PRIVATE: NO\nREASON: everything here is visible from outside.')
+// Both floor answers, since 2026-10-03: a reply missing QUESTION_TIES_BACK fails closed.
+const FLOOR_PASS = say('CLAIMS_PRIVATE: NO\nREASON: everything here is visible from outside.\nQUESTION_TIES_BACK: YES\nQUESTION_REASON: it asks about what the opening names.')
 const TEMPLATE_OPENING = 'The authored opener.'
 
 const writerCalls = () =>

@@ -640,7 +640,8 @@ describe('the plural chain, at the vocabulary level', () => {
   // The list only ever grows, and it grew by six. Asserted so an edit that empties or
   // truncates it is visible, in the same spirit as the count assertion further up.
   it('grew by exactly the six words that were argued for', () => {
-    expect(ORDINARY_WORD_COUNT).toBe(1753)
+    // 1753, plus the twelve month abbreviations allowed on 2026-10-03 (jan to dec, sep and sept).
+    expect(ORDINARY_WORD_COUNT).toBe(1765)
   })
 })
 

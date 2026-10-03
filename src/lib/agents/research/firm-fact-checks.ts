@@ -1569,9 +1569,77 @@ export function isKindVerb(value: unknown): value is KindVerb {
  * market. The extraction, which has read the page, says which verb fits; the judge then
  * audits the clause that ships, verb included, and is asked whether it reads as a sentence.
  * A kind with no verb is not a broad line.
+ *
+ * THE OPERATOR'S RULE OF 2026-10-03 replaces the extraction's choice: "'you run' for a
+ * company, 'you are' only for a person". kindVerbFor below decides it from the kind's head
+ * noun and the record's headcount, which the extraction never saw.
  */
 export function broadClause(kind: string, verb: KindVerb): string {
   return `you ${verb} ${kind.trim()}`
+}
+
+/**
+ * Nouns that end like a person's (-er, -or, -ant, -ent, -ist, -ian) and name a FIRM in
+ * ordinary English: "a software publisher", "a logistics provider", "a restaurant". Read
+ * before the ending, so each takes "run". English word formation, not one market's trade.
+ */
+const AGENT_ENDING_FIRM_NOUNS = new Set([
+  'provider', 'partner', 'manufacturer', 'supplier', 'builder', 'printer', 'brewer', 'retailer', 'wholesaler',
+  'developer', 'publisher', 'insurer', 'broker', 'carrier', 'trader', 'maker', 'center', 'restaurant', 'plant',
+  'merchant', 'distributor', 'vendor', 'producer', 'exporter', 'importer', 'reseller', 'integrator', 'operator',
+  'processor', 'fabricator', 'forwarder', 'packer', 'shipper', 'lender', 'accelerator', 'incubator', 'aggregator',
+])
+
+/**
+ * Nouns for a PERSON that have no agent ending: "a coach", "an architect", "a fractional
+ * CFO". Each shipped as "you run ..." under the second version of broadClause. The chief
+ * officer initialisms are here because a firm hires one as a person, by the day.
+ */
+const PERSON_NOUNS = new Set([
+  'coach', 'adviser', 'advisor', 'consultant', 'freelancer', 'practitioner', 'founder', 'specialist', 'expert',
+  'architect', 'analyst', 'attorney', 'notary', 'engineer', 'chef', 'nurse', 'surgeon', 'vet', 'physio', 'midwife',
+  'pilot', 'artisan', 'executive', 'professional', 'ceo', 'cfo', 'cto', 'cmo', 'coo', 'cio', 'cro', 'chro', 'ciso',
+  'cpo', 'cdo',
+])
+
+/** The endings English makes a noun of the person who does something with. */
+const AGENT_NOUN_ENDING = /(?:ist|ant|ent|er|or|ian)$/
+
+/**
+ * THE VERB OF THE BROAD LINE (the operator, 2026-10-03): "'you run' for a company, 'you
+ * are' only for a person".
+ *
+ * "are" only when the kind's HEAD NOUN names a person AND the record says one person
+ * (headcount 1, or 0, which a record holds for a sole owner). The head noun is the last
+ * word, or the word before a preposition ("a coach for founders"), read by its last part
+ * when hyphenated ("a co-founder"). It names a person when it is on PERSON_NOUNS, or ends
+ * -ist, -ant, -ent, -er, -or or -ian and is not on AGENT_ENDING_FIRM_NOUNS ("a software
+ * publisher" is a firm).
+ *
+ * A PERSON NOUN WITH A HEADCOUNT OVER 1, OR NONE, IS null: "you are an executive coach"
+ * said to a firm of twelve is wrong, and "you run an executive coach" is wrong too. No verb
+ * makes that sentence, so the caller drops the rung. Every other kind is "run".
+ *
+ * RULE ZERO. This is English grammar, not a market list: the agent-noun endings are how
+ * English names a person by what they do, in any trade, and the two lists are the English
+ * nouns that break that pattern either way. No client's market or vocabulary is written
+ * here. THE COST: a person noun on neither list and with no agent ending ("a guide") is
+ * read as a firm and takes "run"; a firm noun with an agent ending on neither list ("an
+ * engineering contractor") is read as a person, and loses the rung when the firm is
+ * larger than one. The second is the safe side: no sentence ships.
+ *
+ * Deterministic: no model call.
+ */
+export function kindVerbFor(kind: string, headcount: number | null): KindVerb | null {
+  const words = kind.trim().split(/\s+/).map(word => word.toLowerCase().replace(/[^a-z-]/g, '')).filter(Boolean)
+  const preposition = words.findIndex((word, i) => i > 0 && KIND_PREPOSITIONS.has(word))
+  const phrase = preposition === -1 ? words : words.slice(0, preposition)
+  const head = (phrase[phrase.length - 1] ?? '').split('-').filter(Boolean).pop() ?? ''
+  const namesAPerson = !AGENT_ENDING_FIRM_NOUNS.has(head)
+    && (PERSON_NOUNS.has(head) || (head.length > 4 && AGENT_NOUN_ENDING.test(head)))
+  if (!namesAPerson) return 'run'
+  const onePerson = headcount !== null && Number.isFinite(headcount) && headcount >= 0 && headcount <= 1
+  return onePerson ? 'are' : null
 }
 
 /**

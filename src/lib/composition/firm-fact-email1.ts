@@ -21,8 +21,9 @@
 //     stops the line built from the record. See storedKinds, storedKindContradicts
 //     (peer-kind.ts) and the veto in decideFirmFactEmail1.
 
-import { readBrief, clientGenericWords, peerLabelEchoes, peerLabelUnderOpener, type OutboundBrief } from '@/lib/outbound-brief/brief'
+import { readBrief, clientGenericWords, type OutboundBrief } from '@/lib/outbound-brief/brief'
 import {
+  namedLeadInParagraph,
   openerFrameIndex,
   renderEmail1SlotFree,
   renderFactEmail1,
@@ -40,7 +41,7 @@ import { FRAME_NAMES_THE_SITE, GRADE_MASK, validateFactEmail1 } from '@/lib/outb
 import { countWords } from '@/lib/composition/personalization'
 import { companyShortName, firmTradeWords } from '@/lib/composition/company-short-name'
 import { EMAIL_WORD_LIMITS } from '@/agents/messaging-generation-agent'
-import { FIRM_FACT_CHECKS_VERSION, SOURCE_MAX_AGE_DAYS, broadClause, clauseIsGeneric, findUnexplainedAcronyms, isKindVerb, kindFormReasons, kindIsGeneric } from '@/lib/agents/research/firm-fact-checks'
+import { FIRM_FACT_CHECKS_VERSION, SOURCE_MAX_AGE_DAYS, broadClause, clauseIsGeneric, findUnexplainedAcronyms, kindFormReasons, kindIsGeneric, kindVerbFor } from '@/lib/agents/research/firm-fact-checks'
 import { peerKindFor, storedKindContradicts, type PeerKindRecord } from '@/lib/sourcing/peer-kind'
 import { findConsecutiveRepeats } from '@/lib/style/repetition'
 import { splitSentences } from '@/lib/style/readability'
@@ -178,7 +179,7 @@ interface FactRungs {
  * send the prospect straight to the template. Since the peer rung exists (2026-10-02) they
  * are reasons the upper rungs are missing, and the ladder carries on below them.
  */
-function rungsFromFact(firmFact: unknown, brief: OutboundBrief, now: Date): FactRungs {
+function rungsFromFact(firmFact: unknown, brief: OutboundBrief, now: Date, headcount: number | null): FactRungs {
   const none = (reason: string): FactRungs => ({ clauses: [], reason, forWhom: null, peerGroup: null, researchResultId: null })
   const fact = (firmFact ?? null) as StoredFirmFact | null
   if (!fact) return none('no_fact')
@@ -189,9 +190,11 @@ function rungsFromFact(firmFact: unknown, brief: OutboundBrief, now: Date): Fact
   // both of: the specific clause, and the kind of firm.
   const specificClause = typeof fact.does === 'string' && fact.does.trim() ? fact.does.trim() : null
   const kind = typeof fact.kind === 'string' && fact.kind.trim() ? fact.kind.trim() : null
-  // The verb is the extraction's, stored with the kind. A kind with no verb is not a broad
-  // line: code never guesses which verb fits. See broadClause.
-  const kindClause = kind && isKindVerb(fact.kind_verb) ? broadClause(kind, fact.kind_verb) : null
+  // THE VERB IS CODE'S, from the kind and the record (operator, 2026-10-03): "you run" for a
+  // company, "you are" only for a person, and a person noun on a firm of more than one is no
+  // broad line at all. The extraction's stored verb is no longer read. See kindVerbFor.
+  const verb = kind ? kindVerbFor(kind, headcount) : null
+  const kindClause = kind && verb ? broadClause(kind, verb) : null
   const kindQuote = typeof fact.kind_quote === 'string' ? fact.kind_quote : null
   // A stored kind always has its quote. One without is not read as "nothing to check".
   const kindReads = !!kind && kindQuote !== null && kindFormReasons(kind, kindQuote).length === 0
@@ -266,6 +269,8 @@ export function decideFirmFactEmail1(input: {
   templateEmail1Body: string
   /** Composition time, for the freshness rule. Passed in so this stays pure. */
   now: Date
+  /** The company's stored headcount, for the verb of the kind line ("you are" only for one person). */
+  headcount?: number | null
 }): FactTierDecision {
   const content = (input.messagingContent ?? {}) as Record<string, unknown>
   const tier = content.firm_fact_tier as { enabled?: unknown } | undefined
@@ -303,7 +308,7 @@ export function decideFirmFactEmail1(input: {
   //
   // Each rung is tried only when every rung above it is missing or broke a rule with the
   // real words in it (too long for a sentence, too hard to read, a list of three).
-  const fromFact = rungsFromFact(input.firmFact, brief, input.now)
+  const fromFact = rungsFromFact(input.firmFact, brief, input.now, input.headcount ?? null)
   const frameIndex = openerFrameIndex(input.prospectId, frames.length)
   const attempts: Array<{
     rung: OpenerRung
@@ -434,40 +439,13 @@ function composeWithFills(args: {
   researchResultId: string | null
 }): FactTierDecision {
   const { input, lines, frames, frameIndex, brief, signoff } = args
-  // NO WORD IN TWO SENTENCES IN A ROW (operator note 3 on the fifth reading), where code
-  // fills both. The opener says what kind of firm the reader runs, and the pain line opens
-  // on a label for firms of that kind: "you run an HR consultancy" then "HR consultants
-  // tell us". When the label echoes the opener and the brief gives a label for exactly
-  // this place ("Firms like yours"), that label opens the pain line instead.
-  //
-  // WHATEVER THEIR WORDS, when the opener is a kind of firm and the label is for a group
-  // that has a kind of its own: the peer rung, and the kind read from their site under a
-  // stored label of such a group. "Your site says you run a legal practice. Law firms
-  // often tell us ..." shares no word a test can see and says the same thing twice.
-  const labelIsForAKind = args.rung === 'broad' && args.fills.peer_group !== null
-    && brief.peer_groups.some(pg => pg.label === args.fills.peer_group && typeof pg.kind === 'string' && pg.kind.trim() !== '')
-  let under = peerLabelUnderOpener(brief, args.fills.does, args.fills.peer_group, { kindOfThisGroup: args.rung === 'peer' || labelIsForAKind })
-  // A BRIEF WITH NO LABEL FOR THIS PLACE (round two of the review, 2026-10-02). A brief with
-  // no kinds need not give after_opener, and then nothing above replaces an echo: "Your site
-  // says you run a law firm. Law firms often tell us ..." shipped, because the rule-3 check
-  // below reads words of four letters or more and cannot see "law", "tax" or "IT". So the
-  // brief's DEFAULT label goes there when it does not echo the opener itself, and when it
-  // does, this rung fails as any rung fails and the ladder moves on.
-  if (under.replaced === null) {
-    const placed = args.fills.peer_group ?? brief.peer_group_default.label
-    const echoes = peerLabelEchoes(args.fills.does, placed)
-    if (echoes.length > 0) {
-      if (args.fills.peer_group === null || peerLabelEchoes(args.fills.does, brief.peer_group_default.label).length > 0) {
-        return {
-          tier: 'template',
-          reason: 'opener_repeats_next_sentence',
-          violations: echoes.map(word => `opener_repeats_next_sentence: "${word}" is said by the opener and again by the label that opens the sentence under it ("${placed}"), and the brief has no other label for that place that does not repeat it`),
-        }
-      }
-      under = { label: null, replaced: placed }
-    }
-  }
-  const fills = { ...args.fills, peer_group: under.label }
+  // THE SPECIFIC PEER GROUP, NAMED (operator, 2026-10-03). The pain line names its source
+  // mid-sentence ("When we chat to HR consultants, a lot of them tell us ..."), so the label
+  // that goes there is the reader's own group where it is known, never a stand-in such as
+  // "Firms like yours", which read as faceless and cannot sit mid-sentence. The fifth
+  // reading's replacement of an echoing label is withdrawn with it. A word the opener and
+  // the sentence under it really share is still caught below (operator note 3).
+  const fills = { ...args.fills }
   // A line that cannot render slot-free THROWS (renderSlotFree), and with {for_whom} now
   // optional that path is reachable for a document nobody validated: an alternate wording
   // that uses {for_whom} and has no slot_free form. Caught here, it is a reason, and the
@@ -506,7 +484,12 @@ function composeWithFills(args: {
         signoff,
       })
       if (!candidate) return { tier: 'template', reason: 'render_failed' }
-      const repeats = openerRepeats(candidate)
+      // The label's own words are let through only where the opener names the reader's OWN
+      // kind (peer and broad rungs). On the specific rung the clause is what they do, and a
+      // label word there is usually their customers: "you ship cold rooms for exporters. When
+      // we chat to exporters, ..." names the customers as the reader's peers.
+      const echoLabel = args.rung === 'specific' ? null : realFills.peer_group ?? brief.peer_group_default.label
+      const repeats = openerRepeats(candidate, echoLabel)
       if (repeats.length === 0) {
         rendered = candidate
         wording = { ...drawn, pain }
@@ -579,7 +562,6 @@ function composeWithFills(args: {
       wording_counts: wordingCounts(lines.email1),
       brief_version: brief.brief_version,
       research_result_id: args.researchResultId,
-      ...(under.replaced ? { peer_label_replaced: under.replaced } : {}),
       ...(repeatAvoided ? { opener_repeat_avoided: repeatAvoided } : {}),
     },
   }
@@ -590,14 +572,23 @@ function composeWithFills(args: {
  * writes them. The last sentence of the opener paragraph and the first of the paragraph
  * under it (the pain line): the two a reader meets in a row.
  */
-function openerRepeats(email: NonNullable<ReturnType<typeof renderFactEmail1>>): string[] {
+function openerRepeats(email: NonNullable<ReturnType<typeof renderFactEmail1>>, label: string | null): string[] {
   const openerSentence = splitSentences(email.opener).pop()
   const next = splitSentences(email.body.split(/\n{2,}/)[2] ?? '')[0]
-  return openerSentence && next ? findConsecutiveRepeats([openerSentence, next]).map(repeat => repeat.word) : []
+  // THE LABEL'S OWN WORDS ARE NOT A REPEAT (2026-10-03) on a rung whose opener names the
+  // reader's kind. The operator asked for the reader's own group by name under the opener:
+  // "Can see you run a management consultancy. When we chat to management consultants, ...".
+  // That echo is the point, and counting it would shut the largest group out of every rung
+  // that names a kind. The caller passes null on the specific rung. A word repeated outside
+  // the label is still caught.
+  const labelWords = new Set((label ?? '').toLowerCase().split(/[^a-z0-9']+/).filter(Boolean))
+  return openerSentence && next
+    ? findConsecutiveRepeats([openerSentence, next]).map(repeat => repeat.word).filter(word => !labelWords.has(word.toLowerCase()))
+    : []
 }
 
 export type FollowupFillDecision =
-  | { filled: true; body: string; word_count: number; fills: { company: string | null; for_whom: string | null }; slotted: boolean[] }
+  | { filled: true; body: string; word_count: number; fills: { company: string | null; for_whom: string | null; peer_group: string | null }; slotted: boolean[] }
   | { filled: false; reason: string }
 
 /**
@@ -638,6 +629,12 @@ export function decideFollowupFills(input: {
    * name is cut as it was before.
    */
   company?: PeerKindRecord | null
+  /**
+   * The reader's own peer group label, where composition knows it (the firm-fact tier's
+   * fill). A follow-up names its source by {peer_group} (2026-10-03); with no label held the
+   * paragraph keeps its slot-free form, which carries the brief's default label.
+   */
+  peerGroup?: string | null
 }): FollowupFillDecision {
   const content = (input.messagingContent ?? {}) as Record<string, unknown>
   const read = readBrief(content)
@@ -661,25 +658,79 @@ export function decideFollowupFills(input: {
   }
   if (slotFree !== input.body) return { filled: false, reason: 'stored_body_differs_from_lines' }
 
-  const company = companyShortName(input.companyName, clientGenericWords(brief), input.reader ?? {}, firmTradeWords(input.company?.industry, input.company?.tags))
+  const company = readerShortName(brief, input)
   const forWhom = typeof input.forWhom === 'string' && input.forWhom.trim() ? input.forWhom.trim() : null
-  if (!company && !forWhom) return { filled: false, reason: 'nothing_held' }
-  const rendered = renderFollowup(followup, { ...(company ? { company } : {}), ...(forWhom ? { for_whom: forWhom } : {}) }, pgDefault, signoff)
+  const peerGroup = typeof input.peerGroup === 'string' && input.peerGroup.trim() ? input.peerGroup.trim() : null
+  if (!company && !forWhom && !peerGroup) return { filled: false, reason: 'nothing_held' }
+  const rendered = renderFollowup(followup, {
+    ...(company ? { company } : {}), ...(forWhom ? { for_whom: forWhom } : {}), ...(peerGroup ? { peer_group: peerGroup } : {}),
+  }, pgDefault, signoff)
   if (!rendered.slotted.some(Boolean)) return { filled: false, reason: 'nothing_held' }
   const words = countWords(rendered.body)
   const maxWords = { 2: EMAIL_WORD_LIMITS.email2MaxWords, 3: EMAIL_WORD_LIMITS.email3MaxWords, 4: EMAIL_WORD_LIMITS.email4MaxWords }[input.position]
   if (words > maxWords) return { filled: false, reason: 'filled_body_over_band' }
   // WHAT WENT IN, not what was held. Until the review of 2026-10-02 this returned the two
   // values held, so an Email 3 with no {for_whom} paragraph was recorded as carrying one.
-  const used = (slot: 'company' | 'for_whom') =>
+  const used = (slot: 'company' | 'for_whom' | 'peer_group') =>
     followup.paragraphs.some((p, i) => rendered.slotted[i] && slotsIn(p.text ?? '').includes(slot))
   return {
     filled: true,
     body: rendered.body,
     word_count: words,
-    fills: { company: used('company') ? company : null, for_whom: used('for_whom') ? forWhom : null },
+    fills: { company: used('company') ? company : null, for_whom: used('for_whom') ? forWhom : null, peer_group: used('peer_group') ? peerGroup : null },
     slotted: rendered.slotted,
   }
+}
+
+/**
+ * The reader's firm as a sentence can carry it, or null. One reading for Email 1's lead-in
+ * and the follow-ups, so a prospect is never named two ways in one sequence.
+ */
+function readerShortName(
+  brief: OutboundBrief,
+  input: { companyName: string | null; reader?: { firstName?: string | null; lastName?: string | null }; company?: PeerKindRecord | null },
+): string | null {
+  return companyShortName(input.companyName, clientGenericWords(brief), input.reader ?? {}, firmTradeWords(input.company?.industry, input.company?.tags))
+}
+
+export type LeadInDecision =
+  | { named: true; body: string; word_count: number; company: string }
+  | { named: false; reason: 'no_brief' | 'brief_invalid' | 'no_lines' | 'no_lead_in' | 'nothing_held' | 'no_slot_free_lead_in_in_body' | 'named_body_over_band' }
+
+/**
+ * THE READER'S FIRM, NAMED IN EMAIL 1'S LEAD-IN (operator, 2026-10-03): "If Kessel is
+ * seeing this too, we ...". Every tier: the Email 1 that would ship holds the lead-in's
+ * slot-free form ("If you're seeing this too,") at the start of its offer paragraph, and
+ * that clause is replaced by the named one. Applied by composition after Email 1 is final
+ * and after its fingerprint is taken, so the follow-ups written against it still match.
+ * Fails closed: any doubt, and the slot-free clause ships.
+ */
+export function decideEmail1LeadIn(input: {
+  messagingContent: unknown
+  variantId: string
+  body: string
+  companyName: string | null
+  reader?: { firstName?: string | null; lastName?: string | null }
+  company?: PeerKindRecord | null
+  /** The Email 1 word cap for this prospect's tier. */
+  maxWords: number
+}): LeadInDecision {
+  const content = (input.messagingContent ?? {}) as Record<string, unknown>
+  const read = readBrief(content)
+  if (!read.brief) return { named: false, reason: read.present ? 'brief_invalid' : 'no_brief' }
+  const lines = ((content.variants ?? {}) as Record<string, { lines?: VariantLines }>)[input.variantId]?.lines
+  if (!lines?.email1) return { named: false, reason: 'no_lines' }
+  if (!lines.email1.lead_in) return { named: false, reason: 'no_lead_in' }
+  const company = readerShortName(read.brief, input)
+  if (!company) return { named: false, reason: 'nothing_held' }
+  const paragraphs = input.body.split('\n\n')
+  const index = paragraphs.findIndex(p => namedLeadInParagraph(p, lines.email1.lead_in, company) !== null)
+  if (index < 0) return { named: false, reason: 'no_slot_free_lead_in_in_body' }
+  paragraphs[index] = namedLeadInParagraph(paragraphs[index], lines.email1.lead_in, company)!
+  const body = paragraphs.join('\n\n')
+  const words = countWords(body)
+  if (words > input.maxWords) return { named: false, reason: 'named_body_over_band' }
+  return { named: true, body, word_count: words, company }
 }
 
 export function wordingCounts(email1: Email1Lines): Required<WordingChoice> {

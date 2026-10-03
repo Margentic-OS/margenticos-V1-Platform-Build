@@ -130,9 +130,15 @@ export async function loadTriggersChecked(
   const tier1 = ((row?.content ?? {}) as { tier_1?: { triggers?: unknown } }).tier_1
   const raw = Array.isArray(tier1?.triggers) ? tier1.triggers : []
   const triggers = raw
-    .map(t => typeof t === 'string'
-      ? { trigger: t, reason: '' }
-      : { trigger: clean((t as { trigger?: unknown } | null)?.trigger), reason: clean((t as { reason?: unknown } | null)?.reason) })
+    .map((t): TriggerWithReason => {
+      if (typeof t === 'string') return { trigger: t, reason: '' }
+      const trigger = clean((t as { trigger?: unknown } | null)?.trigger)
+      const reason = clean((t as { reason?: unknown } | null)?.reason)
+      // THE DEFINITION, when the document carries one (2026-10-03). No key otherwise, so a
+      // client without definitions reads back exactly as before. See approved-reason.ts.
+      const definition = clean((t as { definition?: unknown } | null)?.definition)
+      return definition ? { trigger, reason, definition } : { trigger, reason }
+    })
     .filter(t => t.trigger.trim().length > 0)
   return { ok: true, triggers }
 }

@@ -39,6 +39,7 @@ import {
   sentenceCaseClause,
   specificWordCount,
   isKindVerb,
+  kindVerbFor,
   findUnexplainedAcronyms,
   KNOWN_ACRONYM_LIST,
   FIRM_FACT_CHECKS_VERSION,
@@ -337,6 +338,88 @@ describe('broadClause: the verb is GIVEN, never guessed', () => {
     // then "Wait, let me fix", then a second one, and answers were cut off.
     expect(FIRM_FACT_JUDGE_PROMPT).not.toContain('reads_as_a_sentence')
     expect(FIRM_FACT_EXTRACTION_PROMPT).not.toContain('COMPLETE noun phrase')
+  })
+})
+
+// THE OPERATOR, 2026-10-03: "'you run' for a company, 'you are' only for a person". The verb
+// is now decided from the kind's head noun and the record's headcount, not taken from the
+// extraction. Every kind here is invented or a plain English noun phrase.
+describe('kindVerbFor: "you are" only for a person, "you run" for a company', () => {
+  it.each([
+    // Endings that make a noun of a person who does something.
+    ['an organisational consultant', 1],
+    ['an accountant', 1],
+    ['a letting agent', 0],
+    ['a dentist', 1],
+    ['a physician', 1],
+    ['a freelance copywriter', 1],
+    ['a private tutor', 1],
+    // Person nouns with no such ending: the second version said "you run" in front of each.
+    ['an executive coach', 1],
+    ['a pension adviser', 1],
+    ['an architect', 1],
+    ['an analyst', 0],
+    ['a patent attorney', 1],
+    ['a notary', 1],
+    ['a fractional CFO', 1],
+    ['A Business Coach', 1],
+    // The head noun is the word before a preposition.
+    ['a coach for founders', 1],
+    // A hyphenated head is read by its last part.
+    ['a co-founder', 1],
+    ['a life-coach', 1],
+  ] as const)('PLANTED: "%s" with a headcount of %s is "are"', (kind, headcount) => {
+    expect(kindVerbFor(kind, headcount)).toBe('are')
+  })
+
+  it.each([
+    ['an executive coach', 2],
+    ['an organisational consultant', 12],
+    ['an analyst', null],
+    ['a letting agent', 40],
+  ] as const)('PLANTED: a person noun with a headcount of %s ("%s") has no sound verb, so null', (kind, headcount) => {
+    // "you are an executive coach" said to a firm of two is wrong, and so is "you run an
+    // executive coach". The caller drops the rung.
+    expect(kindVerbFor(kind, headcount)).toBeNull()
+  })
+
+  it.each([
+    ['an HR consultancy'],
+    ['a dental practice'],
+    ['a print shop'],
+    ['an engineering firm'],
+    // Nouns that end like a person's and name a firm: the firm list wins over the ending.
+    ['a software publisher'],
+    ['a restaurant'],
+    ['a data center'],
+    ['a contract manufacturer'],
+    ['a logistics provider'],
+    ['a craft brewer'],
+    ['a property developer'],
+    ['a building supplier'],
+    ['a specialist insurer'],
+    ['a tier-one supplier'],
+    ['a co-packer'],
+    ['a provider of cold rooms'],
+  ] as const)('PLANTED: "%s" is "run", whatever the headcount', kind => {
+    for (const headcount of [0, 1, 2, 50, null]) expect(kindVerbFor(kind, headcount), `${kind} @ ${headcount}`).toBe('run')
+  })
+
+  it('an unsound headcount is not one person (control)', () => {
+    expect(kindVerbFor('an executive coach', -1)).toBeNull()
+    expect(kindVerbFor('an executive coach', Number.NaN)).toBeNull()
+    expect(kindVerbFor('an executive coach', 1)).toBe('are')
+  })
+
+  it('a contractor is a person by its ending: "are" for one, nothing for a firm of several (control)', () => {
+    expect(kindVerbFor('an engineering contractor', 1)).toBe('are')
+    expect(kindVerbFor('an engineering contractor', 8)).toBeNull()
+  })
+
+  it('the result is a verb broadClause takes (control)', () => {
+    const verb = kindVerbFor('a pension adviser', 1)
+    expect(verb !== null && isKindVerb(verb)).toBe(true)
+    expect(broadClause('a pension adviser', verb ?? 'run')).toBe('you are a pension adviser')
   })
 })
 

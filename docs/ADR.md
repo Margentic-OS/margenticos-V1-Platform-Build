@@ -6687,3 +6687,30 @@ is inside this writer's run-to-run noise, so the cost in yield is NOT establishe
 - **The trigger reasons are read through a checked read.** The research loader treats a
   failed documents read as "no documents", which for this rule would mean "no approved
   reasons" and switch it off. A failed read stops the upload and the backfill.
+
+---
+
+## ADR-066 — PROPOSED: email copy assembled in code from approved building blocks, with the model used only to draft the blocks
+
+**Status:** PROPOSED, 2026-10-03. Filed for later at the operator's instruction; NOT BUILT.
+The smaller route was taken first (ADR-067).
+
+**Context.** Reading file 6 showed two root problems with generated lines: faults that read
+as English but come from free generation (faceless sources, consequences that do not follow,
+questions that do not match, follow-ups promising work outside the client's scope), and a
+growing set of rules written to catch them after the fact.
+
+**Proposal.**
+1. **Approved building blocks in each client's messaging document**, per pain angle and
+   authored together so they flow: (a) a conversational source line ("When we chat to
+   {peer_group}, a lot of them tell us ..."), several wordings; (b) the pain; (c) the
+   consequence that follows from it; (d) a personal line that asks, with the short name
+   ("If {short_name} is seeing this too, ..."); (e) the matching question. Offer lines and
+   break-ups the same way.
+2. **Code assembles** every email from blocks and slots ({short_name}, {peer_group},
+   {for_whom}). The model is used only to draft the blocks, once per client, for approval.
+3. **Trigger blocks** for personalised Email 1: each ICP trigger has an approved bridge and
+   question for that event type; the writer fills in only the specific fact.
+4. Rule Zero: blocks live in each client's documents; code holds only the assembly.
+
+**Estimate when proposed:** 4 to 5 working days, about $6 of model spend.

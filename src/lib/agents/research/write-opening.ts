@@ -555,6 +555,12 @@ CORRECTED, same bridge, asking about what was actually named:
   "Is turning browsers into the right kind of buyer something you're working on?"
 Same register, same length, and now it asks about the problem the email just described.
 
+THE QUESTION TIES BACK TO THE OBSERVATION. It asks about the thing your observation names, in
+the reader's own terms, so a reader who has just read your first line sees at once why they
+are being asked. A question that would read the same under a different observation does not
+tie back. A reviewer reads the finished email for exactly this, and a question that does not
+tie back costs the attempt.
+
 THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT. Say what is TYPICALLY true of
 firms in this position, never what IS true of this prospect, and never that they are failing.
 VERDICT, and this one is not just presumptuous but wrong:
@@ -1164,42 +1170,78 @@ SUBJECT: <the subject line, on one line>`
 // nobody outside it could know. It beat its template and went out.
 //
 // So this runs first and can only disqualify. It is not a comparison and it has no
-// opinion about quality: one question, about knowability.
+// opinion about quality: one question about knowability, and since 2026-10-03 one about the
+// closing question.
+//
+// THE SECOND QUESTION, operator instruction 2026-10-03. He read an Email 1 whose observation
+// named one thing and whose closing question asked about something else, so a reader could
+// not see why they were being asked. The writer is told to tie the question back; this is
+// where that is checked, on the finished email, by a model that did not write it. It rides
+// on the floor call rather than adding one: same email, same reader, one more line of answer.
 export function buildFloorPrompt(): string {
-  return `You are reviewing a cold email before it goes to a real person.
+  return `You are reviewing a cold email before it goes to a real person. Answer two questions.
 
-Does this email state something about the prospect's business that could not be known from
-public information? Their pipeline, their diary, their results, whether their marketing
-works.
+FIRST. Does this email state something about the prospect's business that could not be known
+from public information? Their pipeline, their diary, their results, whether their marketing
+works. YES means it claims private knowledge. NO means everything it asserts could be seen
+from outside.
 
-Answer YES or NO, then one sentence.
+SECOND. The email opens by naming one thing about this person or their business. Does its
+closing question ask about THAT thing, in the reader's own terms, so a reader who has just
+read the opening sees why they are being asked? YES means it ties back. NO means it asks about
+something the opening never raised, or would read the same under a different opening.
 
-YES means it claims private knowledge. NO means everything it asserts could be seen from
-outside.
+Answer each YES or NO, then one sentence.
 
 Reply in exactly this format:
 CLAIMS_PRIVATE: NO
-REASON: one sentence.`
+REASON: one sentence.
+QUESTION_TIES_BACK: YES
+QUESTION_REASON: one sentence.`
 }
 
 /** The floor verdict on one attempt. Disqualifying, never comparative. */
 export interface FloorCheck {
   claims_private: boolean
   reason: string
+  /** Whether the closing question asks about the thing the opening names. */
+  question_ties_back: boolean
+  /** The floor's one sentence on the question. */
+  question_reason: string
 }
 
 /**
  * Reads the floor verdict. An unreadable reply resolves to DISQUALIFIED, so ambiguity can
- * only ever fall back to the approved template.
+ * only ever fall back to the approved template. That holds for each answer on its own: a
+ * reply missing QUESTION_TIES_BACK has not said the question ties back, and is read as NO.
  */
 export function parseFloor(raw: string): FloorCheck {
   const m = raw.match(/CLAIMS_PRIVATE:\s*(YES|NO)/i)
-  const r = raw.match(/REASON:\s*([\s\S]+)/i)
+  // REASON, never QUESTION_REASON: the lookbehind keeps the second answer out of the first.
+  const r = raw.match(/(?<!_)REASON:\s*([\s\S]+)/i)
+  const q = raw.match(/QUESTION_TIES_BACK:\s*(YES|NO)/i)
+  const qr = raw.match(/QUESTION_REASON:\s*([^\n]*)/i)
   const claims_private = m ? /yes/i.test(m[1]) : true
   return {
     claims_private,
     reason: (r?.[1] ?? raw).trim().split('\n')[0].trim() || 'No reasoning returned.',
+    question_ties_back: q ? /yes/i.test(q[1]) : false,
+    question_reason: (qr?.[1] ?? '').trim() || 'No reasoning returned.',
   }
+}
+
+/**
+ * Every reason a floor verdict disqualifies, in plain words. Empty means it passed both.
+ * One function, read by the retry feedback and by the fallback reason, so the two cannot
+ * describe the same verdict differently.
+ */
+export function floorFaults(floor: FloorCheck): string[] {
+  return [
+    ...(floor.claims_private ? [`it claims private knowledge about the prospect: ${floor.reason}`] : []),
+    ...(!floor.question_ties_back
+      ? [`the closing question does not tie back to what the opening names: ${floor.question_reason}`]
+      : []),
+  ]
 }
 
 /**
@@ -1362,6 +1404,10 @@ const CALENDAR_WORDS = new Set([
   'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
   'january', 'february', 'march', 'april', 'may', 'june',
   'july', 'august', 'september', 'october', 'november', 'december',
+  // The abbreviations, allowed by the operator on 2026-10-03 ("'Sept'-style month
+  // abbreviations allowed"). Read after the full stop is stripped, so "Sept." too. THE
+  // COST: a person called Jan in the copy is no longer checked by this gate.
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
 ])
 
 export function untraceableNames(opening: string, findingsText: string): string[] {
@@ -2830,9 +2876,11 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
     }
 
     const floor = await floorCheck(w.opening, w.question, w.subject)
-    if (floor.claims_private) {
+    if (floorFaults(floor).length > 0) {
       logger.warn('research/write-opening: floor disqualified the personalised version', {
         prospect_id: params.prospectId, reason: floor.reason,
+        claims_private: floor.claims_private,
+        question_ties_back: floor.question_ties_back, question_reason: floor.question_reason,
       })
       params.uniqueness?.release(params.prospectId)
       return { ...text, kind: 'floored', floor }
@@ -2851,7 +2899,14 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
       : a.kind === 'factchecked'
         ? `${a.opening} ${a.question}|||${a.failures.join('; ')}. Write a version whose every statement about this prospect is one the findings actually carry, or make the statement about the population rather than about them.`
       : a.kind === 'floored'
-        ? `${a.opening} ${a.question}|||A reviewer said this claims private knowledge about the prospect: ${a.floor.reason}. Say only what can be seen from outside.`
+        ? `${a.opening} ${a.question}|||${[
+            ...(a.floor.claims_private
+              ? [`A reviewer said this claims private knowledge about the prospect: ${a.floor.reason}. Say only what can be seen from outside.`]
+              : []),
+            ...(!a.floor.question_ties_back
+              ? [`A reviewer said the closing question does not tie back to what the observation names: ${a.floor.question_reason}. Ask about the thing the observation names, in the reader's own terms.`]
+              : []),
+          ].join(' ')}`
         : `${a.c.opening} ${a.c.question}|||${a.c.reason}`
 
   let feedback: string | null = null
@@ -2941,7 +2996,7 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
       : last?.kind === 'factchecked'
         ? `Rejected by a verifier on the final attempt: ${last.failures.join('; ')}`
         : last?.kind === 'floored'
-          ? `Disqualified by the floor on the final attempt: ${last.floor.reason}`
+          ? `Disqualified by the floor on the final attempt: ${floorFaults(last.floor).join('; ')}`
           : last?.kind === 'compared'
             ? last.c.reason
             : 'No attempt completed.'

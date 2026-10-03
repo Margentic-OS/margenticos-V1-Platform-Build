@@ -180,17 +180,20 @@ export interface OutboundBrief {
   /**
    * The slot-free peer noun, used when a prospect's peer group is unknown.
    *
-   * `after_opener` is what stands where the label would when the opener has just said what
-   * kind of firm the reader runs: "Can see you run an HR consultancy. HR consultants tell
-   * us ..." says the same thing twice in two sentences, and "Firms like yours tell us ..."
-   * does not. Up to PEER_LABEL_MAX_WORDS words, and it opens the pain line. REQUIRED when
-   * any peer group has a kind (2026-10-02): the opener built from a kind is always followed
-   * by this label, so that line never rests on a test for shared words. Optional otherwise.
-   * It must itself share no word with any kind.
+   * `after_opener` (2026-10-02) is IGNORED since 2026-10-03: the reader's own group is named
+   * instead, mid-sentence ("When we chat to HR consultants, ..."). Kept in the type so an
+   * older brief still reads.
    */
   peer_group_default: { label: string; source: string; after_opener?: string }
   third_parties: ThirdParty[]
   voice: VoiceItem[]
+  /**
+   * Plain colloquial phrases this client's tone of voice uses and the copy may use (operator,
+   * 2026-10-03): "a lot of", "no worries", "the right fit". Taken from the client's
+   * tone-of-voice document, so it differs per client (Rule Zero). A phrase here is exempt
+   * from the idiom list; an obscure idiom is still refused. Optional; absent means none.
+   */
+  colloquialisms?: string[]
   /**
    * The ONE proof point that is the client's lead differentiator, or null when there is
    * none (operator rule 4, 2026-10-01). Only this proof point may appear in an Email 1
@@ -572,26 +575,19 @@ export function validateOutboundBrief(value: unknown): string[] {
       CANONICAL_INDUSTRIES,
     ))
 
-    // 2. The opener built from a kind is always followed by the after-opener label, so a
-    //    brief with a kind has one. Without it that line rested on the shared-word test,
-    //    and "you run a law firm" then "Law firms often tell us" went past it. Asked only
-    //    when the field is ABSENT: one that is given and unusable is reported above.
-    if (withKind.length > 0 && b.peer_group_default?.after_opener === undefined) {
-      problems.push('peer_group_default.after_opener is required when a peer group has a kind: it opens the line under "you run <kind>", where the group\'s own label would say the same thing twice ("Firms like yours")')
-    }
+    // 2 and 3 WITHDRAWN 2026-10-03: the after-opener label ("Firms like yours") is no longer
+    // used. The operator asked for the reader's own peer group by name ("When we chat to HR
+    // consultants, ..."), and a stand-in label cannot sit mid-sentence. The field may still
+    // be present in an older brief and is ignored. A word the opener and the sentence under
+    // it really share is caught at composition (operator note 3 on the fifth reading).
+  }
 
-    // 3. And that label must not itself repeat a kind ("Software firms like yours" under
-    //    "you run a software company"). Asked through the function composition calls, so
-    //    what is checked here is what is sent. Only once there IS a usable label: without
-    //    one the group's own label would stand there, and rule 2 has already said so.
-    const afterOpener = typeof b.peer_group_default?.after_opener === 'string' ? b.peer_group_default.after_opener.trim() : ''
-    for (const pg of afterOpener === '' ? [] : withKind) {
-      const does = `you run ${pg.kind!.trim()}`
-      const placed = peerLabelUnderOpener(b, does, typeof pg.label === 'string' ? pg.label : null, { kindOfThisGroup: true }).label ?? ''
-      const echoes = peerLabelEchoes(does, placed)
-      if (echoes.length > 0) {
-        problems.push(`${pg.id}: "${echoes.join('", "')}" is said by the opener ("${does}") and again by the label that opens the line under it ("${placed}"); reword peer_group_default.after_opener so it shares no word with any kind`)
-      }
+  // The client's allowed colloquialisms: plain phrases of a few words, never a sentence.
+  if (b.colloquialisms !== undefined) {
+    if (!Array.isArray(b.colloquialisms)) problems.push('colloquialisms must be a list of short phrases')
+    else for (const phrase of b.colloquialisms) {
+      if (typeof phrase !== 'string' || !phrase.trim()) problems.push('colloquialisms: every entry is a non-empty phrase')
+      else if (phrase.trim().split(/\s+/).length > 5 || /[.?!]/.test(phrase)) problems.push(`colloquialisms: "${phrase}" is a phrase of up to five words, not a sentence`)
     }
   }
 

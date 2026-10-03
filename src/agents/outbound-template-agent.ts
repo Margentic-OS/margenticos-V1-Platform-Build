@@ -277,11 +277,11 @@ WHAT CODE ADDS, SO YOU DO NOT WRITE IT
 SLOTS
 Slots are placeholders code fills per prospect. Only these exist:
 - {does}: a clause about what the prospect does, starting "you" plus a verb, up to 12 words. Opener frames only.
-- {peer_group}: a plural label for the prospect's peer group, taken from the brief's peer_groups. Up to 4 words. It starts the Email 1 pain line and is used nowhere else: never in a subject, an offer, a question or a follow-up.
+- {peer_group}: a plural label for the prospect's peer group, taken from the brief's peer_groups. Up to 4 words. It NAMES THE SOURCE of a pain, mid-sentence: "When we chat to {peer_group}, a lot of them tell us ...". It is used in the Email 1 pain line and in follow-up pain paragraphs, never in a subject, an offer or a question. It needs no slot_free form: code puts the brief's default label there when the prospect's group is unknown.
 - {for_whom}: the prospect's OWN customers, as a plural category. Up to 5 words. The brief's slot_policy says whether the Email 1 offer uses it: when for_whom_in_offer is true the offer MUST use {for_whom}, and when false it must not.
   {for_whom} is who the PROSPECT sells to. For a prospect that ships goods for regional grocers, {for_whom} is "regional grocers". So "meetings with {for_whom}" and "new {for_whom}" are right: the grocers are the prospect's customers. "Clients for {for_whom}" is WRONG: it says the sender finds customers for the grocers. Read every slotted line with that example filled in before you keep it.
 {for_whom} is used in the Email 1 offer and subject, never in the Email 1 pain or question. A follow-up paragraph may use it where it reads naturally, and only when for_whom_in_offer is true.
-- {company}: the prospect's own firm, by the name it goes by. Up to 4 words. FOLLOW-UP paragraphs only, never Email 1. Write it as the subject or the object of a verb ("{company} can ...", "... for {company}"), never as a possessive.
+- {company}: the prospect's own firm, by the name it goes by. Up to 4 words. In Email 1 only in the lead-in, and in follow-up paragraphs. Write it as the subject or the object of a verb ("{company} can ...", "... for {company}"), never as a possessive.
 Read every slotted line with a real group in the slot before you keep it. The group must read as plain English where it sits: after a word such as "with", "for" or "more of the right", or as the subject of a verb. Never straight after an adjective that does not describe it ("steady {for_whom}" reads "steady regional grocers") and never straight in front of a noun as a label ("{for_whom} meetings" reads "regional grocers meetings").
 Every Email 1 line lists the slots it uses in "slots". A line or a follow-up paragraph using {for_whom} or {company} must also give "slot_free": the same sentence with no slot, for prospects where it is unknown (say it of "you" or "your firm"). One with neither sets "slot_free" to null. Each line and each follow-up paragraph is ONE paragraph: never put a line break inside it. A sentence holding {for_whom} or {company} leaves room for the fill, which can be 5 words. A follow-up paragraph holds at most ONE kind of slot.
 
@@ -290,9 +290,11 @@ Each is ONE sentence holding {does} exactly once and adding at most 3 other word
 
 HOW A PAIN IS WRITTEN, in Email 1 and in every follow-up
 - State the SYMPTOM: what the reader feels. Each pain angle in the brief has a "symptom"; write that. Never state the diagnosis or the cause, and never say what peers failed to do or have not done: a reader rejects being told why they have the problem, even when it is true.
-- Report it as something peers tell us, or as something that often happens. Never as a fact about the reader.
+- NAME THE SOURCE, CONVERSATIONALLY. The first sentence of a pain says who told us, with {peer_group}, the way a person mentions conversations they have had: "When we chat to {peer_group}, a lot of them tell us ...", "Talking to {peer_group}, we often hear that ...". Vary it between variants. NEVER A FACELESS SOURCE: never "Many firms", "Some firms", "Most firms", "A lot of firms" or "Firms like yours". Code refuses them. The source clause before the comma does not count toward the sentence's word cap.
+- Never as a fact about the reader.
 - A consequence is a POSSIBILITY. Use can, often, may or sometimes: write that a thing CAN happen or OFTEN happens, never that it happens. Every sentence of a pain either carries one of those words, or reports what other people say (they "tell us", they "say") and holds no "you" or "your".
 - THE CONSEQUENCE IS THE BRIEF'S. Each pain angle has a "consequence" in the brief: what the symptom leads to, in the client's own judgement. The sentence after the symptom says THAT, using its key words, and never a vaguer effect ("it can be hard to plan"): code refuses a consequence that holds no word of its angle's outcome, symptom or consequence. Where the brief's consequence has two parts joined by a comma, the two wordings of an Email 1 pain say both between them: one wording may carry one part and the other the second, or one may carry both in a single sentence joined by ", and". Never a narrower effect than the angle's "outcome", and never anything in the brief's avoid_wording.
+- THE CONSEQUENCE GENUINELY FOLLOWS FROM THE SYMPTOM: it is what that symptom leads to, never a second problem set beside it.
 - THE CONSEQUENCE READS ON FROM THE SYMPTOM. In the pain of one email, every sentence after the first opens on a linking phrase that says how it follows: "As a result,", "So", "That means", "When that happens,", "Over time,". Never a new sentence that starts cold on "That", "It" or a noun: code refuses it. Two consequences may share that sentence, joined by ", and".
 - No numbers, no durations, no absolutes (always, never, every, all, nobody, none).
 
@@ -306,13 +308,14 @@ HOW AN OFFER IS WRITTEN, in Email 1 and in Email 3
 EMAIL 1: subject, pain, offer, question, each written TWICE
 - pain, offer and question each need a second wording in "alt": the same meaning, the same angle and the same slot rules, in different sentences. No sentence may appear in both wordings, in another line, or in another variant. Code rotates the two wordings between prospects.
 - subject: under 40 characters when filled. Lower case. May use {for_whom} with a slot_free form. An "alt" is optional.
-- pain: begins with {peer_group}. 1 or 2 sentences. The first sentence has at most 11 words AFTER {peer_group}, because the label can be 4 words.
-- question: ONE question asking whether the pain applies, answerable in a word, that makes sense on its own: no "that", "this" or "it" pointing at an earlier line. Never ask for a call, meeting, chat or time.
+- pain: 1 or 2 sentences. The first names the source with {peer_group} ("When we chat to {peer_group}, a lot of them tell us ..."), then the symptom; the second is the consequence that follows from it.
+- lead_in: ONE clause that leads into the offer and names the reader's firm, asking and never asserting: "If {company} is seeing this too,". It opens "If", holds {company}, ends on a comma, and is at most 8 words. Its slot_free form opens "If you" ("If you're seeing this too,"). Code joins it in front of the offer, whose "We" then reads "we". One wording; no alt. "from" lists the variant's Email 1 angle.
+- question: ONE question asking whether THIS email's pain applies to the reader, in the reader's terms, answerable in a word, that makes sense on its own: no "that", "this" or "it" pointing at an earlier line. Never ask for a call, meeting, chat or time.
 - offer_angle: the ONE problem the offer line answers, 10 words or fewer, taken from the brief's pain angle and written as a difficulty the reader could have. One variant, named in the angle plan, sets offer_angle to null instead: its offer is the NEUTRAL line. Code also places the neutral line under an opening written about one reader, on any subject. So the outcome it sells holds whatever the reader's situation is (the angle plan names which), it answers this variant's own pain, and it names no problem of its own.
-- Length: the user message gives a LENGTH BUDGET for pain + offer + question together. It holds in EVERY combination of wordings. Count each slot as one word. Count them.
+- Length: the user message gives a LENGTH BUDGET for pain + lead_in + offer + question together. It holds in EVERY combination of wordings. Count each slot as one word. Count them.
 
 FOLLOW-UPS (no subject, one wording). Each paragraph has a "kind": pain, offer, ask or close. The kinds of each email are FIXED, in this order, and code rejects any other:
-- Email 2: the variant's Email 2 angle. Exactly two "pain" paragraphs, then optionally one "ask" paragraph. The second pain paragraph opens on a linking phrase. ONE paragraph names the reader's firm with {company}, and gives a slot_free form. 38 to 55 words of your own text.
+- Email 2: the variant's Email 2 angle. Exactly two "pain" paragraphs, then optionally one "ask" paragraph. The first pain paragraph names its source with {peer_group}, as an Email 1 pain does. The second pain paragraph opens on a linking phrase. ONE paragraph names the reader's firm with {company}, and gives a slot_free form. 38 to 55 words of your own text.
 - Email 3: the variant's Email 3 angle. Exactly one "pain" paragraph, then one "offer" paragraph in the offer shape above, whose outcome answers this email's pain and is said of the reader's firm by name (", so {company} can ..."), with a slot_free form that says it of "you" or "your firm". It cites a scope.does item that is not proof_only (a proof point may support it and never stands alone). Then ONE "ask" paragraph: a soft call ask, written as a full sentence. 30 to 45 words of your own text, and at least 5 words shorter than your Email 2.
 - Email 4: the break-up. One or two "close" paragraphs and nothing else. It reads like a person easing off, not like a notice: warm, short, in contractions, and it may open on a short friendly phrase with no verb. It leaves the door open in plain words. Names Email 1's angle once. No question. Never explain why you wrote. Never say what anyone "should" do. 15 to 35 words of your own text.
 
@@ -323,8 +326,10 @@ THE BRIEF'S LIMITS ARE HARD
 - An outcome is said as something the reader CAN get, in the brief's sense and in your own plain sentence: "can", never "will". Two variants may sell the same outcome, and each says it in a different sentence. Never a number, a time, a guarantee or a promise, and nothing added to the outcome beyond what the brief says. If never_claims rules out results claims, this is still how an offer leads: the brief's outcome, as a possibility. What never_claims forbids is the promise, not the outcome.
 - Never assert what the reader does, has, lacks, or how their time is spent. Never mention the reader's calendar, schedule or time, not even to say where a meeting lands.
 - Never describe how busy anyone is or how their time or week goes, not even for peers. Say it as order or priority instead: what comes first, what waits.
-- A follow-up pattern must not assume the reader has done something. Say "some firms", never imply "you".
-- Voice items in the brief apply, but the reader rules above win on any conflict.
+- A follow-up pattern must not assume the reader has done something. Say what {peer_group} tell us, never imply "you".
+- Never imply the reader already has the outcome an offer provides.
+- A question asks about the email it ends: Email 2's ask is about Email 2's pain, Email 3's about Email 3's.
+- WRITE IN THE CLIENT'S OWN VOICE: the brief's voice items come from their tone-of-voice document and apply, but the reader rules above win on any conflict. The brief's "colloquialisms" are plain everyday phrases this client says: use them where they fit. Never an obscure idiom or figure of speech.
 
 CITATIONS
 Every line and every follow-up paragraph lists in "from" the brief item ids it uses: its angle, the outcome an offer sells, the scope.does item an offer rests on, any proof point. Cite only ids that are in the brief you are given. The one exception: the NEUTRAL variant's offer names no problem, so its "from" lists no pain angle, and the only outcome it lists is one the angle plan names for it.
@@ -341,15 +346,16 @@ Write ONE honest attempt and stop. Code checks every rule above against what you
     "A": {
       "email1": {
         "subject":  { "text": "...", "slots": [], "slot_free": null, "from": ["..."], "alt": null },
-        "pain":     { "text": "{peer_group} ...", "slots": ["peer_group"], "slot_free": null, "from": ["..."],
-                      "alt": { "text": "{peer_group} ...", "slots": ["peer_group"], "slot_free": null, "from": ["..."] } },
+        "pain":     { "text": "When we chat to {peer_group}, ...", "slots": ["peer_group"], "slot_free": null, "from": ["..."],
+                      "alt": { "text": "... {peer_group} ...", "slots": ["peer_group"], "slot_free": null, "from": ["..."] } },
         "offer":    { "text": "...", "slots": [], "slot_free": null, "from": ["..."],
                       "alt": { "text": "...", "slots": [], "slot_free": null, "from": ["..."] } },
         "question": { "text": "...?", "slots": [], "slot_free": null, "from": ["..."],
                       "alt": { "text": "...?", "slots": [], "slot_free": null, "from": ["..."] } },
+        "lead_in":  { "text": "If {company} ...,", "slots": ["company"], "slot_free": "If you ...,", "from": ["..."] },
         "offer_angle": "..." or null
       },
-      "email2": [{ "kind": "pain", "text": "...", "slot_free": null, "from": ["..."] }, { "kind": "pain", "text": "... {company} ...", "slot_free": "...", "from": ["..."] }, { "kind": "ask", "text": "...?", "slot_free": null, "from": ["..."] }],
+      "email2": [{ "kind": "pain", "text": "... {peer_group} ...", "slot_free": null, "from": ["..."] }, { "kind": "pain", "text": "... {company} ...", "slot_free": "...", "from": ["..."] }, { "kind": "ask", "text": "...?", "slot_free": null, "from": ["..."] }],
       "email3": [{ "kind": "pain", "text": "...", "slot_free": null, "from": ["..."] }, { "kind": "offer", "text": "We ..., so {company} can ...", "slot_free": "We ..., so your firm can ...", "from": ["..."] }, { "kind": "ask", "text": "...?", "slot_free": null, "from": ["..."] }],
       "email4": [{ "kind": "close", "text": "...", "slot_free": null, "from": ["..."] }]
     }
@@ -398,6 +404,7 @@ export function buildGenerationPrompt(
     peer_group_default: brief.peer_group_default.label,
     third_parties: brief.third_parties,
     voice: brief.voice,
+    colloquialisms: brief.colloquialisms ?? [],
     slot_policy: { for_whom_in_offer: brief.slot_policy?.for_whom_in_offer ?? false },
   }
   const planLines = variantKeys.map(k => {
@@ -416,7 +423,7 @@ export function buildGenerationPrompt(
     '',
     ...(budget ? [
       '## LENGTH BUDGET',
-      `Email 1: pain + offer + question together are ${budget.min} to ${budget.max} words, counting each slot as one word, in every combination of wordings.`,
+      `Email 1: pain + lead_in + offer + question together are ${budget.min} to ${budget.max} words, counting each slot as one word, in every combination of wordings.`,
       '',
     ] : []),
     ...alreadyWrittenBlock(context?.alreadyWritten ?? {}),
@@ -467,7 +474,12 @@ export function email1WordBudget(brief: OutboundBrief, signoff: SenderSignoff): 
   const longestLabel = Math.max(defaultLabel, ...brief.peer_groups.map(p => wordsOf(p.label)))
   const forWhomGrowth = brief.slot_policy?.for_whom_in_offer ? FOR_WHOM_MAX_WORDS - 1 : 0
   const opener = TEMPLATE_MAX_SENTENCE_WORDS   // {does} at its longest plus the frame's own words
-  const max = FACT_EMAIL1_WORD_LIMITS.maxWords - 1 - opener - signoffWords - (longestLabel - 1) - forWhomGrowth
+  // The lead-in (2026-10-03) is joined in front of the offer and is counted in the budget
+  // with the lines. Nothing more comes off for {company}: the template is checked with the
+  // lead-in's slot-free form, and composition names it only when the named email still fits
+  // its band (decideEmail1LeadIn, named_body_over_band), so a long name costs nothing here.
+  const leadIn = 0
+  const max = FACT_EMAIL1_WORD_LIMITS.maxWords - 1 - opener - signoffWords - (longestLabel - 1) - forWhomGrowth - leadIn
   const min = EMAIL_WORD_LIMITS.email1MinWords - 1 - signoffWords - (defaultLabel - 1) + 2
   if (min > max) {
     throw new Error(`outbound-template-agent: no Email 1 length fits this client (needs ${min} to ${max} words); shorten the peer labels or the sign-off`)
@@ -505,7 +517,7 @@ interface RawWording { text?: unknown; slots?: unknown; slot_free?: unknown; fro
 interface RawLine extends RawWording { alt?: RawWording | null }
 interface RawParagraph { kind?: unknown; text?: unknown; slot_free?: unknown; from?: unknown }
 export interface RawVariant {
-  email1?: { subject?: RawLine; pain?: RawLine; offer?: RawLine; question?: RawLine; offer_angle?: unknown }
+  email1?: { subject?: RawLine; pain?: RawLine; offer?: RawLine; question?: RawLine; lead_in?: RawLine; offer_angle?: unknown }
   email2?: unknown
   email3?: unknown
   email4?: unknown
@@ -566,6 +578,7 @@ export function toVariantLines(raw: RawVariant, plan: AnglePlan, briefVersion: n
       pain: toLine(raw.email1?.pain),
       offer: toLine(raw.email1?.offer),
       question: toLine(raw.email1?.question),
+      ...(raw.email1?.lead_in ? { lead_in: (({ alt: _alt, ...rest }) => rest)(toLine(raw.email1.lead_in)) } : {}),
       // The plan decides which variant is neutral; the model only writes the tag text.
       offer_angle: plan.neutralOffer
         ? null
@@ -604,6 +617,7 @@ export function mergeRepair(prev: RawVariant, next: RawVariant): RawVariant {
   return {
     email1: {
       subject: line('subject'), pain: line('pain'), offer: line('offer'), question: line('question'),
+      lead_in: usable(next.email1?.lead_in) ? next.email1!.lead_in : prev.email1?.lead_in,
       offer_angle: next.email1 && 'offer_angle' in next.email1 ? next.email1.offer_angle : prev.email1?.offer_angle,
     },
     email2: usableParagraphs(next.email2) ? next.email2 : prev.email2,
@@ -619,6 +633,7 @@ export function linesToRaw(v: VariantLines): RawVariant {
   return {
     email1: {
       subject: line(v.email1.subject), pain: line(v.email1.pain), offer: line(v.email1.offer), question: line(v.email1.question),
+      ...(v.email1.lead_in ? { lead_in: line(v.email1.lead_in) } : {}),
       offer_angle: v.email1.offer_angle,
     },
     email2: f(2),
@@ -675,9 +690,15 @@ For each [pain] line and each [close] line also say:
 - asserts_about_reader: true if the line states, as a fact, something about THE READER's own business, situation or problem. A statement about other people, a possibility (can, often, may, might), a condition (if, when) and a question are all false.
 - self_diagnosis: true if the line tells people WHY they have the problem by naming something they did wrong, failed to do or have not understood: a verdict a reader would push back on. "They never agreed delivery dates with the carrier" is a diagnosis. A symptom is not: "their orders arrive late". A circumstance a reader would readily agree with is not one either, even though it explains the symptom: "orders arrive late when the port is full". When the angle's own "symptom" in PAIN ANGLES names a circumstance, a line that says the same thing is false. Otherwise false.
 - narrow_consequence: true only if the consequence the line names is a DIFFERENT and smaller matter than the "outcome" given for that line's angle in PAIN ANGLES: a side effect in one corner of the business, such as staffing or admin, where the outcome is about growth or revenue. A consequence that restates the outcome, or follows directly from it, in other words is false. A line that names no consequence is false.
-For every other kind, asserts_about_reader, self_diagnosis and narrow_consequence are false.
+- consequence_follows: true if each consequence the line names is what its symptom leads to, in the line's own words. False if the consequence is a second, separate problem set beside the symptom. A line that names no consequence is true.
+For every other kind, asserts_about_reader, self_diagnosis and narrow_consequence are false, and consequence_follows is true.
 
-Give EVERY field for EVERY line. Return ONLY JSON: {"lines":[{"n":1,"claims":[{"claim":"...","covered_by":"D1","violates":null,"manual_task":false}],"proof_used":[],"excludes":null,"idiom":null,"ambiguous":null,"unnatural":null,"fragment":false,"slot_reads":true,"sells_outcome":true,"resolves_pain":true,"asserts_about_reader":false,"self_diagnosis":false,"narrow_consequence":false}]}`
+For each [offer] line also say asserts_about_reader, as above, and true as well if the line implies the reader ALREADY HAS what the offer provides. A condition ("If [the reader's firm] is seeing this too,") is not an assertion.
+
+For each [ask] line whose tag gives the pain stated above it also say:
+- question_matches: true if the question asks whether that pain, or what it leads to, applies to the reader. False if it asks about something else. For any other line, true.
+
+Give EVERY field for EVERY line. Return ONLY JSON: {"lines":[{"n":1,"claims":[{"claim":"...","covered_by":"D1","violates":null,"manual_task":false}],"proof_used":[],"excludes":null,"idiom":null,"ambiguous":null,"unnatural":null,"fragment":false,"slot_reads":true,"sells_outcome":true,"resolves_pain":true,"asserts_about_reader":false,"self_diagnosis":false,"narrow_consequence":false,"consequence_follows":true,"question_matches":true}]}`
 
 /**
  * Words that point at something without naming it. Plain English, a closed class, no
@@ -733,6 +754,8 @@ interface ScopeJudgeLine {
   asserts_about_reader?: unknown
   self_diagnosis?: unknown
   narrow_consequence?: unknown
+  consequence_follows?: unknown
+  question_matches?: unknown
 }
 
 export interface ScopeHit {
@@ -749,7 +772,7 @@ export interface ScopeLineRef {
   kind: ParagraphKind | 'subject'
   /** The pain angle a pain or close line is about. */
   angle?: string
-  /** An offer line only: the pain stated just above it, as the reader sees it. */
+  /** An offer or an ask: the pain stated above it in the same email, as the reader sees it. */
   painAbove?: string
   /**
    * An offer line only: the outcomes it CITES, id and statement. The validator holds that
@@ -934,6 +957,19 @@ export function scopeHitsFromJudge(
       if (j.self_diagnosis === true) hit('states a diagnosis the reader would reject, not the symptom they feel')
       if (j.narrow_consequence === true) hit('names a consequence narrower than the angle\'s outcome')
     }
+    // THE CONSEQUENCE FOLLOWS FROM THE PAIN (operator, 2026-10-03): what the stated symptom
+    // leads to, not a second problem set beside it.
+    if (ref.kind === 'pain') {
+      if (typeof j.consequence_follows !== 'boolean') hit('the scope judge did not say whether the consequence follows from the pain')
+      else if (!j.consequence_follows) hit('the consequence does not follow from the pain before it; say what that symptom leads to')
+    }
+    // THE QUESTION MATCHES ITS EMAIL (operator, 2026-10-03).
+    if (ref.kind === 'ask' && ref.painAbove) {
+      if (typeof j.question_matches !== 'boolean') hit('the scope judge did not say whether the question matches its email')
+      else if (!j.question_matches) hit(`the question does not ask about this email's pain: "${ref.painAbove}"`)
+    }
+    // NEVER IMPLY THE READER ALREADY HAS WHAT WE SELL, in an offer either (2026-10-03).
+    if (ref.kind === 'offer' && j.asserts_about_reader === true) hit('states something about the reader as a fact, or implies they already have what the offer provides')
 
     // EVERY EXCLUSION COUNTS (operator rule 11: "re-run the scope judge clean"). Until
     // 2026-10-01 an exclusion on a line that did not say "you" was set aside and reported,
@@ -1107,7 +1143,7 @@ export function lineRefsFor(variants: Record<string, VariantLines>, peerDefault:
           kind: (k === 'subject' ? 'subject' : k === 'pain' ? 'pain' : k === 'offer' ? 'offer' : 'ask') as ScopeLineRef['kind'],
           ...(k === 'pain' ? { angle: v.email1.angle } : {}),
           // An offer is judged against the pain it sits under: either wording of it.
-          ...(k === 'offer' ? { painAbove: wordingsOf(v.email1.pain).map(pain => shown(pain.text)).join(' / ') } : {}),
+          ...(k === 'offer' || k === 'question' ? { painAbove: wordingsOf(v.email1.pain).map(pain => shown(pain.text)).join(' / ') } : {}),
           ...(k === 'offer' ? outcomesOf(wording.from) : {}),
         }
         if (wording.slot_free?.trim()) {
@@ -1131,7 +1167,9 @@ export function lineRefsFor(variants: Record<string, VariantLines>, peerDefault:
           ...(p.kind === 'pain' || p.kind === 'close' || !p.kind ? { angle: f.angle } : {}),
           ...(p.kind === 'offer'
             ? { painAbove: f.paragraphs.slice(0, i).filter(q => q.kind === 'pain').map(asRead).join(' '), ...outcomesOf(p.from) }
-            : {}),
+            : p.kind === 'ask'
+              ? { painAbove: f.paragraphs.slice(0, i).filter(q => q.kind === 'pain').map(asRead).join(' ') }
+              : {}),
         } as const
         if (p.slot_free?.trim()) {
           refs.push({ ...common, line, text: p.slot_free.trim() })

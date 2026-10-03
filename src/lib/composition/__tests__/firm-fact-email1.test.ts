@@ -18,7 +18,7 @@ vi.mock('@anthropic-ai/sdk', async (importOriginal) => {
   return { ...actual, default: RecordingAnthropic }
 })
 
-import { decideFirmFactEmail1, decideTemplateEmail1, signoffFromBody } from '../firm-fact-email1'
+import { decideEmail1LeadIn, decideFirmFactEmail1, decideFollowupFills, decideTemplateEmail1, signoffFromBody } from '../firm-fact-email1'
 import { renderEmail1SlotFree, wordingsOf } from '@/lib/outbound-templates/template-shape'
 import { FIRM_FACT_CHECKS_VERSION } from '@/lib/agents/research/firm-fact-checks'
 import { INVENTED_FILL_CELLS, validateTemplateDocument } from '@/lib/outbound-templates/validate-templates'
@@ -69,7 +69,7 @@ function withKindQuote(fact: unknown): unknown {
   return { ...f, kind_quote: `We are ${f.kind}.` }
 }
 
-function decide(overrides: { content?: Record<string, any>; fact?: unknown; variant?: string; prospect?: string } = {}) {
+function decide(overrides: { content?: Record<string, any>; fact?: unknown; variant?: string; prospect?: string; headcount?: number | null } = {}) {
   const c = overrides.content ?? content()
   const variant = overrides.variant ?? 'A'
   return decideFirmFactEmail1({
@@ -79,8 +79,12 @@ function decide(overrides: { content?: Record<string, any>; fact?: unknown; vari
     firmFact: 'fact' in overrides ? withKindQuote(overrides.fact) : FACT,
     templateEmail1Body: c.variants[variant]?.emails[0].body ?? '',
     now: NOW,
+    ...('headcount' in overrides ? { headcount: overrides.headcount } : {}),
   })
 }
+
+/** The pain line names its source mid-sentence (2026-10-03), in either of the fixture's wordings. */
+const namesSource = (label: string) => new RegExp(`^(When we chat to ${label}, a lot of them say|Talking to ${label}, we hear that) `)
 
 beforeEach(() => { constructed.length = 0 })
 
@@ -92,9 +96,11 @@ describe('decideFirmFactEmail1', () => {
     const paras = d.body.split('\n\n')
     expect(paras[0]).toBe('{{first_name}}')
     expect(paras[1]).toMatch(/you run dental clinics\.$/)
-    // Either wording of the pain line, with the prospect's own peer group filled in.
-    expect(paras[2]).toMatch(/^Software makers (often tell us|say) /)
+    // Either wording of the pain line, with the prospect's own peer group named as the source.
+    expect(paras[2]).toMatch(namesSource('software makers'))
     expect(paras[3]).toContain('bakeries')
+    // The offer opens on the lead-in's slot-free form: the firm is named later, by composition.
+    expect(paras[3]).toMatch(/^If you're seeing this too, we /)
     expect(paras[paras.length - 1]).toBe('Sam\nQuillmere')
     // A subject keeps the case it was written in; it is not a sentence.
     expect(d.subject).toBe(d.detail.wording.subject === 0 ? 'bakeries abroad' : 'pages buyers abroad can read')
@@ -117,7 +123,7 @@ describe('decideFirmFactEmail1', () => {
     const d = decide({ fact: { ...FACT, peer_group_label: null } })
     expect(d.tier).toBe('firm_fact')
     if (d.tier !== 'firm_fact') return
-    expect(d.body).toMatch(/Exporters (often tell us|say) /)
+    expect(d.body.split('\n\n')[2]).toMatch(namesSource('exporters'))
     expect(d.detail.slotted.pain).toBe(false)
   })
 
@@ -262,18 +268,26 @@ describe('decideFirmFactEmail1', () => {
     expect(whole.tier === 'firm_fact' && whole.detail.rung).toBe('broad')
   })
 
-  it('PLANTED: the broad line carries the STORED verb, and a kind with no verb never opens an email', () => {
-    // Code used to guess the verb from the kind's last word and said "you run" in front of
-    // a person. The verb is the extraction's, stored with the kind.
-    const person = decide({ fact: { ...FACT, does: null, for_whom: null, kind: 'an executive coach', kind_verb: 'are' } })
-    expect(person.tier === 'firm_fact' && person.body.split('\n\n')[1]).toMatch(/you are an executive coach\.$/)
-    expect(person.tier === 'firm_fact' && person.body).not.toContain('you run')
-    for (const noVerb of [undefined, null, 'own', 'Run']) {
-      expect(decide({ fact: { ...FACT, does: null, for_whom: null, kind: 'an executive coach', kind_verb: noVerb } }))
-        .toEqual({ tier: 'template', reason: 'fact_kind_does_not_read' })
+  it('PLANTED: the broad line\'s verb is CODE\'S, from the kind and the headcount; the stored verb is not read (2026-10-03)', () => {
+    // Until 2026-10-03 the verb was the extraction's, stored with the kind. It is now
+    // kindVerbFor's: "you run" for a firm noun, "you are" for a person noun only when the
+    // firm is one person, and no broad line at all for a person noun on any other firm.
+    const kindLine = (kind: string, headcount: number | null | undefined, kind_verb: unknown = 'run') => {
+      const d = decide({ fact: { ...FACT, does: null, for_whom: null, kind, kind_verb }, ...(headcount === undefined ? {} : { headcount }) })
+      return d.tier === 'firm_fact' ? opener(d.body) : d
     }
-    // With a specific clause beside it, the clause ships and the verbless kind is not used.
-    const d = decide({ fact: { ...FACT, kind: 'an executive coach', kind_verb: null } })
+    // A person noun, one person or none on the record: "you are", whatever verb was stored.
+    expect(kindLine('an executive coach', 1)).toMatch(/you are an executive coach\.$/)
+    expect(kindLine('an executive coach', 0, null)).toMatch(/you are an executive coach\.$/)
+    // A person noun on a firm of more than one, or of unknown size: no broad line.
+    for (const headcount of [2, 40, null, undefined]) {
+      expect(kindLine('an executive coach', headcount, 'are'), String(headcount)).toEqual({ tier: 'template', reason: 'fact_kind_does_not_read' })
+    }
+    // A firm noun is "you run", whatever its size and whatever verb was stored (control).
+    expect(kindLine('a dental practice', 40, 'are')).toMatch(/you run a dental practice\.$/)
+    expect(kindLine('a dental practice', null, null)).toMatch(/you run a dental practice\.$/)
+    // With a specific clause beside a person noun that gives no broad line, the clause ships.
+    const d = decide({ fact: { ...FACT, kind: 'an executive coach' }, headcount: 12 })
     expect(d.tier === 'firm_fact' && d.detail.rung).toBe('specific')
   })
 
@@ -322,7 +336,7 @@ describe('decideFirmFactEmail1', () => {
     if (dropped.tier !== 'firm_fact') return
     expect(dropped.detail.fills.peer_group).toBeNull()
     expect(dropped.body).not.toContain('oftware makers')
-    expect(dropped.body).toContain('Exporters')
+    expect(dropped.body.split('\n\n')[2]).toMatch(namesSource('exporters'))
   })
 
   it('keeps the opener when the customer group breaks a rule: slot-free offer, group set aside (rule 9)', () => {
@@ -568,13 +582,25 @@ describe('decideTemplateEmail1 (tier 3 wording rotation, rule 8)', () => {
 // service line before a slogan.
 //
 // These tests use the invented client's PEER document: one peer group carries a kind ("a
-// software company"), the brief gives the label that stands under an opener ("Firms like
-// yours"), and one of the two frames does not say the line was read on their site.
+// software company"), and one of the two frames does not say the line was read on their site.
+//
+// WITH ITS PEER LABEL MOVED APART FROM ITS KIND (2026-10-03). Since the after-opener label
+// was withdrawn, the pain line under "Can see you run a software company." names the
+// group's own label, and the shared fixture's label, "software makers", says "software"
+// again: every peer-rung prospect of that fixture fails the rung (planted below, in "the
+// label under the opener"). The tests here are about the peer rung SHIPPING, so they use a
+// label that shares no word with the kind.
+const PEER_LABEL_APART = 'app makers'
+function peerBriefApart(): OutboundBrief {
+  const brief = inventedPeerBrief()
+  brief.peer_groups[0].label = PEER_LABEL_APART
+  return brief
+}
 
 function peerContent(options: { brief?: OutboundBrief; frames?: string[]; enabled?: boolean } = {}): Record<string, any> {
   return buildMessagingContent({
     base: {},
-    brief: options.brief ?? inventedPeerBrief(),
+    brief: options.brief ?? peerBriefApart(),
     result: { opener_frames: options.frames ?? INVENTED_PEER_FRAMES, variants: inventedVariants() },
     signoff: INVENTED_SIGNOFF,
     firmFactTierEnabled: options.enabled ?? true,
@@ -820,82 +846,84 @@ describe('the peer rung: the opener built from the stored record (fifth reading,
   })
 })
 
-describe('the label under the opener: no word in two sentences in a row (fifth reading, note 3)', () => {
-  it('PLANTED: on the peer rung the pain line opens on the brief\'s after-opener label, and the record holds the label it replaced', () => {
-    // "Can see you run a software company. Software makers often tell us ..." says the
-    // same thing twice in two sentences. The brief gives a label for exactly this place.
+describe('the label under the opener: the group\'s own label, named (2026-10-03; was fifth reading, note 3)', () => {
+  // Until 2026-10-03 a label that repeated the opener was REPLACED: by the brief's after-opener
+  // label ("Firms like yours") or by the default label. The operator withdrew the stand-in: the
+  // pain line names the reader's own group mid-sentence. What remains of note 3 is
+  // findConsecutiveRepeats on the opener and the sentence under it: a word they truly share
+  // makes the rung try the other pain wording, and then fail.
+
+  it('PLANTED: on the peer rung the pain line names the group\'s OWN label as its source, and nothing is recorded as replaced', () => {
     const d = decidePeer()
     expect(d.tier).toBe('firm_fact')
     if (d.tier !== 'firm_fact') return
-    expect(painLine(d.body)).toMatch(/^Firms like yours (often tell us|say) /)
-    expect(d.body).not.toContain('oftware makers')
-    expect(d.detail.peer_label_replaced).toBe('software makers')
-    expect(d.detail.fills.peer_group).toBe('Firms like yours')
+    expect(painLine(d.body)).toMatch(namesSource(PEER_LABEL_APART))
+    expect(d.body).not.toContain('Firms like yours')
+    expect(d.detail.fills.peer_group).toBe(PEER_LABEL_APART)
+    expect('peer_label_replaced' in d.detail).toBe(false)
   })
 
-  it('PLANTED: with after_opener taken off a brief that has a kind, the brief no longer validates and the template ships, saying so', () => {
-    // Until 2026-10-02 this shipped "Can see you run a software company. Software makers
-    // often tell us ...": the after-opener label was the only thing that kept the two
-    // sentences apart, and a brief could leave it out. It is now required of a brief with
-    // a kind, so the fault is found in the brief and never reaches a reader.
-    const brief = inventedPeerBrief()
-    delete brief.peer_group_default.after_opener
+  it('PLANTED: the shared peer fixture, "software makers" under "you run a software company", ships the peer rung: the label echoing the opener is the point (2026-10-03)', () => {
+    // Until 2026-10-03 the shared word "software" failed the rung. The operator asked for the
+    // reader's own group named under the opener, so on a rung that names their kind the
+    // label's own words are not a repeat.
+    const d = decidePeer({ content: peerContent({ brief: inventedPeerBrief() }) })
+    expect(d.tier).toBe('firm_fact')
+    if (d.tier !== 'firm_fact') return
+    expect(d.detail.rung).toBe('peer')
+    expect(painLine(d.body)).toMatch(namesSource('software makers'))
+    // The same record under the label apart ships too (control).
+    expect(decidePeer().tier).toBe('firm_fact')
+  })
+
+  it('an after_opener label an older brief still carries is ignored: the group\'s own label stands', () => {
+    const brief = peerBriefApart()
+    brief.peer_group_default.after_opener = 'Firms like yours'
     const d = decidePeer({ content: peerContent({ brief }) })
-    expect(d).toMatchObject({ tier: 'template', reason: 'brief_invalid' })
-    expect(d.tier === 'template' && d.violations?.join(' ')).toContain('peer_group_default.after_opener is required when a peer group has a kind')
-  })
-
-  it('PLANTED: on the specific rung, a clause that shares a word with the STORED label is followed by the after-opener label', () => {
-    const d = decidePeer({ fact: { ...FACT, does: 'you build software for dental clinics', for_whom: null }, company: NO_RECORD_PASSED })
     expect(d.tier).toBe('firm_fact')
     if (d.tier !== 'firm_fact') return
-    expect(d.detail.rung).toBe('specific')
-    expect(opener(d.body)).toMatch(/you build software for dental clinics\.$/)
-    expect(painLine(d.body)).toMatch(/^Firms like yours (often tell us|say) /)
-    expect(d.detail.peer_label_replaced).toBe('software makers')
+    expect(painLine(d.body)).toMatch(namesSource(PEER_LABEL_APART))
   })
 
-  it('PLANTED: on the specific rung, a clause that shares a word with the DEFAULT label is followed by the after-opener label', () => {
-    // No stored peer group, so the pain line would open on the default label, "Exporters".
-    const d = decidePeer({ fact: { ...FACT, does: 'you ship cold rooms for exporters', for_whom: null, peer_group_label: null }, company: NO_RECORD_PASSED })
-    expect(d.tier).toBe('firm_fact')
-    if (d.tier !== 'firm_fact') return
-    expect(opener(d.body)).toMatch(/you ship cold rooms for exporters\.$/)
-    expect(painLine(d.body)).toMatch(/^Firms like yours (often tell us|say) /)
-    expect(d.detail.peer_label_replaced).toBe('exporters')
+  it('a brief with a kind and no after_opener label is valid at composition: no brief_invalid (control)', () => {
+    // Until 2026-10-03 such a brief no longer validated and the template shipped, saying so.
+    expect(inventedPeerBrief().peer_group_default.after_opener).toBeUndefined()
+    expect(decidePeer({ content: peerContent({ brief: inventedPeerBrief() }) })).not.toMatchObject({ reason: 'brief_invalid' })
+  })
+
+  it('PLANTED: on the specific rung, a clause that shares a word with the STORED label fails that rung; no stand-in takes the label\'s place', () => {
+    // "you build software for dental clinics" then "When we chat to software makers, ...".
+    const d = decide({ fact: { ...FACT, does: 'you build software for dental clinics', for_whom: null } })
+    expect(d).toMatchObject({ tier: 'template', reason: 'opener_repeats_next_sentence' })
+    expect(d.tier === 'template' && d.violations).toEqual([expect.stringContaining('"software"')])
+    // With a kind beside it the ladder moves to the broad line, which keeps the label (control).
+    const broad = decide({ fact: { ...FACT, does: 'you build software for dental clinics', for_whom: null, kind: 'a dental practice' } })
+    expect(broad.tier === 'firm_fact' && broad.detail.rung).toBe('broad')
+    expect(broad.tier === 'firm_fact' && painLine(broad.body)).toMatch(namesSource('software makers'))
+    expect(broad.tier === 'firm_fact' && broad.detail.specific_dropped?.join(' ')).toContain('opener_repeats_next_sentence')
+  })
+
+  it('PLANTED: on the specific rung, a clause that shares a word with the DEFAULT label fails that rung too', () => {
+    // No stored peer group, so the source named is the default label, "exporters".
+    const d = decide({ fact: { ...FACT, does: 'you ship cold rooms for exporters', for_whom: null, peer_group_label: null } })
+    expect(d).toMatchObject({ tier: 'template', reason: 'opener_repeats_next_sentence' })
+    expect(d.tier === 'template' && d.violations).toEqual([expect.stringContaining('"exporters"')])
   })
 
   it('a clause that shares no word keeps the stored label, or the default one when none is stored (control)', () => {
-    const stored = decidePeer({ fact: { ...FACT, for_whom: null }, company: NO_RECORD_PASSED })
+    const stored = decide({ fact: { ...FACT, for_whom: null } })
     expect(stored.tier).toBe('firm_fact')
     if (stored.tier !== 'firm_fact') return
-    expect(painLine(stored.body)).toMatch(/^Software makers (often tell us|say) /)
+    expect(painLine(stored.body)).toMatch(namesSource('software makers'))
     expect(stored.detail.fills.peer_group).toBe('software makers')
     expect('peer_label_replaced' in stored.detail).toBe(false)
 
-    const byDefault = decidePeer({ fact: { ...FACT, for_whom: null, peer_group_label: null }, company: NO_RECORD_PASSED })
+    const byDefault = decide({ fact: { ...FACT, for_whom: null, peer_group_label: null } })
     expect(byDefault.tier).toBe('firm_fact')
     if (byDefault.tier !== 'firm_fact') return
-    expect(painLine(byDefault.body)).toMatch(/^Exporters (often tell us|say) /)
+    expect(painLine(byDefault.body)).toMatch(namesSource('exporters'))
     expect(byDefault.detail.fills.peer_group).toBeNull()
     expect('peer_label_replaced' in byDefault.detail).toBe(false)
-  })
-
-  it('PLANTED: a brief with no after-opener label puts its DEFAULT label in place of a stored label that repeats the opener', () => {
-    // The shared fixture's brief has none (and no kinds, so it needs none). Until
-    // 2026-10-02 the same clause shipped over "Software makers often tell us ..."; round one
-    // sent it to the template; since round two the default label, which does not repeat
-    // the opener, stands there. A default that repeats it too fails the rung (see "a brief
-    // with no kinds and no after-opener label" below).
-    const d = decide({ fact: { ...FACT, does: 'you build software for dental clinics', for_whom: null } })
-    expect(d.tier).toBe('firm_fact')
-    if (d.tier !== 'firm_fact') return
-    expect(painLine(d.body)).toMatch(/^Exporters (often tell us|say) /)
-    expect(d.detail.peer_label_replaced).toBe('software makers')
-    // The same clause for a prospect in no peer group opens on the default label and ships (control).
-    const byDefault = decide({ fact: { ...FACT, does: 'you build software for dental clinics', for_whom: null, peer_group_label: null } })
-    expect(byDefault.tier).toBe('firm_fact')
-    expect(byDefault.tier === 'firm_fact' && painLine(byDefault.body)).toMatch(/^Exporters (often tell us|say) /)
   })
 })
 
@@ -1016,7 +1044,7 @@ function consultingPeerBrief(): OutboundBrief {
 /** A record the peer rung accepts by its NAME, and which is in truth a recruiter. Invented. */
 const RECRUITER_BY_NAME: PeerKindRecord = { name: 'Northtown Recruitment Consultants', industry: 'human resources', tags: [] }
 
-function decideConsulting(overrides: { fact?: unknown; company?: PeerKindRecord } = {}) {
+function decideConsulting(overrides: { fact?: unknown; company?: PeerKindRecord; headcount?: number | null } = {}) {
   const c = peerContent({ brief: consultingPeerBrief() })
   return decideFirmFactEmail1({
     messagingContent: c,
@@ -1026,6 +1054,7 @@ function decideConsulting(overrides: { fact?: unknown; company?: PeerKindRecord 
     company: overrides.company ?? RECRUITER_BY_NAME,
     templateEmail1Body: c.variants.A.emails[0].body,
     now: NOW,
+    ...('headcount' in overrides ? { headcount: overrides.headcount } : {}),
   })
 }
 
@@ -1074,19 +1103,21 @@ describe('the stored fact is a VETO on the line built from the record (review of
   // also stops the line when it shares none of the words that stand before the brief kind's
   // head noun ("HR" in "an HR consultancy"). And a stored clause that IS a kind ("you run a
   // recruitment agency", from checks that had no kind field) is read as one.
-  it.each<[string, unknown, string]>([
+  it.each<[string, unknown, string, number?]>([
     ['a stale kind of another trade holding an evidence word', { ...FACT, does: null, for_whom: null, kind: 'a recruitment consultancy', source_fetched_at: '2026-06-01T00:00:00Z' }, 'stale_source'],
     ['a dropped kind of another trade, under another acronym', { ...FACT, passed: false, does: null, for_whom: null, kind: null, check_reasons: ['kind dropped [an IT consultancy]: judge: not faithful'] }, 'fact_did_not_pass'],
     ['a kind from older checks of another trade, "advisory"', { ...FACT, version: 1, does: null, for_whom: null, kind: 'a financial advisory firm' }, 'fact_from_older_checks'],
     ['a kind from older checks of another trade, "adviser"', { ...FACT, version: 1, does: null, for_whom: null, kind: 'an employee benefits adviser' }, 'fact_from_older_checks'],
-    ['a stale kind with the evidence word joined to another trade', { ...FACT, does: null, for_whom: null, kind: 'a consulting-led recruiter', source_fetched_at: '2026-06-01T00:00:00Z' }, 'stale_source'],
+    // A person noun: since 2026-10-03 "you are a ..." is code's verb only for a firm of one,
+    // so the record says one person here, and the fact reaches its stale check as it did.
+    ['a stale kind with the evidence word joined to another trade', { ...FACT, does: null, for_whom: null, kind: 'a consulting-led recruiter', source_fetched_at: '2026-06-01T00:00:00Z' }, 'stale_source', 1],
     ['a kind from older checks that holds an evidence word and not "HR"', { ...FACT, version: 1, does: null, for_whom: null, kind: 'a people consulting firm' }, 'fact_from_older_checks'],
     // The facts fixer now records a kind the judge gave no verdict on, in this form.
     ['a kind the judge gave no verdict on', { ...FACT, passed: false, does: null, for_whom: null, kind: null, check_reasons: ['kind dropped [a recruitment consultancy]: judge gave no verdict'] }, 'fact_did_not_pass'],
     ['a stored clause "you run a/an X" from checks with no kind field', { ...FACT, version: 1, does: 'you run a recruitment agency', for_whom: null }, 'fact_from_older_checks'],
     ['a stored clause "you are a/an X"', { ...FACT, version: 1, does: 'You are a recruitment consultancy.', for_whom: null }, 'fact_from_older_checks'],
-  ])('PLANTED: %s stops the peer rung, and the template ships', (_what, fact, reason) => {
-    expect(decideConsulting({ fact })).toEqual({ tier: 'template', reason, peer_reason: 'stored_fact_names_another_kind' })
+  ])('PLANTED: %s stops the peer rung, and the template ships', (_what, fact, reason, headcount) => {
+    expect(decideConsulting({ fact, ...(headcount === undefined ? {} : { headcount }) })).toEqual({ tier: 'template', reason, peer_reason: 'stored_fact_names_another_kind' })
   })
 
   it.each<[string, unknown, string]>([
@@ -1101,7 +1132,10 @@ describe('the stored fact is a VETO on the line built from the record (review of
 
   it('PLANTED: under "a management consultancy" a stored "an organisational consultant" stops the line; "a management consulting firm" does not (control)', () => {
     const brief = consultingPeerBrief()
-    brief.peer_groups[1] = { ...brief.peer_groups[1], label: 'management consultants', kind: 'a management consultancy' }
+    // A label apart from the kind: "management consultants" under "you run a management
+    // consultancy" fails the peer rung on "management" since 2026-10-03, which is not what
+    // this test is about.
+    brief.peer_groups[1] = { ...brief.peer_groups[1], label: 'strategy consultants', kind: 'a management consultancy' }
     const c = peerContent({ brief })
     const run = (fact: unknown) => decideFirmFactEmail1({
       messagingContent: c, variantId: 'A', prospectId: 'prospect-1', firmFact: withKindQuote(fact),
@@ -1231,7 +1265,7 @@ describe('the fact\'s reason and the peer rung\'s reason are kept apart (review 
   })
 })
 
-describe('the kind read from their site, under a label for firms of that kind (review of 2026-10-02)', () => {
+describe('the kind read from their site, under a label for firms of that kind (review of 2026-10-02; replacement withdrawn 2026-10-03)', () => {
   const lawBrief = () => {
     const brief = inventedPeerBrief()
     brief.peer_groups = [
@@ -1242,16 +1276,20 @@ describe('the kind read from their site, under a label for firms of that kind (r
   }
   const decideLaw = (fact: unknown) => decidePeer({ content: peerContent({ brief: lawBrief() }), fact, company: NO_RECORD_PASSED })
 
-  it('PLANTED: on the BROAD rung, a stored label whose group has a kind of its own is replaced whatever the words: the two say the same thing', () => {
-    // "Your site says you run a legal practice. Law firms often tell us ..." shares no word
-    // any test can see, and says what kind of firm the reader runs twice in two sentences.
+  // Until 2026-10-03 each label below was REPLACED when the opener named the kind of firm or
+  // echoed the label (peerLabelUnderOpener, peerLabelEchoes). Both are withdrawn: the
+  // reader's own group is named. Only findConsecutiveRepeats is still read, and it does not
+  // count "law", "IT" or "tax", nor "consulting" against "consultants", so each of these now
+  // ships with the label as stored.
+
+  it('on the BROAD rung a stored label whose group has a kind of its own now stays: "you run a legal practice" then "law firms" (2026-10-03)', () => {
     const d = decideLaw({ ...FACT, does: null, for_whom: null, kind: 'a legal practice', peer_group_label: 'law firms' })
     expect(d.tier).toBe('firm_fact')
     if (d.tier !== 'firm_fact') return
     expect(d.detail.rung).toBe('broad')
     expect(opener(d.body)).toMatch(/you run a legal practice\.$/)
-    expect(painLine(d.body)).toMatch(/^Firms like yours (often tell us|say) /)
-    expect(d.detail.peer_label_replaced).toBe('law firms')
+    expect(painLine(d.body)).toMatch(namesSource('law firms'))
+    expect('peer_label_replaced' in d.detail).toBe(false)
   })
 
   it('the same label under a SPECIFIC clause that shares no word with it stays (control)', () => {
@@ -1259,7 +1297,7 @@ describe('the kind read from their site, under a label for firms of that kind (r
     expect(d.tier).toBe('firm_fact')
     if (d.tier !== 'firm_fact') return
     expect(d.detail.rung).toBe('specific')
-    expect(painLine(d.body)).toMatch(/^Law firms (often tell us|say) /)
+    expect(painLine(d.body)).toMatch(namesSource('law firms'))
     expect('peer_label_replaced' in d.detail).toBe(false)
   })
 
@@ -1268,11 +1306,11 @@ describe('the kind read from their site, under a label for firms of that kind (r
     expect(d.tier).toBe('firm_fact')
     if (d.tier !== 'firm_fact') return
     expect(d.detail.rung).toBe('broad')
-    expect(painLine(d.body)).toMatch(/^Furniture makers and importers (often tell us|say) /)
+    expect(painLine(d.body)).toMatch(namesSource('furniture makers and importers'))
     expect('peer_label_replaced' in d.detail).toBe(false)
   })
 
-  it('PLANTED: on the SPECIFIC rung the echoes the shared-word test could not see are caught: an acronym, a three-letter word, one stem with two endings', () => {
+  it('on the SPECIFIC rung an acronym, a three-letter word, or one stem with two endings no longer replaces the label (2026-10-03)', () => {
     const brief = lawBrief()
     brief.peer_groups.push({ id: 'PG3', label: 'IT consultants', industry: 'Information Technology Consulting', source: 'invented' })
     const c = peerContent({ brief })
@@ -1284,13 +1322,24 @@ describe('the kind read from their site, under a label for firms of that kind (r
       const d = decidePeer({ content: c, fact: { ...FACT, does, for_whom: null, peer_group_label: label }, company: NO_RECORD_PASSED })
       expect(d.tier, `${does}: ${JSON.stringify(d)}`).toBe('firm_fact')
       if (d.tier !== 'firm_fact') continue
-      expect(painLine(d.body)).toMatch(/^Firms like yours (often tell us|say) /)
-      expect(d.detail.peer_label_replaced).toBe(label)
+      expect(painLine(d.body)).toMatch(namesSource(label))
+      expect('peer_label_replaced' in d.detail).toBe(false)
     }
+  })
+
+  it('PLANTED: on the peer rung a word the opener shares with the label ships ("you run a legal practice", "legal practices") (2026-10-03)', () => {
+    // Until 2026-10-03 "legal" failed the rung. It is the label's own word, under an opener
+    // that names the reader's kind, so it is the echo the operator asked for.
+    const brief = lawBrief()
+    brief.peer_groups[0] = { ...brief.peer_groups[0], label: 'legal practices' }
+    const d = decidePeer({ content: peerContent({ brief }), fact: { ...FACT, does: null, for_whom: null, kind: 'a legal practice', peer_group_label: 'legal practices' }, company: NO_RECORD_PASSED })
+    expect(d.tier).toBe('firm_fact')
+    if (d.tier !== 'firm_fact') return
+    expect(painLine(d.body)).toMatch(namesSource('legal practices'))
   })
 })
 
-describe('a brief with no kinds and no after-opener label: the echo the shared-word test cannot see (review of 2026-10-02, round two)', () => {
+describe('a brief with no kinds and no after-opener label: the echo the shared-word test cannot see (review of 2026-10-02, round two; withdrawn 2026-10-03)', () => {
   // Such a brief validates, and has no label written for the place under an opener. Until
   // round two "Your site says you run a law firm. Law firms often tell us ..." shipped:
   // peerLabelEchoes saw "law", nothing could replace the label, and the rule-3 check reads
@@ -1307,31 +1356,31 @@ describe('a brief with no kinds and no after-opener label: the echo the shared-w
   const decidePlain = (fact: unknown, defaultLabel?: string) =>
     decidePeer({ content: peerContent({ brief: plainBrief(defaultLabel), frames: INVENTED_OPENER_FRAMES }), fact, company: NO_RECORD_PASSED })
 
-  it('PLANTED: "you run a law firm" over the stored label "law firms" takes the DEFAULT label, which does not echo, and the record says which it replaced', () => {
+  // Until 2026-10-03 the echoes below were caught by peerLabelEchoes, and the default label
+  // stood in for the stored one, or the rung failed. Composition no longer calls it: the
+  // label stays, and findConsecutiveRepeats does not count a word of three letters.
+
+  it('"you run a law firm" over the stored label "law firms" now keeps that label (2026-10-03)', () => {
     const d = decidePlain({ ...FACT, does: null, for_whom: null, kind: 'a law firm', peer_group_label: 'law firms' })
     expect(d.tier, JSON.stringify(d)).toBe('firm_fact')
     if (d.tier !== 'firm_fact') return
     expect(opener(d.body)).toMatch(/you run a law firm\.$/)
-    expect(painLine(d.body)).toMatch(/^Exporters (often tell us|say) /)
-    expect(d.body).not.toMatch(/Law firms/)
-    expect(d.detail.peer_label_replaced).toBe('law firms')
-    expect(d.detail.fills.peer_group).toBeNull()
+    expect(painLine(d.body)).toMatch(namesSource('law firms'))
+    expect('peer_label_replaced' in d.detail).toBe(false)
+    expect(d.detail.fills.peer_group).toBe('law firms')
   })
 
-  it('PLANTED: "you run a tax advisory firm" under a default label that echoes it too ("tax advisers") has nothing to put there: the rung fails and the template ships', () => {
+  it('"you run a tax advisory firm" under a default label "tax advisers" now ships on that default (2026-10-03)', () => {
     const d = decidePlain({ ...FACT, does: null, for_whom: null, kind: 'a tax advisory firm', peer_group_label: null }, 'tax advisers')
-    expect(d).toMatchObject({ tier: 'template', reason: 'opener_repeats_next_sentence' })
-    expect(d.tier === 'template' && d.violations?.join(' ')).toContain('"tax"')
-    // The same stored label under the plain default takes the default (control).
-    const byDefault = decidePlain({ ...FACT, does: null, for_whom: null, kind: 'a tax advisory firm', peer_group_label: 'tax advisers' })
-    expect(byDefault.tier === 'firm_fact' && painLine(byDefault.body)).toMatch(/^Exporters (often tell us|say) /)
+    expect(d.tier, JSON.stringify(d)).toBe('firm_fact')
+    expect(d.tier === 'firm_fact' && painLine(d.body)).toMatch(namesSource('tax advisers'))
   })
 
   it('a clause that shares no word with the stored label keeps it (control)', () => {
     const d = decidePlain({ ...FACT, does: 'you draft wills for families', for_whom: null, peer_group_label: 'law firms' })
     expect(d.tier).toBe('firm_fact')
     if (d.tier !== 'firm_fact') return
-    expect(painLine(d.body)).toMatch(/^Law firms (often tell us|say) /)
+    expect(painLine(d.body)).toMatch(namesSource('law firms'))
     expect('peer_label_replaced' in d.detail).toBe(false)
   })
 })
@@ -1443,5 +1492,108 @@ describe('no word in the opener and again in the sentence under it, on the email
     const shipped = decidePeer({ content: oneClean })
     expect(shipped.tier === 'firm_fact' && shipped.detail.rung).toBe('peer')
     expect(shipped.tier === 'firm_fact' && shipped.detail.wording.pain).toBe(1)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Operator decisions of 2026-10-03: the reader's firm named in Email 1's lead-in, on every
+// tier, and the reader's own peer group naming the source in a template follow-up.
+
+describe('decideEmail1LeadIn: "If Kessel is seeing this too, we ..." (2026-10-03)', () => {
+  const NAME = 'Kessel Labs'
+  const leadIn = (overrides: { content?: Record<string, any>; body?: string; companyName?: string | null; maxWords?: number; variant?: string } = {}) => {
+    const c = overrides.content ?? content()
+    const variant = overrides.variant ?? 'A'
+    return decideEmail1LeadIn({
+      messagingContent: c,
+      variantId: variant,
+      body: overrides.body ?? c.variants[variant].emails[0].body,
+      companyName: 'companyName' in overrides ? overrides.companyName! : NAME,
+      reader: { firstName: 'Ada', lastName: 'Quill' },
+      maxWords: overrides.maxWords ?? 85,
+    })
+  }
+  const words = (text: string) => text.trim().split(/\s+/).length
+
+  it('PLANTED: names the firm in the lead-in of the stored Email 1, and changes nothing else', () => {
+    const c = content()
+    const stored: string = c.variants.A.emails[0].body
+    expect(stored).toContain("\n\nIf you're seeing this too, we translate your pages")
+    const d = leadIn({ content: c })
+    expect(d.named).toBe(true)
+    if (!d.named) return
+    expect(d.company).toMatch(/Kessel/)
+    const before = stored.split('\n\n'), after = d.body.split('\n\n')
+    expect(after[2]).toBe(`If ${d.company} is seeing this too, we translate your pages and a native speaker checks each one, so your buyers can read your site.`)
+    // Every other paragraph byte for byte.
+    expect(after.filter((_, i) => i !== 2)).toEqual(before.filter((_, i) => i !== 2))
+    expect(d.word_count).toBe(words(d.body.replace('{{first_name}}', 'x')))
+  })
+
+  it('PLANTED: each variant\'s own lead-in is used: variant B says "sees"', () => {
+    const d = leadIn({ variant: 'B' })
+    expect(d.named && d.body.split('\n\n')[2]).toMatch(/^If Kessel[^,]* sees this too, we turn your key pages/)
+  })
+
+  it('PLANTED: a firm-fact Email 1 is named too: the lead-in is found wherever the offer paragraph stands', () => {
+    const c = content()
+    const fact = decide({ content: c })
+    expect(fact.tier).toBe('firm_fact')
+    if (fact.tier !== 'firm_fact') return
+    const d = leadIn({ content: c, body: fact.body, maxWords: 85 })
+    expect(d.named).toBe(true)
+    expect(d.named && d.body.split('\n\n')[3]).toMatch(/^If Kessel[^,]* is seeing this too, we /)
+  })
+
+  it.each<[string, Parameters<typeof leadIn>[0], string]>([
+    ['no name is held', { companyName: null }, 'nothing_held'],
+    ['the variant has no lead-in (a document written before it existed)', { content: (() => { const c = content(); delete c.variants.A.lines.email1.lead_in; return c })() }, 'no_lead_in'],
+    ['the body does not hold the slot-free lead-in (a researched Email 1, say)', { body: content().variants.A.emails[0].body.replace("If you're seeing this too, we", 'We') }, 'no_slot_free_lead_in_in_body'],
+    ['the variant has no lines', { content: (() => { const c = content(); delete c.variants.A.lines; return c })() }, 'no_lines'],
+    ['there is no brief', { content: (() => { const c = content(); delete c.outbound_brief; return c })() }, 'no_brief'],
+    ['the brief no longer validates', { content: (() => { const c = content(); delete c.outbound_brief.avoid_wording; return c })() }, 'brief_invalid'],
+  ])('PLANTED: when %s, the slot-free clause ships and the reason says why', (_name, overrides, reason) => {
+    expect(leadIn(overrides)).toEqual({ named: false, reason })
+  })
+
+  it('PLANTED: a name that takes the email over its word cap is not used', () => {
+    const stored: string = content().variants.A.emails[0].body
+    const storedWords = words(stored)
+    // The cap at exactly the stored body: the name adds at least one word, so it is over.
+    expect(leadIn({ maxWords: storedWords })).toEqual({ named: false, reason: 'named_body_over_band' })
+    // With room for it, it is named (control).
+    expect(leadIn({ maxWords: storedWords + 10 }).named).toBe(true)
+  })
+})
+
+describe('decideFollowupFills: the reader\'s own peer group names the source in a follow-up (2026-10-03)', () => {
+  const email2 = (c = content()) => c.variants.A.emails.find((e: { sequence_position: number }) => e.sequence_position === 2).body as string
+  const fill = (peerGroup: string | null, companyName: string | null = null) => {
+    const c = content()
+    return decideFollowupFills({ messagingContent: c, body: email2(c), position: 2, companyName, forWhom: null, peerGroup })
+  }
+
+  it('the stored Email 2 names the default label, slot-free (the premise)', () => {
+    expect(email2()).toContain('When we chat to exporters, a lot of them say a new market starts slower than hoped.')
+  })
+  it('PLANTED: with the reader\'s group held and nothing else, {peer_group} is filled from it', () => {
+    const d = fill('software makers')
+    expect(d.filled).toBe(true)
+    if (!d.filled) return
+    expect(d.body).toContain('When we chat to software makers, a lot of them say a new market starts slower than hoped.')
+    expect(d.body).not.toContain('chat to exporters')
+    expect(d.slotted).toEqual([true, false, false])
+  })
+  it('with no group, no name and no customer group held, nothing is filled (control)', () => {
+    expect(fill(null)).toEqual({ filled: false, reason: 'nothing_held' })
+    expect(fill('   ')).toEqual({ filled: false, reason: 'nothing_held' })
+  })
+  it('PLANTED: the group and the firm are filled together, each in its own paragraph', () => {
+    const d = fill('software makers', 'Kessel Labs')
+    expect(d.filled).toBe(true)
+    if (!d.filled) return
+    expect(d.body).toContain('When we chat to software makers,')
+    expect(d.body).toMatch(/Does that match what Kessel[^?]* sees\?/)
+    expect(d.slotted).toEqual([true, false, true])
   })
 })

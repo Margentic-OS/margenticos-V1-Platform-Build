@@ -49,6 +49,7 @@ import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { splitIntoSentences } from '@/lib/style/sentence-count'
 import { companyNameForms } from '@/lib/style/followup-gates'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage, type TokenUsage } from './types'
+import { scopeBlockForChecker, type FollowupScope } from './followup-scope'
 
 const FACT_CHECK_MODEL = 'claude-sonnet-4-6'
 
@@ -431,6 +432,180 @@ export function checkCitations(
   return failures
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// THE SENDER'S SCOPE, ASKED IN THE SAME CALL. Added 2026-10-03, operator instruction.
+//
+// The questions above are all about the PROSPECT. A follow-up after a prospect spoke at an
+// event said the sender would go and contact the people who saw them there, which is a claim
+// about the SENDER, so nothing above read it, and it is not what that client does: its brief
+// says it finds THE CLIENT'S buyers. So when the client has a brief, the same call is also
+// shown its scope and asked three things per email: every claim about what the sender does,
+// and which scope item covers it; whether the email implies the reader ALREADY HAS what the
+// offer provides; and whether it asserts something about the reader's firm the findings do
+// not establish, which catches the population sentence ("firms without X rarely manage Y")
+// that the claims list above is told to leave out.
+//
+// NO NEW MODEL CALL. The questions ride on the fact-check, and with no brief they are not
+// asked at all, so a client without one is checked exactly as before.
+//
+// THE MODEL'S ANSWER IS A CLAIM AND CODE DECIDES, as with the citations above: a cited scope
+// id must exist in the brief, a sentence whose subject is the sender must have been returned
+// as a sender claim, and an email with no verdict at all fails rather than passing unread.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Appended to the fact-check prompt only when the client has a brief. Rule Zero: no market's wording. */
+export const FOLLOWUP_SCOPE_RULES = `## THE SENDER'S SCOPE, AND WHAT THE READER ALREADY HAS
+
+You are also shown the SENDER'S SCOPE: what the sender does, what it never claims, and the
+outcomes a reader can get from it, each with an id. For EACH email, also answer three things.
+
+sender_claims: every statement in the email about what the SENDER does, will do or offers,
+quoted exactly from the email, from the start of its sentence. A sentence whose subject is the
+sender ("we", "our", "I") is always one. For each:
+  covered_by: the id of the item in "What the sender does" that says the sender does this; or
+    the id of an outcome when the statement only says the reader CAN get that outcome, with no
+    number, no time and no promise added. null when nothing in the scope says the sender does
+    it. Work that resembles a scope item but is done for different people, or on a different
+    thing, is NOT covered by it.
+  violates: the id of an item in "What the sender never claims" that the statement states or
+    implies, or null.
+
+reader_has_outcome: the sentence, quoted, that says or implies the reader ALREADY HAS what the
+sender offers (one of the outcomes, or what the sender's work produces), or null. The offer is
+something they can get. A sentence presenting it as theirs already, or as working for them
+already, is this fault.
+
+presumes_about_reader: the sentence, quoted, that asserts or presumes something about the
+reader's firm which the numbered findings do not establish, or null. A sentence about firms in
+general counts when this reader would take it as describing them: "firms without X rarely
+manage Y" tells the reader they lack X. A question that presumes nothing does not count.
+
+Add this field to the same JSON object, with an entry for EVERY email shown:
+
+"emails":[{"email":2,"sender_claims":[{"claim":"<quoted from the email>","covered_by":"<id>","violates":null}],"reader_has_outcome":null,"presumes_about_reader":null}]
+
+An email with no entry is treated as unchecked, and an unchecked email does not ship.`
+
+/** One email's scope verdict, as the model gave it. */
+export interface EmailScopeVerdict {
+  email: number
+  sender_claims: Array<{ claim: string; covered_by: string | null; violates: string | null }>
+  reader_has_outcome: string | null
+  presumes_about_reader: string | null
+}
+
+const textOrNull = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
+
+/**
+ * Reads the per-email scope verdicts. An entry that is not shaped like one is DROPPED, and a
+ * dropped entry reads as an email with no verdict, which checkScope fails. So a malformed
+ * answer can only ever refuse a follow-up, never pass one.
+ */
+export function parseScopeVerdicts(raw: string, allowedEmails: readonly number[]): EmailScopeVerdict[] {
+  const match = raw.match(/\{[\s\S]*\}/)
+  if (!match) return []
+  try {
+    const parsed = JSON.parse(match[0]) as { emails?: unknown }
+    if (!Array.isArray(parsed.emails)) return []
+    return parsed.emails.flatMap(e => {
+      if (!e || typeof e !== 'object') return []
+      const o = e as Record<string, unknown>
+      const email = Number(o.email)
+      if (!allowedEmails.includes(email) || !Array.isArray(o.sender_claims)) return []
+      const senderClaims = o.sender_claims.flatMap(c => {
+        if (!c || typeof c !== 'object') return []
+        const x = c as Record<string, unknown>
+        return typeof x.claim === 'string'
+          ? [{ claim: x.claim, covered_by: textOrNull(x.covered_by), violates: textOrNull(x.violates) }]
+          : []
+      })
+      return [{
+        email,
+        sender_claims: senderClaims,
+        reader_has_outcome: textOrNull(o.reader_has_outcome),
+        presumes_about_reader: textOrNull(o.presumes_about_reader),
+      }]
+    })
+  } catch {
+    return []
+  }
+}
+
+/** A sentence whose subject is the sender. The narrow shape, the same one sentencesNamingThem excludes. */
+function senderSentences(text: string): string[] {
+  return splitIntoSentences(text)
+    .map(s => s.trim())
+    .filter(s => s && !s.endsWith('?') && /^(we|our|i)\b/i.test(s))
+}
+
+/**
+ * THE CODE HALF OF THE SCOPE CHECK. Every failure names its email, so the routing in
+ * write-followups charges it to that email alone and the other can still ship.
+ */
+export function checkScope(
+  verdicts: readonly EmailScopeVerdict[],
+  scope: FollowupScope,
+  prose2: string,
+  prose3: string,
+): string[] {
+  const failures: string[] = []
+  const covers = new Set([...scope.does.map(d => d.id), ...scope.outcomes.map(o => o.id)])
+  const neverById = new Map(scope.never_claims.map(n => [n.id, n.statement]))
+
+  for (const [position, prose] of [[2, prose2], [3, prose3]] as const) {
+    if (!prose.trim()) continue
+    const v = verdicts.find(x => x.email === position)
+    if (!v) {
+      failures.push(`email ${position}: the fact-check returned no scope verdict for it, and an unchecked email is not a clean one`)
+      continue
+    }
+    for (const c of v.sender_claims) {
+      if (c.violates !== null) {
+        const statement = neverById.get(c.violates)
+        failures.push(
+          `email ${position} says ${JSON.stringify(c.claim)}, which this client never claims` +
+          (statement ? ` (${c.violates}: ${statement})` : ` (${c.violates})`),
+        )
+      } else if (c.covered_by === null) {
+        failures.push(
+          `email ${position} says the sender will ${JSON.stringify(c.claim)}, which is outside what this client does: ` +
+          'say only what the brief says the sender does',
+        )
+      } else if (!covers.has(c.covered_by)) {
+        // A citation to a scope item that does not exist, the same fault as a citation to a
+        // finding that does not exist, and unsupported by definition.
+        failures.push(
+          `email ${position} says ${JSON.stringify(c.claim)} and cites scope item ${c.covered_by}, ` +
+          'which is not in this client\'s brief',
+        )
+      }
+    }
+    // A SHORT VERDICT LOOKS CLEAN. Every sentence with the sender as its subject is a claim
+    // about the sender, and one the model did not return was not checked.
+    for (const sentence of senderSentences(prose)) {
+      if (!v.sender_claims.some(c => coversOpening(c.claim, sentence))) {
+        failures.push(
+          `email ${position} says what the sender does, and the scope check never returned it as a claim: ` +
+          `${JSON.stringify(sentence)}`,
+        )
+      }
+    }
+    if (v.reader_has_outcome !== null) {
+      failures.push(
+        `email ${position} implies the reader already has what the offer provides: ` +
+        `${JSON.stringify(v.reader_has_outcome)}. The offer is something they can get, not something they have`,
+      )
+    }
+    if (v.presumes_about_reader !== null) {
+      failures.push(
+        `email ${position} asserts something about their firm that the findings do not establish: ` +
+        `${JSON.stringify(v.presumes_about_reader)}`,
+      )
+    }
+  }
+  return failures
+}
+
 export interface FactCheckParams {
   apiKey: string
   prose2: string
@@ -440,6 +615,11 @@ export interface FactCheckParams {
   prospectId: string
   /** For spotting a sentence whose subject is their firm. Null is handled. */
   companyName?: string | null
+  /**
+   * The client's brief scope, or null/absent when the client has none. Absent means the
+   * scope questions are not asked and the check runs exactly as it did before 2026-10-03.
+   */
+  scope?: FollowupScope | null
 }
 
 /**
@@ -449,7 +629,11 @@ export interface FactCheckParams {
  */
 export async function factCheckFollowups(params: FactCheckParams): Promise<FactCheckResult> {
   const client = new Anthropic({ apiKey: params.apiKey })
+  const scope = params.scope ?? null
   const user = [
+    // THE SCOPE FIRST, when there is one, so the ids the answer cites are in front of the
+    // model before the emails that need them. Absent, the message is byte-identical to before.
+    ...(scope ? [scopeBlockForChecker(scope), ''] : []),
     '## Numbered findings',
     '',
     params.findingsEvidence,
@@ -468,8 +652,12 @@ export async function factCheckFollowups(params: FactCheckParams): Promise<FactC
   try {
     const reply = await client.messages.create({
       model: FACT_CHECK_MODEL,
-      max_tokens: 2000,
-      system: buildFactCheckPrompt({ emailsShown: 'two emails', exampleEmail: 2, questionsCanCarryClaims: false }),
+      // MORE ROOM WHEN THE SCOPE IS ASKED: the answer now carries a second list per email,
+      // and a reply cut off at the ceiling fails open (below), so a tight ceiling would turn
+      // the scope check off on exactly the emails with the most to say.
+      max_tokens: scope ? 3000 : 2000,
+      system: buildFactCheckPrompt({ emailsShown: 'two emails', exampleEmail: 2, questionsCanCarryClaims: false }) +
+        (scope ? `\n\n${FOLLOWUP_SCOPE_RULES}` : ''),
       messages: [{ role: 'user', content: user }],
     })
     usage = addTokenUsage(usage, readTokenUsage(reply.usage))
@@ -503,7 +691,11 @@ export async function factCheckFollowups(params: FactCheckParams): Promise<FactC
   }
 
   const claims = parseFactCheckResponse(raw, [2, 3])
-  const failures = checkCitations(claims, params.findingsEvidence, params.prose2, params.prose3, params.companyName ?? null)
+  const scopeVerdicts = scope ? parseScopeVerdicts(raw, [2, 3]) : []
+  const failures = [
+    ...checkCitations(claims, params.findingsEvidence, params.prose2, params.prose3, params.companyName ?? null),
+    ...(scope ? checkScope(scopeVerdicts, scope, params.prose2, params.prose3) : []),
+  ]
 
   // THE FAILURES THEMSELVES, not just how many. Counted-only logging was enough to know the
   // check fired and useless for saying WHAT it rejected: after the run of 2026-09-24 the
@@ -518,6 +710,8 @@ export async function factCheckFollowups(params: FactCheckParams): Promise<FactC
     unsupported_claims: claims.filter(c => !c.supported).map(c => ({
       email: c.email, claim: c.claim, why: c.why,
     })),
+    scope_checked: scope !== null,
+    scope_verdicts: scope ? scopeVerdicts : undefined,
   })
 
   return { claims, failures, usage, raw }

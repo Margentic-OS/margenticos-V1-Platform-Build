@@ -1,54 +1,43 @@
-// Common English words, for one question: is this single word a firm's NAME, or only a word?
+// Common English words, for one question: is the word joined to a service word a trade?
 //
 // ═════════════════════════════════════════════════════════════════════════════
-// WHAT IT IS FOR
+// WHAT IT IS FOR, SINCE THE SIXTH READING (2026-10-03)
 //
 // companyShortName (company-short-name.ts, beside this file) shortens "Kessel Consulting"
-// to "Kessel", so a follow-up email can say "so Kessel can win the right clients". It may
-// do that only when the word left over is distinctive. "Summit Consulting" has to stay
-// "Summit Consulting": "so Summit can win" reads as a word, not as a name, and a dozen
-// firms answer to it. This list is how code tells the two apart without guessing. A single
-// word that is on it is a common word, and the firm keeps its full name.
+// to "Kessel", so a follow-up email can say "so Kessel can win the right clients".
 //
-// IT IS READ IN THREE PLACES, all in company-short-name.ts (the review of the fifth
-// reading, 2026-10-02, added the second and third):
+// UNTIL THE SIXTH READING this list also decided whether what was left could be said: a
+// remainder made only of words on it kept the full name, so "Harbour Consulting" stayed
+// "Harbour Consulting". The operator's rule replaced that ("short names drop trailing
+// descriptors and initialisms; places and trade words keep the full name"), with examples
+// of ordinary words said alone. A common word no longer keeps a full name, and this list is
+// no longer read for that.
 //
-//   - a remainder of ONE word that is on it keeps the full name ("Summit Consulting")
-//   - a remainder of SEVERAL words is read word by word, and when every word is on it, or
-//     is a place, the full name is kept ("Real Estate Advisors", "Human Resources
-//     Consulting"). Two ordinary words are a trade as often as they are a brand. Since the
-//     second round of the review (2026-10-02) a hyphenated word is read by its parts the
-//     same way ("Real-Estate Advisors")
-//   - the word joined to a service word ("Kessel Tax & Advisory") comes off with it only
-//     when it is on this list, and so does a list of them joined by commas ("Kessel Tax,
-//     Audit & Advisory"), every item on it. A joined word that is off it may be a
-//     partner's surname
+// IT IS NOW READ IN ONE PLACE, in company-short-name.ts: the word joined to a service word
+// ("Kessel Tax & Advisory") comes off with it only when it is on this list, and so does a
+// list of them joined by commas ("Kessel Tax, Audit & Advisory"), every item on it. A joined
+// word that is off it may be a partner's surname ("Kessel Trennick & Advisors" stays
+// "Kessel Trennick"). And when nothing stands in front of such a list ("Tax & Advisory"),
+// the words on it are the trade, and the full name is said.
 //
 // IT IS A LIST, so it has two edges:
 //
-//   - a common word that is ALSO a surname ("Smith", "Marsh", "Brown"). With a generic
-//     word after it the firm keeps its full name ("Smith Consulting"), and nothing is
-//     lost, because a firm's full name is never the wrong thing to call it. STANDING
-//     ALONE it is "your firm": "Smith and Co" and "Brown Ltd" are one ordinary word once
-//     the legal form is off, there is no longer form to keep, and the name IS lost. That
-//     is the price of a word list with no notion of names, and the fallback is the safe one.
-//   - a word rare enough to be off the list is read as a name. The cost of a miss is one
-//     sentence that calls a firm by an ordinary word.
+//   - a common word that is ALSO a surname ("Marsh", "Brown") joined to a service word is
+//     taken for a trade, and dropped: "Kessel Marsh & Advisors" is "Kessel"
+//   - a trade word rare enough to be off the list is kept as though it were a surname:
+//     "Kessel Haulage & Consulting" is "Kessel Haulage" for a client whose own generic
+//     words do not hold "haulage"
 //
-// WHAT IT DOES NOT HOLD, and where each of those is held instead:
+// WHAT IT DOES NOT HOLD: no capitalised word, so no nationality, weekday or month (those
+// are closed sets in place-names.data.ts), and little trade vocabulary ("logistics",
+// "analytics" and every acronym are off it). A firm's trade is read from that firm's own
+// record instead: see firmTradeWords.
 //
-//   - no capitalised word, so no nationality, weekday or month. "American Consulting
-//     Group" went out as "American". Those are closed sets in place-names.data.ts.
-//   - little trade vocabulary: "logistics", "analytics", "telecom" and every acronym are
-//     off it. It is NOT regenerated at a higher level to catch them, because the cut is
-//     the operator's (below) and a higher level takes his own examples with it. A firm's
-//     trade is read from that firm's own record instead: see firmTradeWords.
-//
-// WHERE THE CUT FALLS, measured on this list and held by a test: "summit", "pyramid",
+// WHERE THE CUT FALLS, measured on this list and held by a test: "harbour", "pyramid",
 // "bridge", "apex", "beacon" and "orchard" are on it. Rarer real words such as "quasar"
-// and "isotope" are not. The operator's own examples on 2026-10-02 were names of that
-// rarer kind, which must shorten, and that is why the list stops at level 35 and no
-// higher. (His examples are real firms' names and are not written here.)
+// and "isotope" are not. The cut was chosen on 2026-10-02, when this list still decided
+// whether a remainder could be said, so that rarer words would shorten; it is unchanged
+// since, and now decides only which joined words are read as a trade.
 //
 // ═════════════════════════════════════════════════════════════════════════════
 // WHERE IT CAME FROM

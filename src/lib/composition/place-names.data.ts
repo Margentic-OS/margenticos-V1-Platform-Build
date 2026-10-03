@@ -4,20 +4,25 @@
 // WHAT IT IS FOR
 //
 // companyShortName (company-short-name.ts, beside this file) shortens "Kessel Consulting"
-// to "Kessel", so a follow-up email can say "so Kessel can win the right clients". It may
-// do that only when what is left over is distinctive. "Denver Advisory Partners" has to
-// stay as it is: "so Denver can win the right clients" names a city, and the reader's firm
-// is not a city. A name on this list is a place, and the firm keeps its full name.
+// to "Kessel", so a follow-up email can say "so Kessel can win the right clients". Since
+// the sixth reading (2026-10-03) it does that whenever what is left names something, and
+// an ordinary word does ("Harbour Consulting" is "Harbour"). A PLACE does not: "Denver
+// Advisory Partners" has to stay as it is, because "so Denver can win the right clients"
+// names a city, and the reader's firm is not a city. The operator: "places and trade words
+// keep the full name". A name on this list is a place, and the firm keeps its full name.
 //
 // HOW IT IS READ, in company-short-name.ts:
 //
 //   - a remainder that is a place TAKEN WHOLE keeps the full name ("New York Consulting")
 //   - a remainder of several words is also read WORD BY WORD: a word that is a place is
-//     not what makes it a name, so "Denver Tax Advisors" keeps its full name and "Kessel
-//     Denver Consulting" is "Kessel Denver"
+//     not what makes it a name, but any other word is, an ordinary word included since
+//     the sixth reading. So "Kessel Denver Consulting" is "Kessel Denver" and "Denver Tax
+//     Advisors" is "Denver Tax" (until the sixth reading it kept its full name, because
+//     "tax" was on the common-word list)
 //   - and a word inside any run of two words or more that is a place is a place's word
-//     (the second round of the review, 2026-10-02), so "Los Angeles Tax Advisors" keeps
-//     its full name although "los" and "angeles" are on no list alone
+//     (the second round of the review, 2026-10-02), so "Los Angeles Advisors" keeps its
+//     full name although "los" and "angeles" are on no list alone. "Los Angeles Tax
+//     Advisors" is "Los Angeles Tax", through "Tax"
 //   - a hyphenated word is read with its hyphens as spaces, so "Asia-Pacific" is the place
 //     "asia pacific" if listed, and is otherwise judged by its parts
 //   - a firm whose WHOLE name is a place, with no generic word after it ("Denver Ltd", "New

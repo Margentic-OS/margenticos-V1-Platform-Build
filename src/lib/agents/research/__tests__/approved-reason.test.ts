@@ -112,8 +112,10 @@ describe('resolveApprovedReason', () => {
     expect(reasonTheWritersArgueFrom({ state: 'no_trigger_matched' }, null)).toBeNull()
   })
 
-  it('the holding states are exactly the three where a list exists and gives this fact nothing', () => {
-    expect([...HOLDING_STATES].sort()).toEqual(['no_selection', 'no_trigger_matched', 'trigger_has_no_reason'])
+  // FOUR since 2026-10-03: outside_definition, set after the definition check in
+  // produce-opening (trigger-definition.test.ts), holds exactly as the other three do.
+  it('the holding states are exactly the four where a list exists and gives this fact nothing', () => {
+    expect([...HOLDING_STATES].sort()).toEqual(['no_selection', 'no_trigger_matched', 'outside_definition', 'trigger_has_no_reason'])
     expect(holdsPersonalisation({ state: 'approved', reason: 'r', trigger: 't', triggerIndex: 1 })).toBe(false)
     expect(holdsPersonalisation({ state: 'not_checked', why: 'no_trigger_list' })).toBe(false)
     for (const state of HOLDING_STATES) {

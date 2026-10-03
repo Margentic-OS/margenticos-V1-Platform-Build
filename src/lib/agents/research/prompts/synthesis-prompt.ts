@@ -19,7 +19,7 @@ import { formatFitDimensions, type FitDimension } from '../fit-dimensions'
  * client with a broken prompt: relevance falls back to the problems the client solves,
  * exactly as before.
  */
-function renderTriggers(triggers?: ReadonlyArray<{ trigger: string; reason?: string }>): string {
+function renderTriggers(triggers?: ReadonlyArray<{ trigger: string; reason?: string; definition?: string }>): string {
   const list = (triggers ?? []).filter(t => typeof t?.trigger === 'string' && t.trigger.trim().length > 0)
   if (list.length === 0) return ''
   // THE REASON IS PRINTED UNDER ITS TRIGGER, on its own line, because it is the thing the
@@ -29,7 +29,15 @@ function renderTriggers(triggers?: ReadonlyArray<{ trigger: string; reason?: str
   const numbered = list.map((t, i) => {
     const head = '  ' + String(i + 1) + '. ' + t.trigger.trim()
     const why = t.reason && t.reason.trim() ? '\n       WHY IT MATTERS: ' + t.reason.trim() : ''
-    return head + why
+    // THE DEFINITION, on its own line under the reason (2026-10-03): what counts as this
+    // event and what does not, in the client's words. A short trigger line is read
+    // generously, and a blog post introducing a new colleague was matched to a hiring
+    // trigger with nobody checking the role. Absent, nothing is printed and the line reads
+    // exactly as before. The same definition is read against the chosen fact again before
+    // the writer runs (trigger-definition.ts), because a stored finding can be reused
+    // without this prompt ever being sent.
+    const counts = t.definition && t.definition.trim() ? '\n       WHAT COUNTS: ' + t.definition.trim() : ''
+    return head + why + counts
   }).join('\n')
   // THE INSTRUCTION ONLY APPEARS WHEN THERE IS SOMETHING TO INSTRUCT ABOUT. A document
   // written before the reason field existed carries none, and telling the model that each
@@ -42,12 +50,21 @@ function renderTriggers(triggers?: ReadonlyArray<{ trigger: string; reason?: str
     'Your job when one matches is to APPLY it to what you actually found, not to repeat it.',
     '',
   ] : []
+  // Said only when a definition is present, for the reason the preamble above is: a prompt
+  // must not describe contents it does not have.
+  const anyDefinition = list.some(t => t.definition && t.definition.trim().length > 0)
+  const definitionPreamble = anyDefinition ? [
+    'Where a trigger carries WHAT COUNTS, a finding matches that trigger only if it falls',
+    'within it. A finding that does not show it does is not a match for that trigger.',
+    '',
+  ] : []
   return [
     '',
     'TRIGGERS. ' + String(list.length) + ' events this client has written down as making a',
     "call worth asking for now. They are in the client's own order, strongest first.",
     '',
     ...preamble,
+    ...definitionPreamble,
     numbered,
     '',
   ].join('\n')
@@ -59,7 +76,7 @@ export interface PromptContext {
    * The client's own trigger list, in the order their document states it. Empty when the
    * client has none, and the prompt then reads exactly as it did before this existed.
    */
-  triggers?:          ReadonlyArray<{ trigger: string; reason?: string }>
+  triggers?:          ReadonlyArray<{ trigger: string; reason?: string; definition?: string }>
   icpSummary:         string  // tier 1 buyer title + company type + top 3 push forces + the client's own disqualifiers
   positioningSummary: string  // positioning_summary plain text
   valuePropContext:   string  // cold outreach hook + top 2 value themes — alignment filter
