@@ -127,12 +127,12 @@ export function inventedVariants(): Record<string, VariantLines> {
       },
       followups: [
         { position: 2, angle: 'PA2', paragraphs: [
-          plain('When we chat to {peer_group}, a lot of them say a new market starts slower than hoped.', ['PA2'], 'pain'),
+          plain('In our chats with {peer_group}, a lot of them say a new market starts slower than hoped.', ['PA2'], 'pain'),
           plain('So growth plans can slip, and the launch can cost more than it should.', ['PA2'], 'pain'),
           named('Does that match what {company} sees?', 'Does that match what you see?', ['PA2'], 'ask'),
         ] },
         { position: 3, angle: 'PA3', paragraphs: [
-          plain('Talking to {peer_group}, we hear that free tools came first and buyers noticed the errors.', ['PA3', 'T1'], 'pain'),
+          plain('From what {peer_group} tell us, free tools came first and buyers noticed the errors.', ['PA3', 'T1'], 'pain'),
           named(
             'We translate the pages your team sends most, so people overseas can read what {company} sells.',
             'We translate the pages your team sends most, so people overseas can read what you sell.',
@@ -172,7 +172,7 @@ export function inventedVariants(): Record<string, VariantLines> {
       },
       followups: [
         { position: 2, angle: 'PA3', paragraphs: [
-          plain('When we chat to {peer_group}, a few say they tried free tools first to save money.', ['PA3', 'T1'], 'pain'),
+          plain('In our chats with {peer_group}, a few say they tried free tools first to save money.', ['PA3', 'T1'], 'pain'),
           plain('Then buyers often noticed the errors and trusted the pages less than before.', ['PA3'], 'pain'),
           named('Is that something {company} has seen on its own site?', 'Is that something you have seen with your own site?', ['PA3'], 'ask'),
         ] },

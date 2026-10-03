@@ -532,7 +532,31 @@ export function leadInFaults(line: TemplateWording): string[] {
  */
 const FACELESS_SOURCE = /\b(?:many|some|most|a lot of|lots of|plenty of|several|a few|other|all)\s+(?:firms|companies|businesses|founders|owners|teams|leaders|organisations|organizations|agencies|practices)\b|\b(?:firms|companies|businesses|teams|people|founders) like (?:yours|you)\b/i
 /** The clause that names who told us, when a sentence opens on one: "When we chat to {peer_group}," */
-export const SOURCE_CLAUSE = /^(?:(?:when|whenever|each time|every time)\s+we\s+(?:chat|talk|speak|meet)\s+(?:to|with)|(?:talking|speaking|chatting)\s+(?:to|with))\s+[^,.?!]{1,60},\s*/i
+export const SOURCE_CLAUSE = /^(?:(?:when|whenever|each time|every time)\s+we\s+(?:chat|talk|speak|meet)\s+(?:to|with)|(?:talking|speaking|chatting)\s+(?:to|with)|(?:in|from|across)\s+our\s+(?:chats|talks|conversations)\s+with|from\s+what)\s+[^,.?!]{1,60},\s*/i
+
+/**
+ * THE FORM A SOURCE LINE OPENS IN (reading file 7, 2026-10-03): "vary the source-line opening
+ * across emails within a sequence". Swapping one verb ("When we chat to" for "When we speak
+ * to") is the same opening, so the FORM is compared, not the words:
+ *
+ *   when    "When we chat to {peer_group}, ..."     (when, whenever, each time, every time)
+ *   ing     "Talking to {peer_group}, ..."
+ *   our     "In our chats with {peer_group}, ..."   (in, from, across)
+ *   what    "From what {peer_group} tell us, ..."
+ *
+ * A sentence in none of them is its own form, keyed by its first three words.
+ */
+export const SOURCE_OPENING_FORMS: ReadonlyArray<{ form: string; example: string; pattern: RegExp }> = [
+  { form: 'when', example: 'When we chat to {peer_group}, a lot of them tell us ...', pattern: /^(?:when|whenever|each time|every time)\s+we\s+(?:chat|talk|speak|meet)\b/i },
+  { form: 'ing', example: 'Talking to {peer_group}, we often hear that ...', pattern: /^(?:talking|speaking|chatting)\s+(?:to|with)\b/i },
+  { form: 'our', example: 'In our chats with {peer_group}, many say ...', pattern: /^(?:in|from|across)\s+our\s+(?:chats|talks|conversations)\s+with\b/i },
+  { form: 'what', example: 'From what {peer_group} tell us, ...', pattern: /^from\s+what\b/i },
+]
+export function sourceOpeningForm(sentence: string): string {
+  const s = sentence.trim()
+  const hit = SOURCE_OPENING_FORMS.find(f => f.pattern.test(s))
+  return hit ? hit.form : s.toLowerCase().split(/\s+/).slice(0, 3).join(' ')
+}
 export function findFacelessSource(text: string): string | null {
   const m = text.match(FACELESS_SOURCE)
   return m ? m[0].trim() : null
@@ -1248,6 +1272,31 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
         for (const form of [wording.text, wording.slot_free]) {
           const found = typeof form === 'string' ? findFacelessSource(form) : null
           if (found) push(where, 'faceless_source', `"${found}" says who told us without naming them; name the source with {peer_group}: "When we chat to {peer_group}, a lot of them tell us ..."`)
+        }
+      }
+    }
+
+    // THE SOURCE LINE OPENS DIFFERENTLY IN EACH EMAIL OF A SEQUENCE (reading file 7, fix 4).
+    // A prospect receives ONE Email 1 wording, so each wording is held against both
+    // follow-ups, and the two follow-ups against each other. The source line is the first
+    // sentence of the Email 1 pain and of each follow-up's first pain paragraph.
+    {
+      const firstOf = (text: string | undefined) => splitSentences((text ?? '').trim())[0] ?? ''
+      const followupSources = lines.followups
+        .filter(f => f && (f.position === 2 || f.position === 3))
+        .flatMap(f => {
+          const p = (f.paragraphs ?? []).find(x => x?.kind === 'pain' && typeof x.text === 'string')
+          return p ? [{ where: `email${f.position}`, sentence: firstOf(p.text) }] : []
+        })
+      const email1Sources = e1.pain ? wordingsOf(e1.pain).map((w, i) => ({ where: `email1.pain${i === 0 ? '' : '.alt'}`, sentence: firstOf(w.text) })) : []
+      const pairs: Array<[{ where: string; sentence: string }, { where: string; sentence: string }]> = []
+      for (const a of email1Sources) for (const b of followupSources) pairs.push([a, b])
+      for (let i = 0; i < followupSources.length; i++) for (let j = i + 1; j < followupSources.length; j++) pairs.push([followupSources[i], followupSources[j]])
+      for (const [a, b] of pairs) {
+        if (!a.sentence || !b.sentence) continue
+        const form = sourceOpeningForm(a.sentence)
+        if (form === sourceOpeningForm(b.sentence)) {
+          push(b.where, 'source_opening_repeated', `the source line opens in the same form as ${a.where} ("${a.sentence.split(',')[0]}" and "${b.sentence.split(',')[0]}"); each email in a sequence opens its source line differently: ${SOURCE_OPENING_FORMS.map(f => `"${f.example}"`).join(', ')}`)
         }
       }
     }

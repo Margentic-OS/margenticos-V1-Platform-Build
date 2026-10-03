@@ -326,8 +326,8 @@ describe('scopeHitsFromJudge', () => {
       const painAbove = (line: string) => refs.find(r => r.line === line)?.painAbove
       expect(painAbove('email1.question')).toBe(painAbove('email1.offer'))
       expect(painAbove('email1.question.alt')).toContain(' / ')
-      expect(painAbove('email2.p3')).toBe('When we chat to exporters, a lot of them say a new market starts slower than hoped. So growth plans can slip, and the launch can cost more than it should.')
-      expect(painAbove('email3.p3')).toBe('Talking to exporters, we hear that free tools came first and buyers noticed the errors.')
+      expect(painAbove('email2.p3')).toBe('In our chats with exporters, a lot of them say a new market starts slower than hoped. So growth plans can slip, and the launch can cost more than it should.')
+      expect(painAbove('email3.p3')).toBe('From what exporters tell us, free tools came first and buyers noticed the errors.')
       // A pain line has none: it is the pain (control).
       expect(painAbove('email1.pain')).toBeUndefined()
     })
@@ -461,7 +461,7 @@ describe('scopeHitsFromJudge', () => {
     // The slotted offer is judged against the same pain and outcome as its slot_free form.
     const slotted = all.find(r => r.line === 'email3.p2.slotted')!
     expect(slotted.kind).toBe('offer')
-    expect(slotted.painAbove).toBe('Talking to exporters, we hear that free tools came first and buyers noticed the errors.')
+    expect(slotted.painAbove).toBe('From what exporters tell us, free tools came first and buyers noticed the errors.')
     expect(SCOPE_JUDGE_SYSTEM_PROMPT).toContain("[the reader's firm]")
   })
   it('rejects an offer that does not answer the pain above it, and names that pain (note 2)', () => {
@@ -667,7 +667,7 @@ describe('what the scope judge is shown', () => {
     // paragraph of its own email in a follow-up.
     expect(refs.find(r => r.line === 'email1.offer.alt')?.painAbove).toContain('When we chat to exporters, a lot of them say buyers abroad leave too soon.')
     expect(refs.find(r => r.line === 'email1.offer')?.painAbove).toContain(" / Talking to exporters, we hear that buyers leave pages they can't read.")
-    expect(refs.find(r => r.line === 'email3.p2')?.painAbove).toBe('Talking to exporters, we hear that free tools came first and buyers noticed the errors.')
+    expect(refs.find(r => r.line === 'email3.p2')?.painAbove).toBe('From what exporters tell us, free tools came first and buyers noticed the errors.')
     expect(refs.find(r => r.line === 'email1.pain')?.painAbove).toBeUndefined()
   })
   it('sees BOTH forms of a line that uses {for_whom}: the slot-free one and the one tier 2 ships', () => {

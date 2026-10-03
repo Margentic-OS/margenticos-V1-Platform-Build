@@ -1423,9 +1423,9 @@ describe('{peer_group} names the source of a pain, in Email 1 and in follow-ups,
     const rules = run(d).map(v => v.rule)
     for (const rule of ['followup_slot', 'slot_free_missing', 'peer_group_outside_pain']) expect(rules).not.toContain(rule)
     // Slot-free, the default label stands there; filled, the reader's own group does.
-    expect(renderFollowupSlotFree(d.variants.A.followups[0], 'exporters', INVENTED_SIGNOFF)).toContain('When we chat to exporters, a lot of them say')
+    expect(renderFollowupSlotFree(d.variants.A.followups[0], 'exporters', INVENTED_SIGNOFF)).toContain('In our chats with exporters, a lot of them say')
     const named = renderFollowup(d.variants.A.followups[0], { peer_group: 'software makers' }, 'exporters', INVENTED_SIGNOFF)
-    expect(named.body).toContain('When we chat to software makers, a lot of them say')
+    expect(named.body).toContain('In our chats with software makers, a lot of them say')
     expect(named.slotted[0]).toBe(true)
     // A follow-up still holds one slot kind at most: the group and the firm together is refused.
     expect(rulesAfter(dd => {
@@ -1819,5 +1819,30 @@ describe('idiomsFor: a client\'s own colloquialism is their voice, for that clie
   })
   it('a colloquialism that is not on the list changes nothing: another idiom is still refused (control)', () => {
     expect(hitsAfter('idiom', d => { d.brief.colloquialisms = ['no worries']; withPhrase(d) }).length).toBeGreaterThan(0)
+  })
+})
+
+
+import { sourceOpeningForm } from '../validate-templates'
+
+describe('the source line opens in a different form in each email of a sequence (reading file 7, fix 4)', () => {
+  it('reads the form, not the verb', () => {
+    expect(sourceOpeningForm('When we chat to exporters, many say so.')).toBe(sourceOpeningForm('When we speak with exporters, many say so.'))
+    expect(sourceOpeningForm('Talking to exporters, we hear it.')).toBe('ing')
+    expect(sourceOpeningForm('In our chats with exporters, many say so.')).toBe('our')
+    expect(sourceOpeningForm('From what exporters tell us, it is slow.')).toBe('what')
+  })
+  it('the invented client passes with four distinct forms across the sequence (control)', () => {
+    expect(run(baseDoc()).map(v => v.rule)).not.toContain('source_opening_repeated')
+  })
+  it('PLANTED: an Email 2 that opens in the same form as an Email 1 wording, with only the verb changed, is refused', () => {
+    expect(rulesAfter(d => {
+      d.variants.A.followups[0].paragraphs[0].text = 'When we speak to {peer_group}, a lot of them say a new market starts slower than hoped.'
+    })).toContain('source_opening_repeated')
+  })
+  it('PLANTED: Email 2 and Email 3 in the same form are refused', () => {
+    expect(rulesAfter(d => {
+      d.variants.A.followups[1].paragraphs[0].text = 'In our talks with {peer_group}, free tools came first and buyers noticed the errors.'
+    })).toContain('source_opening_repeated')
   })
 })
