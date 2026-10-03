@@ -37,6 +37,7 @@
 //   every client sends and what an operator on their own dashboard sends.
 // Returns: { id, version, change_summary }
 
+import { carryWriterPlaybook } from '@/lib/writer-v2/playbook'
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient as createCookieClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
@@ -206,7 +207,11 @@ export async function POST(request: NextRequest) {
       revision_note: trimmedNote,
       supabase: admin,
     })
-    revised_content = result.revised_content
+    // The writer v2 playbook is operator data, changed only through its own proposal: a
+    // client's revision note must never reach it, whatever the revision agent returned.
+    revised_content = doc.document_type === 'messaging'
+      ? carryWriterPlaybook(result.revised_content, doc.content)
+      : result.revised_content
     change_summary = result.change_summary
     model_used = result.model_used
   } catch (err) {

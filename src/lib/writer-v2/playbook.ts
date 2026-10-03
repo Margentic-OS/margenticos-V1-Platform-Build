@@ -152,3 +152,14 @@ export function exampleSentences(p: WriterPlaybook): string[] {
     .map(s => s.trim())
     .filter(s => s.split(/\s+/).length >= 4)
 }
+
+/**
+ * The live playbook put back onto a rewritten messaging document. The playbook is operator
+ * data, changed ONLY through its own proposal (scripts/propose-writer-playbook.ts); a client
+ * revision or a regeneration that rewrites the document must neither drop nor edit it.
+ */
+export function carryWriterPlaybook(next: unknown, current: unknown): unknown {
+  const playbook = (current as Record<string, unknown> | null | undefined)?.writer_playbook
+  if (playbook === undefined || !next || typeof next !== 'object' || Array.isArray(next)) return next
+  return { ...(next as Record<string, unknown>), writer_playbook: playbook }
+}

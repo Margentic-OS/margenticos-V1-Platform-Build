@@ -171,3 +171,13 @@ describe('writer v2 playbook', () => {
     expect(problems).toMatch(/not a valid regular expression/)
   })
 })
+
+describe('the playbook survives a rewrite of the messaging document', () => {
+  it('puts the live playbook back, and leaves a document with none alone', async () => {
+    const { carryWriterPlaybook } = await import('../playbook')
+    const current = { variants: {}, writer_playbook: PLAYBOOK }
+    expect(carryWriterPlaybook({ variants: { A: {} } }, current)).toEqual({ variants: { A: {} }, writer_playbook: PLAYBOOK })
+    expect(carryWriterPlaybook({ variants: {}, writer_playbook: { ...PLAYBOOK, offer: 'edited by a revision' } }, current)).toMatchObject({ writer_playbook: PLAYBOOK })
+    expect(carryWriterPlaybook({ variants: {} }, { variants: {} })).toEqual({ variants: {} })
+  })
+})
