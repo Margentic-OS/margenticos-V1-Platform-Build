@@ -168,7 +168,8 @@ describe('the select list asks for every column the counting reads', () => {
   })
 
   it('names every column the counting touches', () => {
-    const selected = new Set(STATUS_COLUMNS.split(',').map(c => c.trim()))
+    // An aliased entry ("alias:expression") reaches the row under its alias.
+    const selected = new Set(STATUS_COLUMNS.split(',').map(c => c.trim().split(':')[0]))
     const missing = [...columnsTouchedBy(REPRESENTATIVE)].filter(c => !selected.has(c))
     expect(missing).toEqual([])
   })
