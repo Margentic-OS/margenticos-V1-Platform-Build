@@ -491,3 +491,49 @@ describe('handleUploadLeads: the upload hold (2026-10-03)', () => {
     expect(upload.fn).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('handleUploadLeads: writer v2 (ADR-068)', () => {
+  /** What composeSequence throws when a writer v2 client's prospect has nothing that may ship. */
+  const notReady = (why: string) => Object.assign(new Error(`writer v2: ${why}`), { name: 'WriterV2NotReadyError', why })
+  const v2 = (id: string) => ({
+    ...composed(id, 'research', { 2: null, 3: null }),
+    variant_id: null,
+    opening: { tier: 'writer_v2', detail: null },
+    writer: { version: 'v2', tier: 'personalised', playbook_version: 1 },
+  })
+
+  it('PLANTED: no shippable sequence is HELD, not failed, with the reason on the row, and never sent', async () => {
+    seed(['p-ready', 'p-waiting'])
+    compose.fn.mockImplementation(async ({ prospect_id }: { prospect_id: string }) => {
+      if (prospect_id === 'p-waiting') throw notReady('no writer v2 sequence has been written for this prospect yet')
+      return v2('p-ready')
+    })
+    const result = await handleUploadLeads(ORG)
+    if (!result.ok) throw new Error(`expected an upload, got: ${result.error}`)
+    expect(result.heldWithoutWriterV2Count).toBe(1)
+    expect(result.compositionFailureCount).toBe(0)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(row('p-waiting').outbound_upload_status).toBe('pending')
+    expect(row('p-waiting').outbound_upload_error).toBe('writer v2: no writer v2 sequence has been written for this prospect yet')
+    expect((upload.fn.mock.calls[0][2] as Array<{ email: string }>).map(l => l.email)).toEqual(['p-ready@example.invalid'])
+  })
+
+  it('PLANTED: the old-path holds do not apply: a v2 sequence with no approved-reason record is sent and recorded', async () => {
+    seed(['p-v2'], { 'p-v2': null })
+    compose.fn.mockResolvedValue(v2('p-v2'))
+    const result = await handleUploadLeads(ORG)
+    if (!result.ok) throw new Error(`expected an upload, got: ${result.error}`)
+    expect(result.heldWithoutApprovedReasonCount).toBe(0)
+    expect(result.heldWithoutFollowupCount).toBe(0)
+    expect(upload.fn).toHaveBeenCalledTimes(1)
+    expect(record.fn.mock.calls.map(c => c[2])).toEqual(['p-v2'])
+  })
+
+  it('every prospect held for writer v2: the operator gets the count, not a generic error', async () => {
+    seed(['p-waiting'])
+    compose.fn.mockRejectedValue(notReady('the stored writer v2 sequence was written from a trial playbook file, not the approved messaging document'))
+    const result = await handleUploadLeads(ORG)
+    expect(result).toMatchObject({ ok: true, outcomes: [], heldWithoutWriterV2Count: 1 })
+    expect(upload.fn).not.toHaveBeenCalled()
+  })
+})
