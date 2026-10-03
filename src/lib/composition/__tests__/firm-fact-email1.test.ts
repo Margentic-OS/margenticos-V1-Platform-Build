@@ -453,14 +453,13 @@ describe('decideFirmFactEmail1', () => {
     }
   })
 
-  it('PLANTED: a peer label of hard words is caught at GENERATION, whatever its length', () => {
-    // 23 characters, shorter than the fixture's longest label, and harder to read.
+  it('PLANTED: a peer label of hard words passes generation and ships: the label is masked in the filled grade (2026-10-03)', () => {
+    // Until 2026-10-03 "veterinary diagnostic laboratories" failed the filled grade at generation and
+    // at composition. It is the name of the reader's own trade, and every pain line names it.
     const brief = inventedBrief()
-    brief.peer_groups.push({ id: 'PG3', label: 'veterinary laboratories', industry: 'Veterinary Services', source: 'invented' })
+    brief.peer_groups.push({ id: 'PG3', label: 'veterinary diagnostic laboratories', industry: 'Veterinary Services', source: 'invented' })
     const violations = validateTemplateDocument({ brief, opener_frames: INVENTED_OPENER_FRAMES, variants: inventedVariants(), signoff: INVENTED_SIGNOFF })
-    const filled = violations.filter(v => v.rule === 'reading_grade_filled')
-    expect(filled.length).toBeGreaterThan(0)
-    expect(filled.every(v => v.where.includes('veterinary laboratories'))).toBe(true)
+    expect(violations.filter(v => v.rule === 'reading_grade_filled')).toEqual([])
   })
 
   it('picks the same opener frame for the same prospect every time', () => {
@@ -874,6 +873,17 @@ describe('the label under the opener: the group\'s own label, named (2026-10-03;
     expect(painLine(d.body)).toMatch(namesSource('software makers'))
     // The same record under the label apart ships too (control).
     expect(decidePeer().tier).toBe('firm_fact')
+  })
+
+  it('PLANTED: a peer label of hard words ships at COMPOSITION: the filled grade masks the label, as the generator\'s validator does (2026-10-03)', () => {
+    // "veterinary diagnostic laboratories" put the filled grade over 5 in the pain line, so every
+    // prospect of that group got the template, whatever the writer had written.
+    const brief = peerBriefApart()
+    brief.peer_groups[0].label = 'veterinary diagnostic laboratories'
+    const d = decidePeer({ content: peerContent({ brief }) })
+    expect(d.tier, JSON.stringify(d)).toBe('firm_fact')
+    if (d.tier !== 'firm_fact') return
+    expect(painLine(d.body)).toMatch(namesSource('veterinary diagnostic laboratories'))
   })
 
   it('an after_opener label an older brief still carries is ignored: the group\'s own label stands', () => {

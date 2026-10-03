@@ -518,15 +518,16 @@ function composeWithFills(args: {
       peerGroupDefault: brief.peer_group_default.label,
       signoff,
     })
-    // What the FILLED grade reads: the customer group and the peer label as the prospect
-    // will read them, with the opener clause masked. The opener has its own cap (note 6 on
-    // the fourth reading): it is the prospect's wording about their own trade.
+    // What the FILLED grade reads: the customer group as the prospect will read it, with
+    // the opener clause masked (it has its own cap, note 6 on the fourth reading) and the
+    // peer label masked: it is the name of the reader's own trade (2026-10-03, the same
+    // mask as the generator's validator).
     graded = renderFactEmail1({
       wording,
       email1: lines.email1,
       openerFrames: frames,
       frameIndex,
-      fills: { does: GRADE_MASK.does, ...(fills.for_whom ? { for_whom: fills.for_whom } : {}), ...(fills.peer_group ? { peer_group: fills.peer_group } : {}) },
+      fills: { does: GRADE_MASK.does, ...(fills.for_whom ? { for_whom: fills.for_whom } : {}), ...(fills.peer_group ? { peer_group: GRADE_MASK.peer_group } : {}) },
       peerGroupDefault: brief.peer_group_default.label,
       signoff,
     })

@@ -862,12 +862,17 @@ function checkRenderedEmail(input: {
   if (input.gradeFilled) {
     // THE OPENER CLAUSE IS NOT IN THIS NUMBER (note 6 on the fourth reading). It is the
     // prospect's own wording about their own trade, and it has a cap of its own just below.
-    // What is graded here is everything the client wrote, with the peer label and the
-    // reader's customer group as they will be read.
+    // NOR IS THE PEER LABEL (2026-10-03). Every pain line now names the reader's own group
+    // ("When we chat to environmental consultants, ..."), and the reader knows the name of
+    // their own trade however many syllables it has. Graded in, the label alone put most
+    // wordings over the cap for the longer labels, and the writer can only answer that by
+    // dropping words elsewhere. The label's LENGTH is still held by the length rules.
+    // What is graded here is everything the client wrote, with the reader's customer group
+    // as they will read it.
     const gradeProse = normalise(proseOf(input.gradeBody ?? body, signoff))
     const filled = fleschKincaidGrade(gradeProse.replace(/\n+/g, ' '))
     if (filled !== null && filled.grade > FACT_EMAIL1_MAX_FILLED_GRADE) {
-      push('reading_grade_filled', `grade ${filled.grade.toFixed(2)} with the peer label and the customer group filled in (the opener clause apart), over ${FACT_EMAIL1_MAX_FILLED_GRADE}: use shorter words in the pain, the offer and the question`)
+      push('reading_grade_filled', `grade ${filled.grade.toFixed(2)} with the customer group filled in (the opener clause and the peer label apart), over ${FACT_EMAIL1_MAX_FILLED_GRADE}: use shorter words in the pain, the offer and the question`)
     }
   }
   if (input.opener !== undefined) {
@@ -1735,8 +1740,9 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
             const fills = { ...cell.fills, peer_group: peer }
             const fact = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills, peerGroupDefault: pgDefault, signoff, wording })
             const masked = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: GRADE_MASK, peerGroupDefault: pgDefault, signoff, wording })
-            // What the filled grade reads: everything as the reader gets it, the opener clause apart.
-            const graded = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: { ...fills, does: GRADE_MASK.does }, peerGroupDefault: pgDefault, signoff, wording })
+            // What the filled grade reads: everything as the reader gets it, the opener clause
+            // and the peer label apart (2026-10-03, see checkRenderedEmail).
+            const graded = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: { ...fills, does: GRADE_MASK.does, peer_group: GRADE_MASK.peer_group }, peerGroupDefault: pgDefault, signoff, wording })
             if (!fact || !masked || !graded) {
               push(`fact email1 [${cell.name} / frame ${f}]`, 'fact_render', 'the firm-fact Email 1 did not render')
               continue
@@ -1762,7 +1768,7 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
           const where = `fact email1 [peer ${group.id} / frame ${f} / ${tag}]`
           const fact = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills, peerGroupDefault: pgDefault, signoff, wording })
           const masked = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: GRADE_MASK, peerGroupDefault: pgDefault, signoff, wording })
-          const graded = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: { ...fills, does: GRADE_MASK.does }, peerGroupDefault: pgDefault, signoff, wording })
+          const graded = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: { ...fills, does: GRADE_MASK.does, peer_group: GRADE_MASK.peer_group }, peerGroupDefault: pgDefault, signoff, wording })
           if (!fact || !masked || !graded) {
             push(where, 'fact_render', 'the peer Email 1 did not render')
             continue

@@ -6714,3 +6714,41 @@ growing set of rules written to catch them after the fact.
 4. Rule Zero: blocks live in each client's documents; code holds only the assembly.
 
 **Estimate when proposed:** 4 to 5 working days, about $6 of model spend.
+
+---
+
+## ADR-067 — After reading file 6: universal template rules, trigger definitions, scope on follow-ups, and an enforced upload hold
+
+**Status:** ACCEPTED, 2026-10-03. The smaller route the operator chose instead of ADR-066.
+
+**Context.** Reading file 6 showed generated copy that read as English and was still wrong:
+faceless sources ("Firms like yours"), consequences that did not follow from the pain,
+questions that did not match their email, an assertion about the reader's firm in front of
+the offer, a chosen event that was not really the trigger it was filed under, and
+follow-ups promising work outside what the client does. The operator held all uploads and
+asked for every fix to be universal (Rule Zero), never MargenticOS-only.
+
+**Decision.**
+1. **The generator, not one client's text, is fixed.** Every Email 1 pain names a
+   conversational source with `{peer_group}`; a faceless source is refused in every line; a
+   lead-in ("If {company} is seeing this too,") goes in front of the offer; the scope judge
+   asks whether the consequence follows, whether each question matches, and whether an
+   offer implies the reader already has the outcome. Voice comes from the brief, including
+   the client's own colloquialisms. Regenerated templates may be polished by hand, and the
+   polish is recorded (`--written-by`).
+2. **Trigger definitions.** Each ICP trigger may carry a written definition. A chosen
+   event outside it is held (`outside_definition`). Definitions are a wording edit to the
+   ICP, so they never reach the search settings (ADR-061).
+3. **Scope, not audience.** Any claim a personalised follow-up makes about what the sender
+   will do is checked against that client's brief scope, as Email 1 already was.
+4. **The peer label is not graded.** The filled reading grade masks the peer label as it
+   masks a slot, at generation and at composition: it is the reader's own trade's name,
+   and every pain line now carries it. Graded in, the longer labels failed most wordings,
+   and at composition sent every prospect of that group to the template.
+5. **Upload hold.** An operator can hold a client's uploads; the upload action refuses
+   while it is on, and an unreadable hold counts as a hold.
+
+**Consequences.** More copy is held or falls to the template while the new rules bed in.
+The existing "never contact their audience" gate was kept beside the scope check, since it
+is market-neutral; whether to retire it is the operator's call. Checked for universality
+by a dry run on a second client's documents, saved nowhere (reading file 7).

@@ -998,10 +998,24 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      ending: plan/planning, hard/harder), checked on every wording, on the
                      follow-ups and on the email a firm-fact prospect receives, and held
                      again at composition between the opener and the sentence under it;
-                     "Could" asks a person, a thing takes "Would" (ask_could); {peer_group}
-                     only in the Email 1 pain line; at least one opener frame does not name
-                     the site (frame_site_free). The scope judge also names unnatural
-                     phrasing. See src/lib/style/repetition.ts and docs/firm-fact-tier.md.
+                     "Could" asks a person, a thing takes "Would" (ask_could); at least one
+                     opener frame does not name the site (frame_site_free). The scope judge
+                     also names unnatural phrasing. See src/lib/style/repetition.ts and
+                     docs/firm-fact-tier.md.
+                     AFTER READING FILE 6, 2026-10-03, ALL UNIVERSAL (ADR-067): the Email 1
+                     pain names a conversational source with {peer_group} mid-sentence
+                     ("When we chat to {peer_group}, a lot of them tell us ...";
+                     peer_group_source), and a FACELESS source ("Firms like yours", "Many
+                     firms", "Some firms") is refused in every line (findFacelessSource).
+                     The offer is led in by "If {company} is seeing this too," (lead_in;
+                     slot-free "If you're seeing this too,"), never by an assertion about
+                     the firm. The scope judge also asks whether the consequence follows
+                     from the pain, whether each question matches its email, and whether an
+                     offer implies the reader already has the outcome. {peer_group} may now
+                     appear in follow-ups too. Words a brief lists as the client's own
+                     colloquialisms are exempt from the idiom list. after_opener is
+                     withdrawn and ignored. The filled reading grade masks the peer label
+                     (the reader's own trade name), at generation and at composition.
                      ELEVEN MORE RULES were added on 2026-10-01 from the operator's read of
                      the first reading file (consequences as possibilities, no manual-task
                      wording, the question in its own paragraph, proof once per sequence and
@@ -2243,6 +2257,14 @@ For quick reference. Full text in /docs/ADR.md.
            EVERY OPENING WRITTEN BEFORE THE RULE IS HELD until its research is run again;
            the follow-up backfill cannot release it. The trigger reasons come through a
            checked read: a failed read stops the upload, never "no reasons"
+  ADR-066  PROPOSED, NOT BUILT: email copy assembled in code from approved building blocks
+  ADR-067  After reading file 6: the template generator's rules are universal (named
+           conversational source, lead-in before the offer, consequence follows, question
+           matches); each ICP trigger can carry a written definition and a chosen event
+           outside it is held (outside_definition); a personalised follow-up's claims about
+           the sender are checked against the brief's scope; and an operator can HOLD a
+           client's uploads (organisations.outbound_upload_hold), which handleUploadLeads
+           refuses while on. An unreadable hold counts as a hold. Only Doug lifts it
 
 ---
 

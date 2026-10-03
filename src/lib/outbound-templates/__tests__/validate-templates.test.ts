@@ -127,9 +127,11 @@ describe('validateTemplateDocument', () => {
     // all of them. O2 answers the neutral variant's own pain and no other lead pain.
     ['neutral_offer_outcome', d => { d.variants.B.email1.offer.from = ['D1', 'O2'] }],
     ['neutral_offer_outcome', d => { d.variants.B.email1.offer.alt!.from = ['D1', 'O1', 'O2'] }],
-    // Graded with the fill in, at generation, for the plain cells: this sentence passes the
-    // masked grade and tips the filled one over with the longest peer label.
-    ['reading_grade_filled', d => { d.brief.peer_groups[1].label = 'international furniture manufacturers' }],
+    // reading_grade_filled is NOT planted here since 2026-10-03: the peer label is masked in
+    // it (the reader's own trade), so on generation it differs from the masked grade only by
+    // the invented customer group, and no fault in the fixture's lines tips one and not the
+    // other. It is proven to run where it bites, at composition, with a real customer group:
+    // "the filled grade still reads what the client's lines become" in firm-fact-email1.test.ts.
     ['frame_dropped_subject', d => { d.opener_frames[1] = 'Read that {does}.' }],
     ['question_points_back', d => { d.variants.A.email1.question.text = 'Would that be useful for you right now?' }],
     // ── Operator rules of 2026-10-01 ──
@@ -302,14 +304,14 @@ describe('validateTemplateDocument', () => {
     })
   }
 
-  it('the filled grade is reported against a PLAIN cell, never the cell invented to stress length', () => {
-    // A peer label of long words: what the client wrote is easy, and what the reader gets
-    // with that label in the pain line is not.
+  it('PLANTED: a peer label of long words no longer fails the filled grade: it is the name of the reader\'s own trade (2026-10-03)', () => {
+    // Until 2026-10-03 this label failed the filled grade in the pain line. Every pain line
+    // names the reader's group now, so grading the label in shut out every long trade name.
     const d = baseDoc()
     d.brief.peer_groups[1].label = 'international furniture manufacturers'
-    const hits = run(d).filter(v => v.rule === 'reading_grade_filled')
-    expect(hits.length).toBeGreaterThan(0)
-    expect(hits.every(v => /fact email1 \[(short|broad) /.test(v.where))).toBe(true)
+    expect(run(d).filter(v => v.rule === 'reading_grade_filled')).toEqual([])
+    // Its length is still held: the label is in every length check (control).
+    expect(run(d).some(v => v.where.includes('international furniture manufacturers'))).toBe(false)
   })
 
   it('PLANTED: the neutral offer may cite the outcome that answers every lead angle, and the control says which', () => {
@@ -1251,9 +1253,9 @@ describe('the peer rung, as the validator holds it (fifth reading, note 1: build
       expect(run(peerDoc()).some(v => v.where.includes(LONG))).toBe(false)
     })
 
-    it('PLANTED: the same long words as a peer group\'s OWN label still fire the filled grade (the label that is placed is graded)', () => {
+    it('PLANTED: the same long words as a peer group\'s OWN label do not fire the filled grade either: the label is masked in it (2026-10-03)', () => {
       const found = hitsAfter('reading_grade_filled', d => { d.brief.peer_groups[1].label = LONG.toLowerCase() }, peerDoc)
-      expect(found.length).toBeGreaterThan(0)
+      expect(found).toEqual([])
     })
 
     it('the fixture\'s short labels pass the same grade (control)', () => {
