@@ -29,27 +29,40 @@
 export const MODEL_PRICES: Record<string, { input: number; output: number }> = {
   'claude-haiku-4-5-20251001': { input: 1.00 / 1e6, output: 5.00 / 1e6 },
   'claude-sonnet-4-6': { input: 3.00 / 1e6, output: 15.00 / 1e6 },
-  'claude-opus-4-6': { input: 15.00 / 1e6, output: 75.00 / 1e6 },
+  // CORRECTED 2026-10-02, read from Anthropic's published pricing page that day: $5 input,
+  // $25 output per million. It held $15 / $75, the retired Opus 4.1 price, so every Opus
+  // figure printed from this table before that date was three times too high. The same row
+  // in src/lib/agents/research/cost-constants.ts was corrected in the same change.
+  'claude-opus-4-6': { input: 5.00 / 1e6, output: 25.00 / 1e6 },
 }
 
 /** Dollars per billable search returned by the server-side search tool. */
 export const PRICE_PER_BILLABLE_SEARCH = 10 / 1000
 
 /**
+ * What an unknown model is priced at: $15 input, $75 output per million tokens, the retired
+ * Opus 4 and 4.1 price and the dearest per-token Claude rate this code has been pointed at.
+ * The dearest current model in the API reference read on 2026-10-02 is $10 / $50, so the
+ * ceiling stands above every model now offered.
+ *
+ * AN EXPLICIT CEILING, NOT THE DEAREST ROW ABOVE. Until 2026-10-02 an unknown model was
+ * priced at the table's dearest row, which was the Opus row. Corrected that day to $5 / $25,
+ * it would have priced a dearer model missing from the table at a third of its cost.
+ * src/lib/agents/research/cost-constants.ts holds the same ceiling; change both together.
+ */
+export const UNKNOWN_MODEL_PRICE = { input: 15.00 / 1e6, output: 75.00 / 1e6 } as const
+
+/**
  * What one model's tokens cost.
  *
- * AN UNKNOWN MODEL IS PRICED AT THE MOST EXPENSIVE RATE, NEVER AT ZERO. A ceiling that
- * silently stops counting when a model is renamed is not a ceiling, and a renamed model is
- * exactly the moment nobody is watching. Overstating stops a run early and is visible;
+ * AN UNKNOWN MODEL IS PRICED AT THE CEILING ABOVE, NEVER AT ZERO. A ceiling that silently
+ * stops counting when a model is renamed is not a ceiling, and a renamed model is exactly
+ * the moment nobody is watching. Overstating stops a run early and is visible;
  * understating spends real money and is not.
  */
 export function tokenCost(model: string | null, inputTokens: number, outputTokens: number): number {
-  const price = (model && MODEL_PRICES[model]) || mostExpensive()
+  const price = (model && MODEL_PRICES[model]) || UNKNOWN_MODEL_PRICE
   return inputTokens * price.input + outputTokens * price.output
-}
-
-function mostExpensive(): { input: number; output: number } {
-  return Object.values(MODEL_PRICES).reduce((a, b) => (b.input > a.input ? b : a))
 }
 
 /** True when this model has a published price here, so a caller can say "priced as unknown". */

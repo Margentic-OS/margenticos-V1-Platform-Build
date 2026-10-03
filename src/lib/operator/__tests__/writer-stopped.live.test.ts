@@ -55,20 +55,29 @@ beforeEach(async () => {
   supabase = createTestServiceClient(CONTEXT)
   orgId = await makeOrg('Writer Stopped Test Org')
   otherOrgId = await makeOrg('Writer Stopped Other Org')
-  // Stopped. The only one that may be listed.
-  await makeProspect(orgId, 'Stopped', {
-    relevance_reason: 'Nothing found connects to what the client solves.',
-    judge: { not_written_reason: 'no_usable_candidate', written_won: false, judge_reasoning: 'Not written.' },
-  })
-  // Written, and the template won. Ships the same email, was NOT stopped.
-  await makeProspect(orgId, 'Lost', {
-    relevance_reason: 'Relevant.',
-    judge: { written_won: false, judge_reasoning: 'The template read better.' },
-  })
-  // Never researched.
-  await makeProspect(orgId, 'Unresearched', null)
-  // Stopped, but in another organisation.
-  await makeProspect(otherOrgId, 'Elsewhere', { judge: { not_written_reason: 'no_usable_candidate' } })
+  // THE FIVE ROWS GO IN TOGETHER. They are independent, and one at a time against the shared
+  // test database they took 33 seconds on 2026-10-01, past the 30-second hook limit.
+  await Promise.all([
+    // Stopped: research found nothing usable.
+    makeProspect(orgId, 'Stopped', {
+      relevance_reason: 'Nothing found connects to what the client solves.',
+      judge: { not_written_reason: 'no_usable_candidate', written_won: false, judge_reasoning: 'Not written.' },
+    }),
+    // Stopped for the second reason: the fact found has no approved trigger reason behind it.
+    makeProspect(orgId, 'Unreasoned', {
+      relevance_reason: 'A fact with no approved reason.',
+      judge: { not_written_reason: 'no_approved_reason', written_won: false, judge_reasoning: 'Not written.' },
+    }),
+    // Written, and the template won. Ships the same email, was NOT stopped.
+    makeProspect(orgId, 'Lost', {
+      relevance_reason: 'Relevant.',
+      judge: { written_won: false, judge_reasoning: 'The template read better.' },
+    }),
+    // Never researched.
+    makeProspect(orgId, 'Unresearched', null),
+    // Stopped, but in another organisation.
+    makeProspect(otherOrgId, 'Elsewhere', { judge: { not_written_reason: 'no_usable_candidate' } }),
+  ])
 })
 
 afterEach(async () => {
@@ -80,11 +89,17 @@ describe('listWriterStoppedProspects, against the real database', () => {
   it('lists the stopped prospect and nothing else, with its company, title and research note', async () => {
     const r = await listWriterStoppedProspects(asServiceRoleClient(supabase), orgId)
     if (!r.ok) throw new Error(r.error)
-    expect(r.prospects.map(p => p.name)).toEqual(['Stopped Test'])
-    expect(r.prospects[0]).toMatchObject({
+    // BOTH stop reasons are listed, each saying which it is. A filter on one code would
+    // make a prospect stopped for the other invisible on the operator's page.
+    expect(r.prospects.map(p => p.name).sort()).toEqual(['Stopped Test', 'Unreasoned Test'])
+    expect(r.prospects.find(p => p.name === 'Stopped Test')).toMatchObject({
       company_name: 'Stopped Co',
       job_title: 'Founder',
       synthesis_note: 'Nothing found connects to what the client solves.',
+      stopped_because: 'Research found nothing usable to open on',
+    })
+    expect(r.prospects.find(p => p.name === 'Unreasoned Test')).toMatchObject({
+      stopped_because: 'The fact found matches none of the approved trigger reasons',
     })
   }, 30_000)
 

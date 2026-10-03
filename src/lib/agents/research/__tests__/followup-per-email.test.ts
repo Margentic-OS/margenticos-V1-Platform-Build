@@ -11,9 +11,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const createMock = vi.fn()
-vi.mock('@anthropic-ai/sdk', () => ({ default: class { messages = { create: createMock } } }))
+// importOriginal: the error classes stay REAL. The writer's catch block reads them
+// (`err instanceof AuthenticationError`), and a mock that drops them throws inside that
+// catch, so no test in this file could reach the failure path at all.
+vi.mock('@anthropic-ai/sdk', async importOriginal => ({
+  ...(await importOriginal<typeof import('@anthropic-ai/sdk')>()),
+  default: class { messages = { create: createMock } },
+}))
 
 import { writeFollowups } from '../write-followups'
+import { FatalApiError } from '@/lib/agents/fatal-api-error'
 import type { FollowupReference } from '../followup-frame'
 
 const SIGNOFF = 'Sam\nExample Co'
@@ -156,6 +163,52 @@ describe('a retry rewrites only the failing email', () => {
     ])
     const r = await run()
     expect(r.email2.prose).toBe(CLEAN_2)
+  })
+})
+
+describe('a retry call that fails does not undo the attempt before it', () => {
+  // BRACES, deliberately. `beforeEach(() => createMock.mockReset())` RETURNS the mock, and
+  // vitest calls a function returned from a hook as that hook's cleanup. So the mock was
+  // invoked once more after each test: harmless while it resolves, and a failed test with
+  // no assertion behind it as soon as it is set to reject, which is every test here.
+  beforeEach(() => { createMock.mockReset() })
+
+  /** The writer's first call answers; its second throws. The fact-check always answers. */
+  function firstAnswersThenThrows(first: string, error: Error) {
+    let writerCalls = 0
+    createMock.mockImplementation((args?: { system?: unknown }) => {
+      const system = Array.isArray(args?.system)
+        ? (args!.system as Array<{ text?: string }>).map(b => b.text ?? '').join('')
+        : String(args?.system ?? '')
+      if (system.includes('You check whether an email')) return Promise.resolve(FACT_CHECK_CLEAN)
+      writerCalls++
+      return writerCalls === 1 ? Promise.resolve(reply(first)) : Promise.reject(error)
+    })
+  }
+
+  it('PLANTED: the accepted email, the billed usage and the recorded attempt all survive', async () => {
+    // Email 2 passed on the first attempt. The call for email 3 alone hits a network fault.
+    // Rethrown, the caller stored no follow-ups at all and recorded no spend.
+    firstAnswersThenThrows(`EMAIL2:\n${CLEAN_2}\nEMAIL3:\n${BAD_3}`, new Error('connection reset'))
+    const r = await run()
+    expect(r.email2.prose).toBe(CLEAN_2)
+    expect(r.email3.prose).toBeNull()
+    expect(r.email3.failures.length).toBeGreaterThan(0)
+    expect(r.usage).not.toBeNull()
+    expect(r.usage!.calls).toBeGreaterThan(0)
+    expect(r.attempts.length).toBe(1)
+  })
+
+  it('PLANTED: a FIRST call that fails still throws: there is nothing to keep', async () => {
+    createMock.mockImplementation(() => Promise.reject(new Error('connection reset')))
+    await expect(run()).rejects.toThrow('connection reset')
+    expect(createMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('PLANTED: a spent balance on the retry still stops the run', async () => {
+    const spent = Object.assign(new Error('Your credit balance is too low to access the Anthropic API.'), { status: 400 })
+    firstAnswersThenThrows(`EMAIL2:\n${CLEAN_2}\nEMAIL3:\n${BAD_3}`, spent)
+    await expect(run()).rejects.toBeInstanceOf(FatalApiError)
   })
 })
 

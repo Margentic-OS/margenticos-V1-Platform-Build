@@ -343,7 +343,12 @@ export const USD_PER_MTOK: Record<string, {
 }> = {
   // 5-minute cache write is 1.25x input, a cache read is 0.1x input.
   'claude-sonnet-4-6':          { input:  3.00, output: 15.00, cacheWrite:  3.75, cacheRead: 0.30 },
-  'claude-opus-4-6':            { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
+  // CORRECTED 2026-10-02, read from Anthropic's published pricing page that day. Until then
+  // this row held $15 / $75 / $18.75 / $1.50, the price of the retired Opus 4.1, so EVERY
+  // OPUS SPEND FIGURE PRINTED FROM THIS TABLE BEFORE THAT DATE WAS THREE TIMES TOO HIGH, and
+  // a spend cap read against it stopped a run at about a third of the money it named.
+  // src/lib/tuner/pricing.ts holds the same row and was corrected in the same change.
+  'claude-opus-4-6':            { input:  5.00, output: 25.00, cacheWrite:  6.25, cacheRead: 0.50 },
   'claude-haiku-4-5-20251001':  { input:  1.00, output:  5.00, cacheWrite:  1.25, cacheRead: 0.10 },
 }
 
@@ -358,16 +363,28 @@ export const USD_PER_MTOK: Record<string, {
 export const RESEARCH_SONNET_MODEL = 'claude-sonnet-4-6'
 
 /**
- * AN UNKNOWN MODEL IS PRICED AT THE MOST EXPENSIVE PUBLISHED RATE, NEVER AT ZERO.
+ * AN UNKNOWN MODEL IS PRICED AT A CEILING, NEVER AT ZERO.
  *
  * Same rule as src/lib/tuner/pricing.ts, and for the same reason: a total that silently
  * stops counting when a model is renamed is not a total, and a renamed model is exactly
  * the moment nobody is watching. Overstating is visible; understating is not.
+ *
+ * AN EXPLICIT CEILING, NOT THE DEAREST ROW OF THE TABLE (2026-10-02). Until then an unknown
+ * model was priced at the table's dearest row. When the Opus row was corrected from $15 /
+ * $75 to $5 / $25 that row fell with it, so a dearer model missing from the table (Opus 4.1
+ * at $15 / $75, or a newer model priced above Opus 4.6) would have been counted at a third
+ * of its cost and a spend cap read against it would overspend. $15 input and $75 output
+ * per million is the retired Opus 4 and 4.1 price, the dearest per-token Claude rate this
+ * code has ever been pointed at (it is the figure this table held until 2026-10-02). The
+ * dearest current model in the API reference read that day is $10 / $50, so the ceiling
+ * stands above every model now offered. The cache rates are derived from it as for every
+ * row above. src/lib/tuner/pricing.ts holds the same ceiling; change both together.
  */
+export const UNKNOWN_MODEL_USD_PER_MTOK = { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 } as const
+
 function rateFor(model: string | null): { input: number; output: number; cacheWrite: number; cacheRead: number } {
   const known = model ? USD_PER_MTOK[model] : undefined
-  if (known) return known
-  return Object.values(USD_PER_MTOK).reduce((a, b) => (b.input > a.input ? b : a))
+  return known ?? UNKNOWN_MODEL_USD_PER_MTOK
 }
 
 /** What one set of returned token counts cost, in dollars. */

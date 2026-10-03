@@ -141,6 +141,12 @@ export interface SelectionBasis {
   position_only_id: string | null
   /** True when the ordering chose something list position alone would not have. */
   differs_from_position_only: boolean
+  /**
+   * The eligible candidate the MODEL named, when it was set aside because it matched no
+   * trigger carrying an approved reason while another eligible candidate did. Null or absent
+   * when the model's pick stood or it named nothing. See selectCandidate.
+   */
+  set_aside_model_pick?: string | null
   chosen_basis: {
     matched: boolean
     own_post: boolean
@@ -184,9 +190,12 @@ export interface ObservationCandidate {
    * instance of one. null when it matched none, which is not a rejection: a candidate can
    * still be relevant through the push forces.
    *
-   * NEVER stored as the trigger's text. The list is per client and changes when the ICP is
-   * revised, so a position recorded against one version means nothing against the next. It is
-   * used to break ties within one run and not read back afterwards.
+   * The list is per client and changes when the ICP is revised, so a position recorded
+   * against one version means nothing against the next BY ITSELF. Until 2026-10-01 that did
+   * not matter: the position was used to break ties within one run and never read back.
+   * Since ADR-065 it IS read back, to find the approved reason the opening argues from, so
+   * the trigger's wording now travels beside it in matched_trigger_text and a reader checks
+   * the two agree. See approved-reason.ts.
    *
    * OPTIONAL BECAUSE STORED CANDIDATES PREDATE IT. Rows in prospect_research_results written
    * before 2026-09-23 have neither field, and the reuse path reads those rows back through
@@ -194,6 +203,15 @@ export interface ObservationCandidate {
    * candidates were ranked when they were written.
    */
   matched_trigger?: number | null
+  /**
+   * The wording of the trigger at that position, AS THE LIST STOOD WHEN SYNTHESIS RAN.
+   * Attached by code from the list synthesis was given, never taken from the model. It is
+   * what lets a later reader tell "position 3 of today's list" from "position 3 of the list
+   * this was matched against": where the two differ the trigger is looked up by its wording,
+   * and where the wording is gone the match no longer holds. Absent on candidates stored
+   * before 2026-10-01, which are resolved by position alone.
+   */
+  matched_trigger_text?: string | null
   /**
    * True when the underlying post was somebody else's, amplified by the prospect. It is not
    * their event, so it ranks below their own, and the observation has to say they SHARED it.
@@ -744,6 +762,28 @@ export interface ResearchInput {
    * safe path and a caller that genuinely needs fresh sources opts out with false.
    */
   use_stored_findings?: boolean
+  /**
+   * Also write the personalised Emails 2 and 3 when the personalised Email 1 wins.
+   *
+   * DEFAULTS TO FALSE, and the default is about TIME, not preference. The follow-up writer
+   * adds up to six model calls. The queue's single 'research' job has a declared worst case
+   * of 240s against a 280s worker budget and cannot take them on top of a fetch and a
+   * synthesis. The batch path writes them in BOTH its phases: phase 2 always has, and
+   * phase 1's stored-findings shortcut does too (it fetches nothing, so the same work
+   * fits). A caller with no time ceiling, which is the command line, passes true, so a
+   * prospect researched there does not arrive at upload
+   * with a personalised Email 1 and nothing carrying its thread (operator note 4,
+   * 2026-10-01: such a prospect is HELD at upload, see thread-carried.ts).
+   */
+  write_followups?: boolean
+  /**
+   * REFUSE TO FETCH. With this true a run that finds no stored findings THROWS instead of
+   * falling back to the four-source fetch. For a caller that has already established that
+   * stored findings exist and has budgeted only for a reuse run: phase 1 of the batch
+   * path's shortcut. Without it a failed second read of the findings turned that shortcut
+   * into a full inline research with follow-ups, in a job budgeted for neither.
+   */
+  stored_findings_required?: boolean
 }
 
 export interface ResearchBatchInput {
@@ -756,6 +796,8 @@ export interface ResearchBatchInput {
   concurrency?: number          // max simultaneous prospect calls; default 5 (Apollo/Brave rate limit ceiling)
   /** See ResearchInput.research_path. Applies to every prospect in the batch. */
   research_path?: ResearchUsagePath
+  /** See ResearchInput.write_followups. Applies to every prospect in the batch. */
+  write_followups?: boolean
 }
 
 export interface ResearchBatchFailure {

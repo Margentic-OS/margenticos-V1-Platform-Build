@@ -1086,3 +1086,48 @@ an email and each cleared by itself, 16 of them on the very next sweep. It canno
 whose own design holds one failed run red for more than a sweep: MON-026 reads a verdict
 written every 30 minutes and MON-021 counts failures over 60 minutes, so a single failed run
 behind either still alerts.
+
+---
+
+## Firm-fact tier columns (added 2026-09-30, migrations 20260930200000 and 20260930210000)
+
+- `prospects.firm_fact` (jsonb, nullable): the firm-fact extraction verdict. Fields include
+  `version` (the checks version that judged it), `passed`, `reason`, `does`, `for_whom`,
+  `peer_group_label`, `quote`, `source_url`, `source_fetched_at`, `research_result_id`,
+  `judge` and `cost_usd_full_price`. Written only for prospects not yet uploaded.
+- `research_usage.firm_fact` (jsonb, nullable): token usage and cost of the two extraction
+  calls. Rows carrying it have `arm = 'firm_fact'` and no `research_result_id`.
+- `sent_sequences.opening_tier` (text: research, firm_fact or template) and
+  `opening_detail` (jsonb): which Email 1 tier a lead received and why.
+- `system_flags.firm_fact_extraction`: the global stop switch for extraction.
+
+No new table, so no new RLS policy: all three tables already have RLS on, and
+`research_usage` and `sent_sequences` are service-role only (read back 2026-09-30, both
+directions). See `docs/firm-fact-tier.md`.
+
+
+### Added 2026-10-01 (operator notes on the second reading file)
+
+- `prospects.firm_fact` gained `rung` ('specific' or 'broad'), `kind` and `kind_quote` (the
+  broad line: what kind of firm it is, and the words on the page it rests on) and
+  `judge_broad`. `FIRM_FACT_CHECKS_VERSION` is 8.
+- `prospects.competitor_check` (jsonb, nullable; migration `20261001210000`, applied to
+  production and the test database, read back the same day). The competitor screen's verdict:
+  `outcome` (excluded or clear), `in_category` (the model's own word), `category_id`,
+  `phrase_hits`, `main_business`, `evidence`, `site_text` (stored, fetched or none),
+  `fingerprint` (of the category list it was judged against), `version`, `model`, `usage`.
+  NULL means never judged, which is the state of every prospect whose provider record
+  carries no phrase from the client's list. Written only by
+  `src/lib/sourcing/competitor-screen.ts`. See ADR-063.
+- `prospects.tiering_reason` has a new value, `competitor`. It is written by the competitor
+  screen, not by tiering, and `classifyTier` returns it for any prospect whose stored
+  verdict says excluded.
+- `prospects.outbound_upload_error` can now start `personalised_without_followup:` on a
+  prospect whose status is `pending`. That is a hold, not a failure: see ADR-064.
+- `prospects.trigger_data.judge` gained `approved_reason` (what the opening was held to: the
+  approved trigger reason, or why there was none) and a second `not_written_reason` value,
+  `no_approved_reason`. See ADR-065.
+- `sent_sequences` is now actually written. Until 2026-10-01 the upload passed the
+  operator's session client to a service-role-only table, and it held no rows.
+
+No new table and no new policy. A column added to `prospects` inherits the table's RLS.

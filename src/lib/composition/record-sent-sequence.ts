@@ -2,11 +2,19 @@
 //
 // TWO WRITES, ONE PURPOSE, AND THEY ARE DELIBERATELY NOT THE SAME SHAPE.
 //
-//   sent_sequences   APPEND-ONLY. One row per composition that reached the sending tool.
+//   sent_sequences   APPEND-ONLY. One row per composition HANDED TO THE UPLOAD. It is
+//                    written before the final suppression gate and before the provider
+//                    call, so a row is a record of what was composed for sending, not proof
+//                    of delivery: join to prospects.outbound_upload_status for that.
 //                    A prospect can be composed more than once, because a failed upload
 //                    reclaims it to 'pending' and it is composed again, so a column set
 //                    would overwrite the record of what went out the first time, which is
 //                    the thing being kept.
+//
+// THE CLIENT MUST BE THE SERVICE-ROLE ONE. The table is service-role only. From its first
+// day until 2026-10-01 the upload passed the operator's session client, the grant refused
+// every insert, the caller logged a warning and carried on, and the table held zero rows
+// against 263 uploaded prospects. upload-records-with-service-client.test.ts pins the call.
 //
 //   prospects.followup_arm / followup_mode
 //                    THE CURRENT STATE, overwritten, because that is what a query asking
@@ -63,6 +71,9 @@ export async function recordSentSequence(
       body: e.body,
     })),
     email1_fingerprint: followups.email1_fingerprint,
+    // Which Email 1 tier went out, and why (firm-fact tier, 2026-09-30).
+    opening_tier: composed.opening.tier,
+    opening_detail: composed.opening.detail,
   })
 
   if (insertError) {

@@ -107,7 +107,9 @@ describe('fetchEnrichedProspects: the read is complete', () => {
   })
 
   it('selects every field tiering reads from a prospect, and the stored verdict', () => {
-    for (const column of ['email_status', 'job_title', 'company_headcount', 'company_industry', 'company_name', 'sourced_tier', 'tiering_reason']) {
+    // competitor_check is what classifyTier reads first: without it a replay would show an
+    // excluded competitor gaining a tier under any settings.
+    for (const column of ['email_status', 'job_title', 'company_headcount', 'company_industry', 'company_name', 'sourced_tier', 'tiering_reason', 'competitor_check']) {
       expect(REPLAY_COLUMNS).toContain(column)
     }
   })

@@ -3,6 +3,7 @@
 //   npx tsx --env-file=.env.local scripts/export-writer-run.ts <prospect_id> [<prospect_id> ...]
 //   npx tsx --env-file=.env.local scripts/export-writer-run.ts --with-question
 //   npx tsx --env-file=.env.local scripts/export-writer-run.ts --followups <prospect_id>...
+//   npx tsx --env-file=.env.local scripts/export-writer-run.ts --no-approved-reason <prospect_id>...
 //
 // --followups also writes emails 2 and 3 with the writer, in the SAME model call. Off by
 // default, and off is byte-identical to the run before the feature existed.
@@ -292,6 +293,15 @@ interface ProspectRecord {
 
   judge_won: boolean
   judge_reasoning: string
+  /**
+   * WHY THE WRITER WAS NOT RUN, as a code, or null when it ran. Carried on the record so a
+   * prospect held for having no approved trigger reason is not counted as a judge loss:
+   * the summary used to recognise a not-written prospect by one reasoning STRING, and a
+   * second reason for stopping printed as "judge lost  retries 0  $0.0000".
+   */
+  not_written_reason: string | null
+  /** What the opening was held to: approved, or why there was no approved reason. */
+  approved_reason_state: string | null
   /** The final attempt's deterministic failures, in the order the gates ran. */
   gate_failures: string[]
   /**
@@ -444,6 +454,15 @@ async function loadMessaging(
   }
 }
 
+/**
+ * --no-approved-reason: THE COMPARISON ARM for the approved-reason rule (2026-10-01). With
+ * it the writer is briefed as it was before: no trigger list is passed, so the opening is
+ * not held to the client's approved reason and a fact with none is still written. Absent is
+ * the production state. Read once from argv; this file is a script and has no other caller
+ * that could set it.
+ */
+const noApprovedReason = process.argv.includes('--no-approved-reason')
+
 async function runOne(
   supabase: SupabaseClient,
   apiKey: string,
@@ -518,6 +537,9 @@ async function runOne(
     variantId,
     icpBuyerTitle: clientCtx.buyerTitle,
     positioningText: clientCtx.positioningText,
+    // The same list both production paths pass, so an export measures the writer held to
+    // the client's approved reasons, as production is.
+    triggers: noApprovedReason ? null : clientCtx.triggers,
     uniqueness,
     onAttempt: o => attempts.push(o),
     writeFollowupEmails: writeFollowups,
@@ -539,6 +561,8 @@ async function runOne(
     subject:          opening.subject,
     judge_won:        opening.written_won,
     judge_reasoning:  opening.judge_reasoning,
+    not_written_reason: opening.not_written_reason ?? null,
+    approved_reason_state: opening.approved_reason?.state ?? null,
     gate_failures:    opening.gate_failures,
     attempts,
     followups: {
@@ -847,8 +871,8 @@ async function main() {
         // behind it. A record visible on stdout but absent from disk is the exact
         // confusion this is meant to remove.
         fs.appendFileSync(partialPath, JSON.stringify(rec) + '\n')
-        console.log(rec.judge_reasoning === NO_USABLE_CANDIDATE_REASON
-          ? '  NOT WRITTEN: synthesis found no usable candidate, the approved template ships  $0.0000'
+        console.log(rec.not_written_reason
+          ? `  NOT WRITTEN (${rec.not_written_reason}): the writer was not run, the approved template ships  $0.0000`
           : `  judge ${rec.judge_won ? 'WON' : 'lost'}  retries ${rec.retries_used}  $${rec.usd.toFixed(4)}`)
       }
     }
@@ -893,6 +917,17 @@ async function main() {
     // Prospects the writer was never run for, counted by the exact reason value. They are
     // inside prospects_run and lower judge_win_rate, because the template ships for them.
     not_written_no_usable_candidate: records.filter(r => r.judge_reasoning === NO_USABLE_CANDIDATE_REASON).length,
+    // EVERY reason the writer was not run, by code, so a new one cannot land in the judge's
+    // losses unnoticed. judge_win_rate above is over every prospect; the rate over the
+    // prospects the writer actually ran for is beside it.
+    not_written_by_reason: records.reduce<Record<string, number>>((acc, r) => {
+      if (r.not_written_reason) acc[r.not_written_reason] = (acc[r.not_written_reason] ?? 0) + 1
+      return acc
+    }, {}),
+    judge_win_rate_of_written: (() => {
+      const ran = records.filter(r => !r.not_written_reason)
+      return ran.length > 0 ? ran.filter(r => r.judge_won).length / ran.length : null
+    })(),
     total_usd: totalUsd,
     usd_per_prospect: records.length > 0 ? totalUsd / records.length : null,
     gate_failure_counts: Object.fromEntries([...gateCounts].sort((a, b) => b[1] - a[1])),
@@ -928,7 +963,10 @@ async function main() {
     (records.length ? `, $${(totalUsd / records.length).toFixed(4)} per prospect` : ''))
   console.log(`gate failures       ${JSON.stringify(summary.gate_failure_counts)}`)
   console.log(`retries used        ${JSON.stringify(summary.retries_used_distribution)}`)
-  console.log(`not written         ${summary.not_written_no_usable_candidate} (synthesis found no usable candidate)`)
+  console.log(`not written         ${JSON.stringify(summary.not_written_by_reason)} (the writer was not run for these)`)
+  if (summary.judge_win_rate_of_written !== null) {
+    console.log(`win rate of written ${(summary.judge_win_rate_of_written * 100).toFixed(1)}% (of the prospects the writer ran for)`)
+  }
   if (unclassified.length > 0) {
     console.log(`\nUNCLASSIFIED GATE FAILURES (${unclassified.length}). Add a pattern for each:`)
     for (const u of [...new Set(unclassified)]) console.log(`  ${u}`)

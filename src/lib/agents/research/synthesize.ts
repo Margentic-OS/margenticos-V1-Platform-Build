@@ -977,6 +977,62 @@ function buildSelectionBasis(
   }
 }
 
+/**
+ * Did this candidate match a trigger that carries an approved reason?
+ *
+ * The position is 1-based into the list synthesis was given. A position outside the list,
+ * or a trigger whose reason was never written, is not a match with a reason.
+ */
+function matchedTriggerWithReason(
+  candidate: ObservationCandidate,
+  triggers: ReadonlyArray<{ trigger: string; reason: string }>,
+): boolean {
+  const position = candidate.matched_trigger
+  if (typeof position !== 'number' || !Number.isInteger(position) || position < 1 || position > triggers.length) return false
+  return typeof triggers[position - 1].reason === 'string' && triggers[position - 1].reason.trim() !== ''
+}
+
+/**
+ * The candidates the choice is made among: those that matched a trigger with an approved
+ * reason, WHEN THERE IS ONE, and otherwise all of them.
+ *
+ * ═══ WHY THE MODEL'S PICK CAN BE SET ASIDE HERE (2026-10-01, ADR-065) ═══
+ *
+ * A personalised opening now argues from the client's approved reason for the trigger the
+ * chosen fact matched, and a fact that matched none is not written at all. The model
+ * chooses among eligible candidates with no instruction to prefer a matched one, and an
+ * unmatched candidate is legitimately eligible through the push forces. So the model could
+ * name an unmatched fact while a matched, eligible one sat beside it, and the prospect then
+ * got no personalised opening although research had found a fact the client had already
+ * said matters. That is a loss the rule did not intend, and it is invisible in the yield.
+ *
+ * Restricting the pool, not re-selecting later, because the variant's offer line is chosen
+ * from the selected fact before the writer runs: a second selection downstream would pair
+ * the opening with an offer line picked for a different fact.
+ *
+ * NOTHING CHANGES where no candidate has a reason: a client with no approved reasons, or a
+ * prospect none of whose facts matched, is chosen exactly as before.
+ */
+function approvedReasonPool<T extends ObservationCandidate>(
+  eligible: T[],
+  triggers: ReadonlyArray<{ trigger: string; reason: string }>,
+): T[] {
+  const withReason = eligible.filter(c => matchedTriggerWithReason(c, triggers))
+  return withReason.length > 0 ? withReason : eligible
+}
+
+/** The model's pick, when it named an eligible candidate the pool left out. Else null. */
+function setAsidePick(
+  modelPreferredId: string | null,
+  eligible: ObservationCandidate[],
+  pool: ObservationCandidate[],
+): string | null {
+  if (!modelPreferredId) return null
+  return eligible.some(c => c.id === modelPreferredId) && !pool.some(c => c.id === modelPreferredId)
+    ? modelPreferredId
+    : null
+}
+
 // Selection rule, per FIX A3, extended with the readability and inference-direction
 // gates. Returns the winner, the relevance grade it earns, and why anything was demoted.
 //
@@ -989,6 +1045,12 @@ function selectCandidate(
   candidates: ObservationCandidate[],
   modelPreferredId: string | null,
   now: Date = new Date(),
+  /**
+   * The client's triggers with their approved reasons. When any candidate still in the
+   * running matched a trigger that CARRIES a reason, the choice is made among those only.
+   * See approvedReasonPool. Empty, which is what hasUsableCandidate passes, changes nothing.
+   */
+  triggers: ReadonlyArray<{ trigger: string; reason: string }> = [],
 ): {
   winner: ObservationCandidate | null
   relevance: SignalRelevance
@@ -1028,17 +1090,21 @@ function selectCandidate(
     //
     // THE ORDERING IS STILL COMPUTED, on every run, and both picks are recorded. A model
     // choice that nobody can compare against anything is a choice nobody can review.
-    const ranked = rankCandidates(hookEligible, now, c => c.readability?.penalty ?? 0)
+    const pool = approvedReasonPool(hookEligible, triggers)
+    const ranked = rankCandidates(pool, now, c => c.readability?.penalty ?? 0)
     const modelPick = ranked.find(c => c.id === modelPreferredId) ?? null
-    // The model's pick is honoured whenever it named an ELIGIBLE candidate. Naming an
-    // ineligible one, or naming nothing, falls back to the ordering rather than failing:
-    // the eligible set is never empty here, so there is always a defensible answer.
+    // The model's pick is honoured whenever it named an ELIGIBLE candidate IN THE POOL.
+    // Naming one outside it, or naming nothing, falls back to the ordering rather than
+    // failing: the pool is never empty here, so there is always a defensible answer.
     const winner = modelPick ?? ranked[0]
     return {
       winner: hookEligible.find(c => c.id === winner.id) ?? null,
       relevance: 'use_as_hook',
       demotionReason: null,
-      basis: buildSelectionBasis(winner, ranked, hookEligible, modelPick?.id ?? null),
+      basis: {
+        ...buildSelectionBasis(winner, ranked, pool, modelPick?.id ?? null),
+        set_aside_model_pick: setAsidePick(modelPreferredId, hookEligible, pool),
+      },
     }
   }
 
@@ -1057,14 +1123,18 @@ function selectCandidate(
     // because a mention_only winner is chosen for being the strongest thing we have, and
     // the ranking then separates equals the way it does at tier 1.
     const top = partial.filter(c => c.score_total === partial[0].score_total)
-    const rankedPartial = rankCandidates(top, now, c => c.readability?.penalty ?? 0)
+    const pool = approvedReasonPool(top, triggers)
+    const rankedPartial = rankCandidates(pool, now, c => c.readability?.penalty ?? 0)
     const modelPick = rankedPartial.find(c => c.id === modelPreferredId) ?? null
     const best = modelPick ?? rankedPartial[0]
     return {
       winner: partial.find(c => c.id === best.id) ?? null,
       relevance: 'mention_only',
       demotionReason,
-      basis: buildSelectionBasis(best, rankedPartial, partial, modelPick?.id ?? null),
+      basis: {
+        ...buildSelectionBasis(best, rankedPartial, pool, modelPick?.id ?? null),
+        set_aside_model_pick: setAsidePick(modelPreferredId, top, pool),
+      },
     }
   }
 
@@ -1273,8 +1343,24 @@ export function parseSynthesisResponse(
     ? parsed.selected_candidate_id.trim()
     : null
 
+  // THE TRIGGER'S WORDING TRAVELS WITH ITS POSITION. Attached here, by code, from the list
+  // this synthesis was given: the one place the position and the list are known to agree.
+  // A position the list does not have stays a bare position and resolves to nothing later.
+  for (const candidate of candidates) {
+    const position = candidate.matched_trigger
+    if (typeof position === 'number' && position >= 1 && position <= triggers.length) {
+      candidate.matched_trigger_text = triggers[position - 1].trigger
+    }
+  }
+
   const { winner, relevance: selectedRelevance, demotionReason, basis } =
-    selectCandidate(candidates, modelPreferredId)
+    selectCandidate(candidates, modelPreferredId, undefined, triggers)
+  if (basis?.set_aside_model_pick) {
+    // INFO, and it says which: a model choice that was set aside has to be reviewable.
+    logger.info('synthesis: the model chose a fact with no approved trigger reason; a matched one was chosen instead', {
+      prospect_id: prospect.id, model_pick: basis.set_aside_model_pick, chosen: basis.chosen_id,
+    })
+  }
 
   // The model's sentence about the choice, kept only when there WAS a choice and only when
   // the ordering actually reached a winner. A sentence explaining a selection that did not

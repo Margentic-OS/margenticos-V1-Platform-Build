@@ -555,8 +555,41 @@ Fit dimension derivation (fit-dimensions-agent): claude-opus-4-6, temperature 0
   is the longer of the two, not the sum. Temperature 0 because its answer then fixes how every
   prospect for that client is graded.
 Messaging generation agent: claude-sonnet-4-6 (see update note below)
+Outbound template agent (outbound-template-agent): claude-opus-4-6, with a scope judge and
+  a peer label judge on claude-sonnet-4-6 at temperature 0
+  Added 2026-09-30 with ADR-062. Opus because writing a client's templates from its
+  outbound brief is the same class of synthesis as the document agents, and it runs once
+  per regeneration. The scope judge decides whether a sentence claims more than the brief
+  allows, which phrase lists cannot do for a paraphrase; it runs once per generation, never
+  per prospect. The peer label judge (added 2026-10-01) is one small call per regeneration,
+  before anything is written: does the brief's default peer label wrongly describe a buyer
+  the brief says is in scope. Both clients have an explicit timeout and retry limit.
+  Since 2026-10-01 every generation and repair call writes ONE VARIANT, is streamed, and
+  does NOT think. Measured the same afternoon on the live client's brief, in the order
+  tried, each a paid call that produced nothing: asked for several variants at once the
+  model checked its drafts inside its answer and was cut off before any JSON (three calls);
+  with adaptive thinking, which has no limit of its own, it spent the whole call thinking
+  and wrote nothing (twice); with a thinking budget, which this model does not honour, the
+  same (twice); sent as one plain request, a long call was dropped as an idle connection.
+  One variant per call with no thinking worked each time it was tried. The prompt now says
+  that code checks the answer and reports what to fix, so the model writes one attempt. A
+  variant that will not generate no longer takes the ones already written with it.
+Firm-fact extraction (research/firm-fact.ts): claude-sonnet-4-6, temperature 0, and a
+  SEPARATE faithfulness judge on claude-haiku-4-5-20251001, temperature 0
+  Added 2026-09-30 with ADR-062. PER PROSPECT, for template-bound prospects only, capped by
+  construction at $0.02 for both calls at full price. Haiku for the judge because it sees
+  only a quote and a clause; separate from extraction because a model checking its own
+  paraphrase agrees with itself.
+Competitor screen (sourcing/competitor-screen.ts): claude-haiku-4-5-20251001, temperature 0
+  Added 2026-10-01 with ADR-063. One call per prospect whose provider record carries a
+  phrase from the client's competitor list, and none for anyone else; at most 60 a run. It
+  answers one question about a short record and a homepage extract, which is Haiku's work,
+  and its evidence is checked by code. The client has an explicit timeout and retry limit.
 Reply drafting (reply-draft-agent): claude-sonnet-4-6
 Prospect research (synthesis, writer, floor judge, judge): claude-sonnet-4-6
+  The reason check (research/reason-match.ts), added 2026-10-01 with ADR-065, is on the same
+  model as the fact-check and the need-match check beside it, so one price covers the three
+  verifiers. One call per writer attempt that survived the fact-check, temperature 0.
 
   CORRECTED 2026-08-24. This entry previously read "Web search utility (lightweight
   synthesis in prospect research agent): claude-haiku-4-5-20251001". That was wrong from
@@ -5986,3 +6019,671 @@ A second sourcing provider is registered, which is the trigger for the adapter. 
 need to change with no ICP edit behind them, which is the trigger for a separate type. Or
 proposals start waiting unapproved, which means the gap in "the settings can lag the
 document" has stopped being visible to the person who has to close it.
+
+---
+
+## ADR-062 — Email 1 is routed through three tiers; templates are generated from a confirmed outbound brief; a stored firm fact carries the version of the checks that judged it
+
+**Status:** Accepted, 2026-09-30. Design record: Notion "Firm-fact tier: plan (decided 30
+September)", Rounds 1 to 7 and the operator's additions of the same day. Plain-English
+reference: `docs/firm-fact-tier.md`.
+
+**Context.** 49 of the last 105 researched prospects (47%) ended on the template, and every
+attributable opt-out so far replied to template copy asserting something about the reader.
+Separately, round 6 of the template drafting showed the generator had used the client's
+strategy documents faithfully and the documents themselves were wrong for outbound.
+
+**Decision.**
+
+1. **Three tiers, in order.** Tier 1: a researched opening that passed every gate. Tier 2:
+   a firm fact, which needs the client's switch on, fresh website text (90 days, checked at
+   extraction AND at send), an identity and faithfulness pass, and a SPECIFIC customer group.
+   Tier 3: the slot-free template. Tier 2 is decided in composition by deterministic code
+   and no model call. Every failure falls to tier 3 with its reason recorded.
+2. **The outbound brief is the generator's only client input.** It lives in the messaging
+   document as `outbound_brief`, never in the ICP. It is a CONFIRMATION of facts with who and
+   when, not a document approval, so ADR-047 is unaffected. A new agent
+   (`outbound-template-agent`) writes the variants from it; the older messaging agent stays
+   for clients with no brief and now carries the brief forward untouched.
+3. **One renderer.** The validator, composition and the reading files build emails through
+   `template-shape.ts`. Stored bodies stay the slot-free rendering, so the research writer
+   and composition read them unchanged.
+4. **$0.02 per prospect, by construction.** Token-counted before sending, a build-time test
+   on the worst case ($0.0195), and reconciliation after the call that discards the fact and
+   switches extraction off for everyone if the ceiling is ever passed. The judge's output cap
+   is 300 tokens, not the plan's 200: it was cut off on 2 of about 35 real prospects.
+5. **A stored fact is a frozen verdict, so it carries `FIRM_FACT_CHECKS_VERSION`.**
+   Composition uses a fact only at the current version, and an older-version fact may be
+   extracted again. This is ADR-034's lesson applied before it could bite: the checks were
+   tightened four times on the day they were written, and a fact stored that morning held a
+   customer group the afternoon's check rejects.
+6. **The tier, the variant and the template version are recorded on every send**
+   (`sent_sequences.opening_tier`, `variant_id`, `messaging_doc_id`).
+
+**Deviations from the plan, each measured.** Extraction runs inline at full price, not on
+the batch route (the ceiling was set to hold at full price). Website text is capped at 9,000
+characters, not 12,000, to fit the lowered 4,000-token cap. The scope judge counted an
+exclusion only on a line that addresses the reader: told the same thing in its prompt, it
+still flagged lines about other people on every run. (REVERSED 2026-10-01: every exclusion
+now counts. See the second amendment below.)
+
+**What is NOT decided here.** Whether the tier is switched on for any client. Whether the
+16 prospects researched before these templates are re-researched before upload. The
+common-words list, the idiom reviewer, the labelled control set for the judge, the second
+client's brief and the sender-versus-reader figures check. All are on the Notion Backlog.
+
+**Consequences.** A brief change must be followed by a template regeneration: variants record
+the `brief_version` they were written from and tier 2 refuses lines from an older one. A
+client whose templates were written by the older agent gets tier 3 for every prospect even
+with the switch on, which is the safe direction.
+
+**Amended 2026-10-01, on the operator's notes from the first reading file.** Three points of
+the decision above changed, and eleven rules were encoded (table in `docs/firm-fact-tier.md`).
+
+- **Point 1 is reversed in one respect.** Tier 2 no longer needs a specific customer group.
+  The opener ships whenever extraction and faithfulness pass; `{for_whom}` fills the offer
+  only when specific.
+- **Faithfulness is now decided in code first.** Every content word of the clause must be in
+  its source quote, and the judge audits word by word. Wider than the "nouns" the operator
+  asked for, because without a part-of-speech tagger a nouns-only rule cannot catch an added
+  verb, which was one of his two must-fail controls. Cost, measured: 5 of 32 existing clauses
+  pass. Checks version 5.
+- **Variants follow the brief.** One variant per most_buyers angle, so three for client zero
+  and no fourth. The last variant's offer is the neutral line the offer-line selector falls
+  back to; without one an unmatched researched opening gets a hash-picked specific offer.
+  (WHICH variant carries it changed in the fourth amendment below: no longer always the last.)
+- **Two wordings per Email 1 line.** Tier 1 always uses wording 0, which is the stored body;
+  tiers 2 and 3 rotate by prospect and record the choice.
+- **A bug fixed on the way.** Research kept a stored variant the document no longer had and
+  wrote against the first variant in silence. Dropping to three variants made that live.
+
+**Amended again 2026-10-01, after an adversarial review of the eleven rules.** The review
+found the rules stated in the prompt and only partly held in code. What changed, and the
+decisions inside it:
+
+- **Every exclusion the scope judge raises now fails the variant.** Until this point an
+  exclusion on a line that did not say "you" was set aside and reported. That carve-out
+  existed because the judge kept flagging lines about an angle that cannot be written
+  without implying the reader. Those angles now declare `conflicts_with`, and are never
+  planned, never shown to the generator or the judge, and refused by the validator wherever
+  a line cites them. With the cause gone the carve-out went too, so a stored document is one
+  the judge ran clean on, which is what rule 11 asks for.
+- **Rule 2 has no universal word list.** A pattern for "manual task" wording (write down,
+  paperwork, fill in forms) was applied to every client and removed the same day: for a
+  customs broker the paperwork is the offer. The deterministic half is the client's own
+  `avoid_wording`; the judgement is the scope judge's, which knows the client's scope.
+- **A new model call: the peer label judge.** One call per regeneration, on the scope judge's
+  model, asking whether the brief's default peer label wrongly describes an in-scope buyer.
+  A model, per ADR-018, because the only deterministic check available matches the label
+  against phrases somebody already listed, and the fault it exists to catch is the label
+  nobody thought to list. It runs before anything is written and stops the run.
+- **Two forms of a word match by inflection only** (checks version 6). The first matcher
+  allowed any two endings on a shared stem and equated different words. The customer group
+  is now held to the quote as the clause is.
+- **The kinds of each follow-up's paragraphs are fixed in code.** The pain rules reach a
+  paragraph through its kind, so a kind the model chooses is a switch the model holds.
+- **Research records a missing-variant reassignment**, as composition has since
+  2026-09-20, so MON-033 sees a prospect moved by either.
+
+
+
+**Amended a third time 2026-10-01, on the operator's notes from the second reading file.**
+Ten notes. Seven change this decision and are recorded here; three are decisions of their
+own (ADR-063, ADR-064, ADR-065).
+
+- **The brief gains what an offer is FOR.** `outcomes` lists what the client achieves for
+  the reader, and each pain angle names the outcomes that answer it (`resolved_by`). An
+  offer line must cite an outcome, and the outcome must be one its pain is resolved by. The
+  rule is held three times: in the brief's validator, in the template validator
+  (`offer_outcome`, `offer_resolves_pain`), and by the scope judge, which is shown the pain
+  line above each offer. A feature may appear only as supporting proof.
+- **A phrase that can be read two ways is refused in the brief itself.** Copy repeats the
+  brief's words, and the generator's judge never holds the brief's own wording against a
+  line. So "good work can go to someone else" in a brief would ship in every variant with
+  nothing able to repair it.
+- **Tier 2 is a ladder.** The specific fact, then a broad line about what kind of firm it is
+  (`you run <kind>`), then the template. The broad line is extracted and judged in the same
+  two calls, so the $0.02 ceiling still holds by construction ($0.0196). It is held to the
+  same faithfulness rule and to a specificity floor: "you run a business" is refused.
+  Checks version 8.
+- **The reading-grade cap on a tier 2 email is measured with the real words in it**, at
+  composition (grade 5). At generation the slots are masked, because invented fills are not
+  what ships. A fact that pushes the email over the cap falls down the ladder rather than
+  being reworded.
+- **A follow-up offer needs an outcome and a scope item that is not proof-only**, so the
+  third email cannot rest on visibility into the work. **A question must open as a
+  question.** Both are validator rules with no client wording in them.
+- **This client's angles are re-ranked growth first.** Content, in the brief, not code.
+
+**Amended a fourth time 2026-10-01, after an adversarial review of the third.** Each item is
+a rule with a planted test. None reverses a decision above; each closes a gap between what
+the decision said and what the code held.
+
+- **The neutral offer answers every lead pain.** One variant's offer carries
+  `offer_angle: null` and is placed, by the offer-line selector, under whichever pain a
+  prospect gets. It was being held to its OWN variant's pain, and the stored "neutral" line
+  led with the outcome for that one pain. It may now sell only an outcome listed under
+  `resolved_by` of every lead angle (`neutralOutcomeIds`, rule `neutral_offer_outcome`). A
+  brief with two or more lead angles and no such outcome is refused. The scope judge reads
+  the neutral line as it reads any offer, against its own variant's pain. (Judging it
+  against every other lead pain as well was tried and withdrawn the same day: a researched
+  opening REPLACES the pain paragraph, so the neutral line never sits under another
+  variant's pain, and the judge refused a sound line on every round.)
+- **What a line cites and what it says are held together.** The judge is shown the outcome
+  each offer cites and asked whether the first sentence says THAT outcome, and the cited
+  outcome is legal cover for that sentence in the scope check. Before, only scope and proof
+  ids were cover, so whether a correct offer passed depended on the judge not counting its
+  first sentence as a claim.
+- **The generator is no longer told to offer "what the reader can see or check".** That
+  instruction sat beside "the first sentence says what the reader gets" and is what produced
+  the transparency offer. An outcome is stated as a possibility, never a promise; the judge
+  is told the same, so a `never_claims` item about results does not forbid the outcome.
+- **What names nothing is the client's to say.** The shared check held one market's words
+  (a Rule Zero fault: for a client in another market they are the most specific words on a
+  prospect's page). They are gone from the generic-clause list. (The identity check's list
+  of non-distinctive NAME words still holds them: recorded in the file as debt, and on the
+  Backlog.) The brief carries `generic_kind_words`, required and possibly empty, joined by
+  the words of the default peer label, matched by inflection only. A listed word about a
+  firm's size, ownership, legal form, age or place does not make a line specific, and is set
+  aside only where it describes the firm ("a small business", not "private client
+  services"). In a KIND of firm a capitalised word is treated as a name. It is a word list:
+  a descriptor nobody listed still passes. A kind is stored in the case of running prose
+  (`sentenceCaseKind`): pages write their kind in Title Case, the check reads a capitalised
+  word in a kind as a name, and four real kinds in the first 77 extractions were refused
+  for naming nothing; a word is lowered only when the page itself uses it in lower case,
+  so a place or a brand keeps its capital. A kind must end on its noun ("an IT consulting"
+  is refused), and the broad line reads "you are" in front of a kind that names a person
+  or a maker and "you run" in front of an organisation. CHECKS VERSION 11 (9 for the rest
+  of this bullet, 10 for the casing, 11 for the verb; SUPERSEDED BY 12, see the fifth
+  amendment below, which corrects the verb and the casing): the extraction prompt changed,
+  and the check loosened as well as tightened. Composition re-runs the check on stored
+  words, which reaches a tightening; a fact stored as FAILED keeps no words, so only a new
+  extraction reaches a loosening. No fact had been stored under version 8.
+- **Generation grades what composition grades.** The third amendment said the filled grade
+  is measured at composition only. That let a document pass generation and have composition
+  refuse most of its tier 2 sends (measured on the invented client: 79 of 100 with its
+  longest peer label). Two plain invented fills, a short clause and the broad line, are now
+  graded with the fill in at generation, against EVERY peer label in the brief. The first
+  version used the longest label by characters, and a shorter label of longer words passed
+  generation and was refused for a third of its prospects. The cell invented to stress
+  length is still graded masked.
+- **The judge's "can be read two ways" answer is set aside only for the brief's own
+  wording, matched as whole words inside one sentence, and only when the quote carries a
+  content word.** It was a substring test over the whole brief, so a one-word answer ("it")
+  was discarded because the brief holds "site". A phrase made only of pointing and joining
+  words ("that", "it can") is never excused. A two-word minimum was tried first and failed
+  on the next live run: the judge quoted one content word of the brief, which no rewrite
+  could clear. The judge is also told what is NOT ambiguous, and each line is sent with its
+  place in the sequence, after a variant spent its repair rounds trading one loosely
+  flagged phrase for another. And its answer counts only when the quoted phrase holds a
+  word that points at somebody or something: told the rule, it still quoted phrases with
+  nothing pointing in them.
+- **Which variant carries the neutral line.** The lead angle whose own first answer is an
+  outcome that answers every lead angle (`neutralVariantIndex`); the last variant when none
+  is. It was always the last, and on the live client that put a growth outcome under a pain
+  about planning. The scope judge passed that pairing on one read and refused it on the
+  next: the line did not answer the pain above it, which is what the operator's second note
+  forbids. THIS MOVES THE NEUTRAL LINE FOR THE LIVE CLIENT from its third variant to its
+  second, and reverses a choice the operator had agreed; it is named to him for that reason.
+- **The caps, as they stand.** Extraction 3,600 tokens in and 360 out; the judge 1,300 in and
+  420 out; 8,000 characters of page text. Worst case $0.0196. These supersede the 300-token
+  judge cap in point 4 and the 9,000 characters and 4,000 tokens in the deviations paragraph.
+
+**Fifth amendment, 2026-10-01, after a last adversarial review of the sending path.**
+CHECKS VERSION 15 (12, 13 and 14 each lasted about an hour: see "what the live trial
+changed", "version 14" and "version 15"). Two of these would have shipped in an opener.
+
+- **The broad line's verb is given, never guessed.** Version 11 chose "are" or "run" from
+  the ending of the kind's last word. Every person whose word has no such ending (a coach,
+  an architect, an agent, an analyst) shipped as "you run an executive coach", and the
+  docstring that said a wrong guess "never costs a false statement" was wrong. No ending
+  and no list of professions covers every market. The extraction, which has read the page,
+  returns the verb with the kind; it is stored (`kind_verb`); the judge audits the clause
+  that ships, verb included; composition reads the stored verb. A kind with no verb is not
+  a broad line. This puts a model's choice where a code rule stood, on purpose: code
+  cannot tell a person from an organisation in a market it has never seen. NOTHING IN CODE
+  CHECKS THE VERB IS THE RIGHT ONE. That is the accepted limit of this design.
+- **The quote must SAY the kind** (`kindInQuote`, run at extraction and again at
+  composition on the stored kind and its stored quote). The kind's words stand together in
+  the quote, in order, with "a", "an", "the" or a form of "be" in front of them (up to two
+  describing words may sit between, which is where the praise the kind left out was), and
+  the noun phrase ends where the kind ends. Version 10 refused only a last word ending in
+  -ing, the one form the first 77 extractions had produced. One REAL stored kind under
+  version 11 had its noun left off ("a board and executive search"): its quote was the
+  firm's own name, so every word was "in the quote" and nothing said the firm was one.
+  What a page writes after "a" or "an" is a noun phrase by construction, in any market.
+  Three refusals, each with its own reason: the words are not together (a recomposition),
+  nothing introduces them (a heading or a name), or the phrase carries on past the kind
+  ("a web design" against "a web design studio"; "a cold room" against "a cold room
+  engineering firm", where a run of words closing on a noun for a firm is the phrase
+  carrying on and not a verb form). A kind may also not end on a joining word, nor hold a
+  word the page only ever capitalises. COST, measured free on the 17 kinds version 11
+  stored: 11 are said by their quote and 6 are not. Of the 6, one is the broken kind, one
+  holds a brand name, and four sit in a page title or heading with no article ("Digital
+  agency for ..."), which is a true line this rule refuses. That fails to the template.
+- **What the live trial changed (version 12 to 13).** Version 12 held the same aim two
+  other ways, passed 100 new unit tests, and was wrong twice on 77 real prospects.
+  (1) It asked the faithfulness judge whether each clause "reads as a sentence". The judge
+  failed sound lines, including "you run a dental practice" against "We are a dental
+  practice", which is its own prompt's example; the broad rung fell from 12 prospects to
+  5. (2) It gave the extraction a procedure ("a COMPLETE noun phrase ... never stop at ...
+  give null"). The model wrote an answer, then "Wait, let me fix", then a second answer:
+  four paid calls were cut off or unreadable where three earlier runs had none, and the
+  parser took the first block and threw the correction away. Both are withdrawn, a test
+  holds them withdrawn, and the parser reads the last block that parses. This is the
+  rule in `writer-gate-needs-live-trial` paying for itself: a new instruction to a model
+  is not measured by tests written by the person who wrote the instruction.
+- **A kind made only of words for "a firm" names nothing.** "An independent provider", "a
+  small team", "a limited liability partnership", "an LLP". The firm-noun list stopped at
+  "corporation". "Agency", "practice" and "studio" are deliberately NOT on it: weak, and
+  still a kind of firm.
+- **"The page decides which words are names" held only for prose.** An email address or a
+  link holds a firm's own name in lower case, so the name was lowered and then no longer
+  read as one. Addresses and links are taken out before the lookup, and a kind that still
+  holds a capitalised word after casing is refused. KNOWN LIMIT: a place whose name is
+  also a common word is lowered when the page uses the common word. It needs the
+  extraction to put a place in the kind, which its prompt forbids. On the Backlog.
+- **The idiom list runs on the authored words.** It ran on the email with the prospect's
+  own clause in it, so "you provide bandwidth for rural schools" passed extraction, was
+  paid for, and was sent to the template for an idiom nobody wrote. The trade: a figure of
+  speech in a prospect's own words about their own firm can now ship in the opener.
+- **"A person" is not a team size.** The article was counted as a number word in two of
+  three spelled-out patterns after the third had been fixed.
+- **A scope-judge answer of the wrong type is an unanswered question.** The figure-of-speech
+  and read-two-ways answers are a phrase or null. A list, `true` or an object was read as
+  "none" and the variant was recorded as judged clean.
+- **A kept variant must match the plan's neutral line.** A variant saved before the neutral
+  line moved could be kept into a document with no neutral line, or with it on a variant
+  the plan no longer names; the validator holds only "at most one". Refused by name.
+- **The judge's example of plain English was an idiom the validator refuses.** Prompt and
+  validator now agree, and a test holds the pairing.
+- **Version 14, from reading version 13's own run.** The extraction was still writing its
+  answer twice on some pages; it is told to write it once, and a cut-off answer that holds
+  a whole answer is read, checked and judged, where it had been discarded (ADR-059's rule
+  that a truncated answer is a failure still holds for an answer with nothing whole in it,
+  which does not parse). The judge is not required to audit "are" straight after "you": it
+  leaves it out as a grammar word, and two sound lines failed for that alone. "Run" is
+  still required, and an "are" audited as not stated still fails. The judge's output cap is
+  480 (from 420), paid for from extraction input (3,500 from 3,600); worst case unchanged
+  at $0.0196. These supersede "the caps, as they stand" above.
+- **Version 15, from an attack on version 14's quote rule.** "A web design" passed against
+  "We are a web design and digital marketing agency": a joining word, a comma, a slash and
+  an opening bracket each counted as the end of the kind, and for a kind too long for the
+  word cap the cut-short form was the only one that passed. What matters is the word after
+  the join or the mark. An all-caps word carries the phrase on; a run of -ing words closing
+  on one singular word is the noun phrase, not a verb with its object. The accepted cost,
+  planted as tests: "We are a bakery and cafe" and "a charity providing support" are
+  refused. The same attack showed sound statements refused, so the introducer is found
+  across any number of describing words code can see, and twenty ordinary follow-on words
+  were added. The prompt allowed a name in a kind while the check refused one; they agree.
+- **Three rounds of review each found a shape these rules missed.** That is the nature of
+  rules about form, and it is named here so nobody reads "version 15" as "finished". The
+  shapes still known are in `docs/firm-fact-tier.md` under Known limits and on the Backlog.
+  The decision that would remove the risk class, and is the operator's: send tier 2 on the
+  specific rung only.
+- **Measured after the change:** see `docs/firm-fact-tier.md`, "Measured under checks
+  version 15". 31 of 77 pass (24 specific, 7 broad), no paid call cut off, every stored
+  broad line read correctly.
+
+**Sixth amendment, 2026-10-02, the operator's fourth reading and the review of what it built.**
+
+Six notes on reading file 4, taken as rules. The table of where each is enforced is in
+`docs/firm-fact-tier.md`, "The rules of the fourth reading". What is DECIDED here, because
+each of these reverses or bounds something above:
+
+- **The offer's shape is reversed.** Note 1 of the second reading put the outcome first, in
+  its own sentence. The fourth reading asks for one flowing sentence, what we do and then
+  what the reader gets. The principle of the earlier note stands and is still held (an
+  offer cites an outcome, the outcome answers the pain above it, a feature is only ever
+  support); the order and the join changed. The scope judge's question is `sells_outcome`.
+  The offer sentence may run to 22 words, a paragraph to 30, and the firm-fact Email 1 to
+  85, because a flowing line is longer than the clipped ones it replaces. Grade 5 is kept.
+- **The reading grade is taken in two parts.** The email with the opener clause set aside
+  (grade 5), and the opener sentence alone with names masked (grade 16). The operator asked
+  for the second. A prospect's own words for what they do are the one part of the email we
+  do not write, and holding them to grade 5 sent sound facts back to the template.
+- **A clause is repaired by removal, and only by removal.** The first item of a list; a cut
+  at the word cap. Nothing is ever added, so a repaired clause holds no word the page does
+  not. ACCEPTED: it can be broader than the page. NOT accepted: it can never say the
+  opposite, so a clause holding a word that fences its claim in is not cut.
+- **The judge's question about meaning is `twists_the_quote`.** Three wordings in one day.
+  "Says the same" refused a clause naming one item of a list. "Is a true statement about
+  the company" passed a real must-fail control on two reads of three. The lesson is the one
+  already in `writer-gate-needs-live-trial`: a new question to a model is measured on real
+  rows against controls before it is trusted, every time.
+- **KNOWN AND REPORTED, not fixed:** on one must-fail control with three added words, the
+  judge names two of them and not the third; it names the third when it is the only added
+  word. The recheck is run with the word it does name. The code check refuses all three
+  before the judge is asked, so nothing ships on this.
+- **The reader's firm is named in template follow-ups, and only where the name is one a
+  sentence can carry.** `{company}` is a follow-up-only slot. Stored bodies stay slot-free;
+  composition fills on the same proof the wording rotation asks for (the held body is the
+  slot-free rendering of the stored lines, byte for byte). The name rule is an ALLOW-LIST of
+  what a word of a name may be. The first version listed marks to refuse, and a review found
+  a dash, a trailing full stop, a tagline and "Self-employed" each going out in a sentence.
+  The same lesson produced `FRAME_WORDS` for opener frames the same day. **A list of what to
+  refuse is as long as what nobody thought of; where the sound set is small, list that.**
+- **A market's own word stays in a name.** SUPERSEDED by the seventh amendment (2026-10-02):
+  the operator asked for short names. "Northtown Consulting" is not shortened to "Northtown",
+  though the client's brief says "consulting" names nothing for this client: a place plus
+  that word is a common name, and the place alone is the wrong name.
+- **The consequence line is tied to the brief.** "Lean on growth and scaling" was written
+  into the brief and held by nothing; the first passing run wrote "So it can be hard to
+  plan". Two rules read from the brief now hold it (`consequence_from_brief`).
+- **Three single-word corrections were made by hand** in the stored templates and put back
+  through the validator and the scope judge by the generator's own keep path, which checks
+  and judges a kept variant like any other. Each was a syllable or an article the writer
+  dropped to fit the grade-5 cap or the 15-word cap. Recorded because copy a person edited
+  is not copy the generator wrote, and the next regeneration will not reproduce it.
+- **The review.** Three reviewers, each finding re-run by a second: 21 confirmed, 4 of them
+  things that would have been SENT wrong (the name shapes above; the word-cap cut ending
+  mid-phrase). All 4 and the 8 mediums are fixed with a planted test each. No mutation
+  testing this round, by the operator's instruction; it is owed at the merge round.
+- **Measured:** 41 of 82 template-bound prospects reach tier 2 (36 specific, 5 broad),
+  from 25. See `docs/firm-fact-tier.md`, "Measured under checks versions 16 to 21".
+
+**Seventh amendment, 2026-10-02, the operator's fifth reading and the merge review.**
+
+Six notes on reading file 5. The table is in `docs/firm-fact-tier.md`, "The rules of the
+fifth reading". What is DECIDED here:
+
+- **Build, don't check.** Where a line can be assembled by code from stored data it is,
+  with no model and no judge. The broadest rung, "Can see you run <kind>", comes from the
+  provider industry through the brief's peer groups. It needs a second piece of evidence
+  (the firm's own name, or a keyword that is itself a short singular description of the
+  kind), and any other kind stored from our own reading of the firm's website vetoes it.
+  Measured: the provider industry alone would have told software makers and recruiters they
+  run a consultancy. Fails closed to the template.
+- **The ladder is: specific clause, kind from the site, kind from the record, slogan, template.**
+  The site's own words come first because they are the firm's; a slogan comes last.
+- **Short names reverse the sixth amendment.** Generic words come off when what is left holds
+  a distinctive word; otherwise the full name, never a cut that is a place, a trade or a
+  broken phrase.
+- **No phrase more than twice a sequence; no word in two sentences in a row.** Code counts;
+  the writer is told the rule. Two forms are one word only by a listed ending.
+- **An unexplained acronym refuses a clause.** The repair that deleted the acronym was removed:
+  it wrote broken clauses, and on 77 real extractions it had been used once. Checks version 23.
+- **Spend.** Every paid script takes `--max-usd` (default $3). Opus 4.6 was priced at
+  $15/$75 per million tokens in the repo; the published price is $5/$25, corrected.
+- **The stored templates of 2 October were finished by hand.** Three capped generator runs
+  each ended a few lines short under the repetition rules; the finished lines passed the
+  validator and the scope judge through the keep path. A cheaper drafting writer (Sonnet)
+  was tried and abandoned.
+- **The review.** 28 confirmed findings, then two fix rounds, each verified by a second agent.
+  Mutation testing was started and completed for one of four areas only; the rest is on the
+  Backlog.
+- **Measured:** plain template 12 of 280 MargenticOS prospects (4.3%), against a target of
+  under 10%. See `docs/firm-fact-tier.md`, "Measured under checks version 23".
+
+---
+
+## ADR-063 — A prospect that sells what the client sells is excluded before research, by a phrase check and one model question, and the verdict survives a re-tier
+
+**Status:** Accepted, 2026-10-01 (operator note 7 on the second reading file).
+
+**Context.** The second reading file contained a sequence written to a firm whose own
+homepage says it sells leads. Nothing in the pipeline asked whether a prospect is a
+competitor. The client's intake answer to "who would you turn away" is stored in the ICP's
+tier 3 and read by no gate, and the positioning document names competitors that research
+treats only as "work the sender does not do".
+
+**Decision.**
+
+1. **The categories live in the outbound brief** (`competitor_categories`): a statement, a
+   list of phrases, and `not_this`, the neighbouring kinds of company that stay in scope.
+   They are read on their own, not through `readBrief`, so a copy fault elsewhere in the
+   brief cannot switch the exclusion off. They are read from the LIVE messaging document: a
+   list nobody approved must not remove anybody.
+2. **Two steps.** Phrases are looked for in code, free, in what the data provider records:
+   the company name, its industry labels and every tag. A company with no phrase is never
+   asked about and never written to. A company with a phrase is the subject of ONE model
+   call (claude-haiku-4-5, temperature 0): does it sell the category's service as a core
+   part of its business.
+3. **The model is shown the company's own homepage**, from research already on file or a
+   free fetch made for the check. The first version judged the provider's record alone and
+   cleared the firm that prompted the rule: its record carries the phrase once among general
+   tags, and its homepage says in a sentence that it sells exactly that.
+4. **Evidence is copied and code checks the copy.** A "yes" stands on at least two different
+   pieces code found in the record or the homepage text shown. Otherwise it is recorded as
+   "unclear".
+5. **Which way each outcome falls.** Yes excludes. No and unclear stay in scope: the
+   operator's stated risk is a category drawn too wide ("general marketing agencies stay in
+   scope"). No usable answer HOLDS the prospect for this run and stores nothing, so it is
+   asked about again; a missing verdict never reads as "not a competitor".
+6. **An exclusion is a tier removal** (`sourced_tier` NULL, `tiering_reason` 'competitor'),
+   which is the shape every paid stage already refuses, plus the stored verdict in
+   `prospects.competitor_check`. `classifyTier` reads that verdict FIRST, so the tiering
+   pass, the industry-tag re-tier and the settings-change thaw cannot hand a tier back.
+7. **A verdict carries a fingerprint of the category list.** Editing a category, its phrases
+   or `not_this` retires every verdict judged against the old list.
+8. **The screen sits in front of both research entry points**, in the same commit, after the
+   refusals that cost nothing and before anything is paid for. Where it cannot read the
+   selection it refuses the run with a sentence.
+
+**Measured, DATABASE-EVIDENCED, 2026-10-01.** A dry run over the live client's 526 tiered
+prospects with the proposed list: 486 carry no phrase and cost nothing, 40 were asked about
+($0.075), 4 would be excluded. Two of the four have already been uploaded. On the provider's
+record alone the same run excluded none.
+
+**Consequences and limits.**
+
+- A competitor whose provider record carries none of the phrases is not caught before
+  research. The homepage is read only for a company that was going to be asked about.
+- A prospect already uploaded is not recalled: our gates govern upload, not delivery
+  (ADR-034). The verdict is recorded on such a row and its tier is left alone.
+- An excluded prospect is no longer selected for research, so nothing re-judges it by
+  itself. `scripts/run-competitor-screen.ts --rescreen-excluded` does, and one that reads
+  clear under a changed list has its removal reason cleared so tiering runs on it again.
+- A run meets at most 60 model questions; companies past that are held and said to be.
+- This is the first pre-research gate that makes a model call. Tiering itself stays free and
+  deterministic: it reads the verdict and never decides it.
+
+**Amended 2026-10-01, after an adversarial review.** Eight faults, each fixed with a planted
+test. The decision stands; these are what it now means in code.
+
+- **A piece of evidence counts only when it ties the company to the category**: a name,
+  label or tag that carries one of the category's phrases, or a run of at least three words
+  from the homepage. Before, any tag counted, so one phrase tag plus an unrelated one made
+  a "yes". Pieces are counted on their folded form, so one tag in two spellings is one piece.
+- **A company with phrases from several categories is asked about each in turn**, most
+  phrases first, stopping at the first yes. A stored "clear" is reused only when it covers
+  every category the company carries phrases for. (One call per question; the budget of 60
+  counts questions and is reserved before anything is awaited.)
+- **A "no" given without the homepage is held once.** Every exclusion measured rests on the
+  homepage, so a fetch that failed once must not clear a competitor for good. The first such
+  answer leaves a marker on the row and holds the prospect; the second stands, so a site
+  that never loads does not hold a buyer forever.
+- **Narrowing the list restores, whichever way it was narrowed.** An excluded prospect whose
+  phrase or whole category was removed is restored with no model asked. An empty,
+  well-formed list restores everybody; a missing list or an unusable one restores nobody.
+- **A list that is present and unusable refuses the run.** It used to pass every prospect
+  unscreened with a warning in a log. One unusable category among several is skipped and
+  named in the sentence the operator reads.
+- **A reply cut off at the token limit is asked again once**, with room, and the prompt caps
+  the evidence at four items of fifteen words.
+- **A research job queued before a removal no longer runs.** The live re-read before any
+  spend, on both research paths, refuses a prospect tiering has rejected (no tier AND a
+  reason; never one that is merely not yet tiered).
+
+---
+
+## ADR-064 — A personalised Email 1 is not uploaded unless Email 2 or 3 carries its thread; a follow-up is written from the fact Email 1 opened on, and from nothing else
+
+**Status:** Accepted, 2026-10-01 (operator note 4 on the second reading file).
+
+**Context.** Composition substitutes a personalised follow-up when one is stored and still
+matches Email 1, and otherwise ships the template in that position with a reason code. No
+caller read the code and nothing required a personalised follow-up. DATABASE-EVIDENCED,
+2026-10-01: of 209 prospects holding a personalised Email 1, 50 held any personalised
+follow-up. All four personalised sequences in the second reading file had template Emails 2
+and 3, because the research that wrote their Email 1 ran before the follow-up writer existed.
+Of 71 stored follow-ups, five open on a different fact from the one Email 1 used.
+
+**Decision.**
+
+1. **The rule is a verdict on a composed sequence** (`threadVerdict`): where Email 1 came
+   from research, Email 2 or Email 3 must be a personalised follow-up written against that
+   Email 1.
+2. **A prospect that fails it is HELD at upload.** Back to pending, the reason on the row,
+   not sent and not recorded as sent. Not failed, because a script fixes it. Not downgraded
+   to the template, because that discards the best line in the sequence to fix the weaker
+   ones, and does so silently.
+3. **The follow-up writer is shown only the finding Email 1 opened on**, and its supporting
+   event. A prompt instruction is advisory (ADR-028); a fact the writer never saw cannot be
+   opened on. The gates' evidence is not narrowed.
+4. **The full-price research route can write the follow-ups** (`write_followups`, off by
+   default, on from the command line). The queue's single research job still cannot: the
+   calls do not fit its time budget. The batch route's second phase always did.
+5. **The backfill selects every not-yet-uploaded personalised prospect** and decides
+   "already carried" by fingerprint before any model call, so follow-ups made stale by a new
+   messaging document are reachable.
+
+**Consequences.**
+
+- Approving a new messaging document changes the offer line under every personalised
+  opening, which retires every stored follow-up at once. Every pending personalised prospect
+  is then held until the backfill has run. That is the rule working; the operator sees a
+  count and the next step on the upload panel.
+- The template arm of the follow-up comparison (`GENERATED_ARM_PERCENT`) cannot be used
+  while this rule stands. It is at 100% generated. Lowering it is a decision to suspend the
+  rule.
+- A prospect whose follow-ups the writer cannot get past their gates stays held. Measured on
+  the follow-up writer's recorded attempts: 41 of 47 prospects ended with at least one.
+- Found beside it and fixed: the record of what was sent (`sent_sequences`) was written with
+  the operator's session client against a service-role-only table. Every insert was refused
+  and the refusal swallowed: 263 prospects uploaded, 0 rows.
+
+**Amended 2026-10-01, after an adversarial review.** Point 4 above is corrected, and the
+cost of a hold is restated, because both were wrong as written.
+
+- **Who writes follow-ups.** The batch research path, in both phases: its stored-findings
+  shortcut never reaches phase 2 and was leaving `write_followups` off, so every reuse run
+  produced a prospect the upload holds. It now asks for them, and `research_sources` is
+  budgeted 240 seconds to match. Research run from the command line writes them. Research
+  started from the dashboard's inline button and the queue's single `research` job do not:
+  the calls do not fit their time budget. Those prospects wait for the backfill.
+- **A hold is not always a day.** "A hold costs a day and nothing else" was the claim. The
+  backfill cannot write for a prospect whose research is older than the 30-day reuse
+  window, whose variant leaves no follow-up to model on, or whose Email 1 the
+  approved-reason rule (ADR-065) would not write today. Those stay held until their
+  research is run again. The backfill prints each one with its reason; the upload panel
+  says so. This fails closed: a held prospect is never sent a sequence the rule forbids.
+- **The backfill is held to ADR-065.** It argued from the sentence synthesis stored, not
+  the client's approved reason, and it wrote follow-ups for openings the rule would not
+  produce, which then satisfied this ADR's upload rule and shipped. It now reads the
+  upload's own verdict first (`openingReasonVerdict`, ADR-065's amendment), before the
+  "already carried" skip and before anything is paid for, and argues from the reason that
+  verdict confirms. An earlier version made a paid model call to read an old second line
+  back; that is gone.
+- **Research rows from before 2026-09-28** may sit on a different finding from the one on
+  record, because until then the Email 1 writer was shown every candidate. For those rows
+  the backfill shows the follow-up writer every finding. The condition expires by itself.
+- **A failed follow-up call costs the follow-ups, never the research.** It used to throw
+  out of the function the callers store the run after, discarding a paid full-price run.
+  A spent balance still stops the run. On the batch path this trades a job retry for a
+  backfill: that prospect is held until the backfill writes for it.
+- **`--limit` on the backfill bounds the prospects the writer is run for**, so a second run
+  reaches the next ones. It had been applied to the query. `--after=<id>` steps past
+  prospects whose follow-ups are refused on every run.
+- **The backfill names what it leaves held, and what each needs.** One remedy per reason.
+  A prospect is listed only when the upload would really hold it: one position already
+  carrying today's Email 1 satisfies the rule above.
+- **The upload's reclaim releases only rows still claimed.** It reset a prospect just
+  marked failed back to pending. The first fix reached ONE release of three; the two after
+  composition (the final check failing, and the final check rejecting everything composed)
+  were found by a later review and carry the same filter, each with a planted test.
+- **The panel shows a result that explains itself.** "The upload panel says so" was not true
+  when it was written: with every claimed prospect held, the action returned the counts and
+  the panel replaced them with a generic error about approval gates, shell sync and
+  campaign assignments. On the day a hold ships that is the common case. The panel now
+  shows the hold and its remedy under "Nothing was sent", and a test drives the panel with
+  the action's all-held result, so the join is tested and not each end.
+- **A retry call that fails inside the follow-up writer keeps the attempt before it.**
+
+---
+
+## ADR-065 — A personalised opening argues from the client's approved trigger reason, verbatim, and a fact with no approved reason behind it is not personalised
+
+**Status:** Accepted, 2026-10-01 (operator note 5 on the second reading file).
+
+**Context.** Each trigger in a client's ICP carries a reason the operator approved: why that
+kind of event matters. Synthesis wrote its own sentence per prospect, was told not to repeat
+the approved one, and code never compared them. DATABASE-EVIDENCED, the live client, 24
+September to 1 October: of 56 personalised openings the writer argued from the approved
+reason in 2, from a model's paraphrase in 46, and in 10 from a sentence about a fact that
+matched no trigger at all. The paraphrases drift one way, from what the event says about the
+firm's direction to a task the reader is told they now have.
+
+**Decision.**
+
+1. **The reason is resolved in code** (`resolveApprovedReason`) from the selected fact's
+   matched trigger and the client's trigger list, at the one function both research paths
+   converge on. The writer and the follow-up writer are handed that sentence, verbatim.
+2. **No approved reason, no personalised opening.** A selected fact that matched no trigger,
+   or one whose reason was never written, writes nothing (`no_approved_reason`), and the
+   prospect goes down the ladder. A client with no approved reason at all cannot be held to
+   one and is not, with a warning.
+3. **The finished second line is read back against the reason** (`checkBridgeStatesReason`):
+   one Sonnet call at temperature 0, after the fact-check. It is asked what the line says
+   the event means, whether the reason says the same, and whether the line adds one of five
+   named things (a deadline, an amount, who must act, what the reader lacks, how things
+   stand for them). Code verifies that what the model quotes is in the line. No verdict
+   rejects the attempt.
+4. **The fact-check may cite the approved reason**, given to it as one more numbered line
+   labelled general and not about this reader. Without it the verifier rejects the sentence
+   the rule asks for.
+5. **Where the reason has two parts, the second line states the first and the question asks
+   about the second.** That is what makes the line about the firm's direction.
+
+**Measured, on eight real prospects, writing nothing.** With the rule off, 6 of 8 openings
+passed; the winning second lines were the kind the operator objects to. With it on: 1, 3, 4
+and then 5 of 8 across four wordings, each changed for a failure read in the output. Eight
+is inside this writer's run-to-run noise, so the cost in yield is NOT established.
+
+**Consequences and limits.**
+
+- Research makes one more Sonnet call per attempt that survives the fact-check.
+- Fewer prospects are personalised: 10 of the 56 measured would have been held for having
+  no approved reason. They are picked up by tier 2 or the template.
+- The remedy for a second line that reads too much like a need and too little like a goal
+  is the wording of the approved reason in the ICP. The code holds the line to that sentence.
+- A run that reuses stored findings resolves a stored trigger POSITION against today's list.
+  The live client's list has kept its order across four versions; a reordered list would
+  hand a stored position another trigger's reason, and nothing detects it.
+- The writer's system prompt was not rewritten. It still carries worked examples from before
+  this rule. The rule is applied by the brief the writer is handed and by the check on what
+  it wrote.
+
+**Amended 2026-10-01, after an adversarial review.**
+
+- **The stored-position limit above is closed.** Synthesis now stores the trigger's WORDING
+  beside its position. The resolver follows a reordered list to where the trigger now sits,
+  and a trigger that was removed or rewritten no longer matches. A row stored before this
+  carries no wording and is still read by position.
+- **The hold fired when it need not.** The model picks among eligible facts with no
+  instruction to prefer one that matched a trigger. The choice is now made among facts that
+  carry an approved reason whenever one does, and a model pick set aside that way is
+  recorded (`selection_basis.set_aside_model_pick`).
+- **An objection the model could not quote is no verdict**, which rejects the attempt. It
+  had been dropped, so "the same, yes" with a paraphrased addition read as a clean match.
+- **One function decides which reason the writers argue from** (`reasonTheWritersArgueFrom`),
+  used by the research path and the follow-up backfill. They had drifted apart on the day
+  the rule was written.
+- **The rule reaches openings written before it, AT THE UPLOAD.** An Email 1 is a frozen
+  verdict (ADR-034): nothing re-reads it when a rule changes. The first attempt checked
+  such openings in the follow-up backfill. A review found the hole: the backfill skips a
+  prospect that already holds current follow-ups before it checks anything, and that
+  prospect then satisfies ADR-064's rule and ships. A rule about what may be SENT belongs
+  where sending is decided. `openingReasonVerdict` (`src/lib/composition/opening-reason.ts`)
+  is a pure verdict the upload reads beside the thread rule: a personalised Email 1 is sent
+  only if the record on the prospect (`trigger_data.judge.approved_reason`) says it was held
+  to a reason the client still has. No model call. A client with no approved reason on any
+  trigger is not held to one.
+- **Consequence.** Every personalised opening written before the rule, and every one held
+  to a reason later reworded, is held at upload until its research is run again. The upload
+  panel counts them separately from the thread hold and says the backfill cannot fix them.
+  DATABASE-EVIDENCED 2026-10-01: 21 not-yet-uploaded prospects hold a personalised Email 1,
+  all written before the rule.
+- **The trigger reasons are read through a checked read.** The research loader treats a
+  failed documents read as "no documents", which for this rule would mean "no approved
+  reasons" and switch it off. A failed read stops the upload and the backfill.

@@ -139,6 +139,28 @@ describe('the agent refuses before spending', () => {
     expect(await wroteAnything(id)).toBe(false)
   })
 
+  it('refuses a prospect TIERING HAS REMOVED since it was selected, though its address is fine', async () => {
+    // Added 2026-10-01. The tier gate was at selection only, so a job queued before a
+    // removal still ran. The address here is deliverable: only the tier verdict refuses it.
+    const id = await makeProspect({
+      independent_verified_at: '2026-09-20T10:00:00Z',
+      independent_email_status: 'Valid',
+      verification_provider: 'myemailverifier',
+      email_send_eligible: true,
+      sourced_tier: null,
+      tiering_reason: 'competitor',
+    })
+
+    try {
+      await runProspectResearchAgentV2({ prospect_id: id, client_id: orgId })
+      throw new Error('the agent did not refuse')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProspectUnmailableError)
+      expect((err as ProspectUnmailableError).ineligible_reason).toBe('tier_rejected')
+    }
+    expect(await wroteAnything(id)).toBe(false)
+  })
+
   it('names the reason on the thrown error, so a caller can report it', async () => {
     const id = await makeProspect({ suppressed: true })
     try {
@@ -163,6 +185,10 @@ describe('the control: an ELIGIBLE prospect is NOT refused', () => {
     // It is expected to THROW, because there is no ANTHROPIC_API_KEY in the test env. What
     // matters is that it is NOT a ProspectUnmailableError: the gate let it through and the
     // run died further on, where the paid work would have been.
+    //
+    // IT IS ALSO THE CONTROL FOR THE TIER REFUSAL. This row has no tier and NO reason, which
+    // is "not yet tiered" and not "removed": the state a settings change leaves a row in.
+    // A refusal keyed on the missing tier alone would refuse it.
     const id = await makeProspect({
       independent_verified_at: '2026-09-20T10:00:00Z',
       independent_email_status: 'Valid',

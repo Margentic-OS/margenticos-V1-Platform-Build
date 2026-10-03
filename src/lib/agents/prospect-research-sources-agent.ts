@@ -120,8 +120,9 @@ export async function runProspectResearchSources({
     // batching one would buy a 24-hour wait for a discount on a call that never happens.
     //
     // It delegates to the PROVEN single-job agent rather than reimplementing the reuse
-    // path here. That run is cheap and fits a lease comfortably: no sources, no
-    // synthesis, only the writer and judge calls.
+    // path here. That run fits a lease comfortably: no sources and no synthesis, only
+    // the writer, the judges and the follow-up writer, which is the same model work
+    // phase 2 does and is budgeted the same (worstCaseSeconds 240 in queue/config.ts).
     //
     // The check happens HERE rather than being left to the agent because the agent falls
     // back to a full fetching run when it finds nothing, which would bypass the batch
@@ -142,6 +143,17 @@ export async function runProspectResearchSources({
           // would file queue work as inline work in the ledger and make "which path costs
           // what" unanswerable for exactly the cheap case.
           research_path: 'queue',
+          // THE SHORTCUT IS STILL THE BATCH PATH, SO IT WRITES FOLLOW-UPS LIKE THE BATCH
+          // PATH. Phase 2 has always written them. This branch of phase 1 never reaches
+          // phase 2, and it left write_followups at its default of false, so every reuse
+          // run produced a personalised Email 1 with no follow-ups. That was invisible
+          // while the upload sent template follow-ups regardless; since the upload holds
+          // a personalised Email 1 whose thread is not carried (ADR-064), it would have
+          // made every reuse run a prospect the operator has to backfill by hand.
+          write_followups: true,
+          // The findings were read a moment ago, above. If the agent's own read of them
+          // fails it must not fall back to fetching: see ResearchInput.
+          stored_findings_required: true,
         })
         await agentRun.complete(
           `Stored findings reused, no batch needed. Qualification: ${result.qualification_status}.`,

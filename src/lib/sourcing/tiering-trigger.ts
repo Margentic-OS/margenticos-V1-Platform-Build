@@ -135,7 +135,9 @@ export async function tierEnrichedBatch(
       .from('prospects')
       // apollo_enrichment_data is read for the concurrent-role count only (concurrent-roles.ts),
       // which is free and deterministic and now decides here rather than inside research.
-      .select('id, organisation_id, email_status, enrichment_status, job_title, company_headcount, company_industry, company_name, apollo_enrichment_data')
+      // competitor_check is the competitor screen's stored verdict: classifyTier reads it
+      // first, so a company the screen excluded is not handed a tier back by this run.
+      .select('id, organisation_id, email_status, enrichment_status, job_title, company_headcount, company_industry, company_name, apollo_enrichment_data, competitor_check')
       .eq('organisation_id', organisationId)
       .eq('enrichment_status', 'enriched')
       .is('sourced_tier', null)

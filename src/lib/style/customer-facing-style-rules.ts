@@ -189,6 +189,15 @@ export function assertNoDashesExcluding(
   }
 }
 
+/**
+ * The labels of every AI tell in the text, without changing it. scrubAITells only LOGS a
+ * tell it cannot rewrite, which is right for a runtime net and wrong for a validator: a
+ * validator must be able to reject. Same patterns, so the two cannot disagree.
+ */
+export function findAITells(text: string): string[] {
+  return AI_TELL_PATTERNS.filter(({ pattern }) => pattern.test(text)).map(({ label }) => label)
+}
+
 export function scrubAITells(text: string, context?: string): string {
   // First pass: numeric/currency ranges — en-dash between adjacent numbers/currency symbols
   // becomes a plain hyphen so a price range like €1K–€3K is not turned into €1K. €3K.

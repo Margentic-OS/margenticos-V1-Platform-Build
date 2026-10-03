@@ -140,6 +140,21 @@ function fake(
         }
         return chain
       }
+      if (table === 'strategy_documents') {
+        // The competitor screen reads the client's live messaging document before anything
+        // is enqueued. These tests are about the OTHER guards, so this client has no
+        // document naming a competitor category and the screen passes every id through.
+        // The screen's own behaviour is tested in competitor-screen.test.ts, and its wiring
+        // into this function in competitor-screen-entry.test.ts.
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: () => chain,
+          order: () => chain,
+          limit: () => chain,
+          then: (resolve: (v: unknown) => void) => resolve({ data: [], error: null }),
+        }
+        return chain
+      }
       // prospects
       const orFilters: string[] = []
       const chain: Record<string, unknown> = {

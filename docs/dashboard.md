@@ -1237,3 +1237,29 @@ and the extraction and merge paths both compare it as a single string.
 2. **An answer box stopped growing.** The invisible copy is what makes it tall. If it has been
    removed, or its padding and font no longer match the textarea's, the box is sized for
    something other than what is in it.
+
+---
+
+## Three operator screens that say more since 2026-10-01
+
+Small changes to existing panels, from the operator's notes on the second reading file. No
+new screen.
+
+**The upload result (`LeadUploadPanel`)** can now show "N leads held, not sent". A held lead
+has a personalised first email and no personalised follow-up carrying it forward, so it was
+left waiting. It is not a failure and nothing is wrong with the lead: run the follow-up
+backfill and upload again. See ADR-064. *If it breaks:* a held lead is `pending` with an
+`outbound_upload_error` starting `personalised_without_followup`; if leads show as failed
+instead, composition threw, which is a different message on the same panel.
+
+**The research button (`ResearchProspectsButton`)** adds a line when the competitor check
+passed anybody over: how many were excluded as competitors and how many were held because
+the check gave no answer. On the queued path the same sentence follows the queue message.
+See ADR-063. *If it breaks:* the sentence comes from `describeCompetitorScreen`; an empty
+sentence with fewer prospects researched than selected would be a defect.
+
+**The "writer stopped" list (`WriterStoppedPanel`)** now gives a reason on each row. There
+are two: research found nothing usable to open on, or the fact it found matches none of the
+client's approved trigger reasons. See ADR-065. *If it breaks:* the reasons are a map keyed
+on the type of every stop code, so a third code cannot be added without a label and the
+build fails if one is.

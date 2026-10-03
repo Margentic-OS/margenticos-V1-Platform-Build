@@ -178,6 +178,33 @@ export const HARD_FAIL_CATEGORIES = [
       'Does the reason-to-reply FOLLOW from the fact, or is it merely attached to it? A reason ' +
       'that would read the same beneath any other fact does not follow from this one.',
   },
+  {
+    // ═══ ADDED 2026-10-01, ON THE OPERATOR'S READ OF THE FIRM-FACT EMAILS ═══
+    //
+    // A firm-fact Email 1 opens with a sentence about what the reader's firm does, taken
+    // from their own website, and the next paragraph opens on a label for the reader's peer
+    // group ("... tell us ..."). The label is chosen from a closed list per client, so it can
+    // be the nearest fit and still be wrong: the opener describes one kind of firm and the
+    // next line addresses another. The reader was just shown that we read their site, and is
+    // then called something they are not.
+    //
+    // EMAIL 1 ONLY, and it must be answerable "no" for an email with no such pair: it is
+    // asked of every Email 1 reviewed, and most have no group label at all.
+    //
+    // THE CARVE-OUT IS DELIBERATE. The rubric elsewhere allows a statement about a whole
+    // market or a kind of company, because that is not a guess about this reader. This
+    // question is not about whether the group statement is a guess. It is about whether the
+    // group NAMED is the reader's group, judged against the email's own opening sentence.
+    id: 'opener_pain_disconnect',
+    positions: [1],
+    question:
+      'Only if the email first states what the reader\'s own firm does and then, in a later ' +
+      'paragraph, names a GROUP of firms or people as the ones who have a problem: is that ' +
+      'group one the reader\'s firm does NOT belong to, going by the email\'s own opening ' +
+      'statement? Answer no if the email has no such opening statement or names no group. ' +
+      'This is asked even though a statement about a group is otherwise allowed: the fault ' +
+      'is naming the wrong group for this reader, not making a statement about a group.',
+  },
 ] as const
 
 export type HardFailCategoryId = (typeof HARD_FAIL_CATEGORIES)[number]['id']

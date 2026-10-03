@@ -18,6 +18,9 @@
 // preloadedDocs. This prevents a mid-batch race where a client revision between prospect N
 // and prospect N+1 would cause later leads to compose from a new pending version.
 
+import { RUNG_FAILURE_REASONS, decideFirmFactEmail1, decideFollowupFills, decideTemplateEmail1 } from './firm-fact-email1'
+import { coherenceForDocument } from './sequence-coherence'
+import { peerKindRecordFromRow } from '@/lib/sourcing/peer-kind'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import {
@@ -101,6 +104,15 @@ export interface FollowupRecord {
    * by a different mechanism and the breakup has no generated form.
    */
   positions: Record<number, FollowupPositionOutcome>
+  /**
+   * Template follow-ups rendered with the reader's firm name or customer group in them,
+   * keyed by sequence_position (2, 3, 4), or the reason a position kept its stored body.
+   * The flags say what WENT INTO the body, not what was held.
+   *
+   * RETURNED TO THE CALLER, NOT STORED. recordSentSequence does not write it: the body as
+   * sent is in sent_sequences.emails, and that is the record of what a prospect received.
+   */
+  slot_fills?: Record<number, { company: boolean; for_whom: boolean } | { reason: string }>
 }
 
 export interface ComposedSequence {
@@ -112,6 +124,12 @@ export interface ComposedSequence {
   messaging_doc_id: string
   followups: FollowupRecord
   emails: ComposedEmail[]
+  /**
+   * Which Email 1 tier this prospect received, and why. Recorded on every send
+   * (sent_sequences.opening_tier / opening_detail) so replies can be compared by tier.
+   * For 'template', detail.reason says why the firm-fact tier did not apply.
+   */
+  opening: { tier: 'research' | 'firm_fact' | 'template'; detail: Record<string, unknown> | null }
 }
 
 // Pre-fetched approved docs for a segment — passed into composeSequence to avoid
@@ -166,6 +184,16 @@ interface ProspectRow {
   first_name: string | null
   last_name: string | null
   company_name: string | null
+  /** Firm-fact tier verdict (firm-fact.ts). Read only by decideFirmFactEmail1. */
+  firm_fact?: unknown
+  /**
+   * The data provider's industry for the company, and the enrichment it stored. Read only
+   * through the company record (peerKindRecordFromRow): to build the peer rung of Email 1
+   * (src/lib/sourcing/peer-kind.ts), and, since 2026-10-02, by the follow-up fills, which
+   * read the firm's own trade words from the industry and keywords (firmTradeWords).
+   */
+  company_industry?: string | null
+  apollo_enrichment_data?: unknown
 }
 
 // Where email 1's opening line came from. Only 'research' represents a real, prospect-
@@ -270,11 +298,30 @@ export async function composeSequence({
   prospect_id,
   client_id,
   preloadedDocs,
+  dryRun,
 }: {
   prospect_id: string
   client_id: string
   /** Pre-fetched approved docs from fetchComposeDocs(). Skips per-prospect DB fetches when provided. */
   preloadedDocs?: ComposeDocs
+  /**
+   * DRY RUN: compose and return, and write NOTHING. Used by the operator's reading file,
+   * which composes real prospects against a document that is not approved yet. Without it
+   * a variant assignment and the pending document's id would be written to the prospect.
+   *
+   * firmFact, honoured ONLY in a dry run, stands in for prospects.firm_fact: a fact read
+   * from an already-uploaded prospect is never stored on its row, so a dry run is the only
+   * way to see what that prospect's firm-fact email would be.
+   *
+   * followups, honoured ONLY in a dry run, stands in for the three follow-up columns: the
+   * copy the follow-up backfill WOULD store for this prospect against the document being
+   * read. It goes through the same fingerprint check as stored copy, so a follow-up written
+   * against a different Email 1 is discarded here exactly as it would be at upload.
+   */
+  dryRun?: {
+    firmFact?: unknown
+    followups?: { email2: string | null; email3: string | null; email1Fingerprint: string | null }
+  }
 }): Promise<ComposedSequence> {
   const supabase = getServiceClient()
 
@@ -294,7 +341,7 @@ export async function composeSequence({
   }
 
   // Step 3 — Assign a variant if the prospect has none, and write both variant_id and messaging_doc_id.
-  const variantId = await resolveVariant(supabase, prospect, messagingDoc, client_id, messagingDocId)
+  const variantId = await resolveVariant(supabase, prospect, messagingDoc, client_id, messagingDocId, dryRun !== undefined)
 
   // Step 4. Fetch the personalisation trigger.
   const trigger = await resolveTrigger(supabase, prospect, client_id, preloadedDocs?.icpPainPoint)
@@ -345,8 +392,30 @@ export async function composeSequence({
   // weaker. Standing principle: no machine step may overwrite human-approved copy
   // after approval without an explicit gate. The gate is the researched trigger.
   let composedEmails: ComposedEmail[]
+  let opening: ComposedSequence['opening']
+  // What the data provider holds about the prospect's company (name, industry, keywords).
+  // Read twice: the peer rung of the firm-fact tier is built from it, and the follow-up fills
+  // read the firm's own trade words from it so a name is not cut to a word that IS its trade.
+  const companyRecord = peerKindRecordFromRow({
+    company_name: prospect.company_name,
+    company_industry: prospect.company_industry ?? null,
+    enrichment: prospect.apollo_enrichment_data,
+  })
 
   if (trigger.source === 'research') {
+    // TIER 1 ALWAYS SHIPS WORDING 0 of the lines that survive personalisation. The research
+    // writer, its judge and the follow-up fingerprint were all built on the stored body,
+    // which is wording 0; rotating here would put the opening above an offer line it was
+    // not written for and discard generated follow-ups for half of researched prospects.
+    // null means "replaced by written copy", so 0 of one wording and 0 of two stay distinct
+    // from a line research wrote.
+    const researchWording = {
+      subject: prospect.personalisation_subject ? null : 0,
+      pain: null,
+      offer: 0,
+      question: prospect.personalisation_question ? null : 0,
+    }
+    opening = { tier: 'research', detail: { wording: researchWording } }
     // DELETED HERE 2026-08-28: a hardcoded default value proposition, and the live
     // Supabase read that ran once per prospect to try to avoid it.
     //
@@ -363,6 +432,37 @@ export async function composeSequence({
       prospect,
       trigger.text,
     )
+
+    // ── SEQUENCE COHERENCE (tier 1). A template follow-up must not come back to the
+    // angle Email 1 used. Deterministic, approved copy only; see sequence-coherence.ts.
+    // Applied to the TEMPLATE bodies here, before generated follow-ups are substituted
+    // further down, so a position that ships generated copy is unaffected. Null for a
+    // document with no angle metadata, which leaves every follow-up as it was.
+    const coherence = coherenceForDocument(messagingDoc, variantId)
+    if (coherence) {
+      composedEmails = composedEmails.map(email => {
+        const position = email.sequence_position
+        if (position !== 2 && position !== 3 && position !== 4) return email
+        const body = coherence.bodies[position]
+        return body === email.body ? email : { ...email, body, word_count: countWords(body) }
+      })
+      opening = {
+        tier: 'research',
+        detail: {
+          wording: researchWording,
+          email1_angle: coherence.email1_angle,
+          followup_angles: coherence.angles,
+          swaps: coherence.swaps,
+          unresolved: coherence.unresolved,
+        },
+      }
+      if (coherence.swaps.length > 0 || coherence.unresolved.length > 0) {
+        logger.warn('compose-sequence: sequence coherence changed or could not fix a follow-up', {
+          prospect_id: prospect.id, client_id, variant_id: variantId,
+          swaps: coherence.swaps, unresolved: coherence.unresolved,
+        })
+      }
+    }
   } else {
     // Skipped, not failed. Logged explicitly so "skipped" is never mistaken for
     // "succeeded" when reading logs after a send.
@@ -379,36 +479,135 @@ export async function composeSequence({
       cta_rewritten: false,
     })
 
-    // ── DOES THE PARAGRAPH WE ARE ABOUT TO SHIP READ AS A FIRST LINE? ────────
-    //
-    // ONLY ON THIS BRANCH, because only on this branch does the authored P2 survive to
-    // become the opening. When research replaced it, the question does not arise.
-    //
-    // An author writes P2 knowing a greeting sits above it and the offer line below it, so
-    // it can legitimately be written as a continuation of an observation. That is correct
-    // for the researched path and opens the email mid-thought on this one. Real prospects
-    // received it.
-    //
-    // REPORT ONLY. It logs and does not throw, does not alter the copy and does not stop
-    // the send, matching checkComposedQuestionCount below. A heuristic about prose must not
-    // be able to halt a send, and the copy belongs to whoever approved it.
-    const fallbackOpening = fallbackOpeningParagraph(variantEmails)
-    if (fallbackOpening) {
-      const faults = findStandaloneOpeningFaults(fallbackOpening)
-      if (faults.length > 0) {
-        logger.warn('compose-sequence: fallback opening does not read as a first line', {
-          prospect_id: prospect.id,
-          client_id,
-          variant_id: variantId,
-          messaging_doc_id: messagingDocId,
-          faults: faults.map(f => ({ kind: f.kind, phrase: f.phrase })),
-        })
-      }
-    }
     // Recompute word_count from the body rather than trusting the stored count. On this
     // path P2 was not replaced, so the stored count should already agree; recomputing
     // keeps one source of truth and costs nothing.
     composedEmails = afterSubject.map(email => ({ ...email, word_count: countWords(email.body) }))
+
+    // ── THE FIRM-FACT TIER: the third branch, between research and template ──────
+    //
+    // Deterministic string substitution and a re-validation, no model call (Round 3,
+    // ripple j). Only Email 1 changes: follow-ups stay the template, exactly as for any
+    // prospect without a researched trigger, and the follow-up gate below already keys on
+    // trigger.source, so a firm-fact prospect can never receive generated follow-ups
+    // written against a different Email 1.
+    //
+    // Off unless the approved messaging document says firm_fact_tier.enabled AND the
+    // variant carries lines from the current brief AND the prospect's stored fact passed.
+    // Every other case ships the template above, unchanged, with the reason recorded.
+    const factDecision = decideFirmFactEmail1({
+      messagingContent: messagingDoc,
+      variantId,
+      prospectId: prospect.id,
+      firmFact: dryRun?.firmFact !== undefined ? dryRun.firmFact : (prospect.firm_fact ?? null),
+      company: companyRecord,
+      templateEmail1Body: variantEmails.find(e => e.sequence_position === 1)?.body ?? '',
+      now: new Date(),
+    })
+    if (factDecision.tier === 'firm_fact') {
+      composedEmails = composedEmails.map(email =>
+        email.sequence_position === 1
+          ? { ...email, body: factDecision.body, subject_line: factDecision.subject, word_count: factDecision.word_count }
+          : email,
+      )
+      opening = { tier: 'firm_fact', detail: factDecision.detail }
+      logger.info('compose-sequence: firm-fact Email 1 composed', {
+        prospect_id: prospect.id, client_id, variant_id: variantId, frame_index: factDecision.detail.frame_index,
+      })
+    } else {
+      // TIER 3. The two approved wordings of each line rotate by prospect (rule 8). Rebuilt
+      // from the variant's lines only when wording 0 reproduces the stored body exactly;
+      // otherwise the stored body ships as it always did. See decideTemplateEmail1.
+      const storedEmail1 = variantEmails.find(e => e.sequence_position === 1)
+      const template = decideTemplateEmail1({
+        messagingContent: messagingDoc,
+        variantId,
+        prospectId: prospect.id,
+        storedBody: storedEmail1?.body ?? '',
+        storedSubject: storedEmail1?.subject_line ?? null,
+      })
+      // The firm-fact decision above returns "tier_off" before it ever reads the brief, so
+      // for a client with the tier off THIS is the only place an invalid brief shows: it
+      // has silently stopped the two wordings rotating for every one of their prospects.
+      if (!template.rebuilt && template.reason === 'brief_invalid') {
+        logger.warn('compose-sequence: the outbound brief no longer validates; Email 1 wordings are not rotating', {
+          prospect_id: prospect.id, client_id, variant_id: variantId, messaging_doc_id: messagingDocId,
+          problems: template.problems ?? [],
+        })
+      }
+      if (template.rebuilt) {
+        composedEmails = composedEmails.map(email =>
+          email.sequence_position === 1
+            ? { ...email, body: template.body, subject_line: template.subject, word_count: template.word_count }
+            : email,
+        )
+      }
+      // ── DOES THE PARAGRAPH WE ARE ABOUT TO SHIP READ AS A FIRST LINE? ────────
+      //
+      // ONLY ON THIS BRANCH, because only on this branch does the authored P2 survive to
+      // become the opening. When research replaced it, the question does not arise.
+      //
+      // An author writes P2 knowing a greeting sits above it and the offer line below it, so
+      // it can legitimately be written as a continuation of an observation. That is correct
+      // for the researched path and opens the email mid-thought on this one. Real prospects
+      // received it.
+      //
+      // ON THE PARAGRAPH THAT SHIPS, so it runs here, after the rebuild. It used to read the
+      // stored body before the tier was decided, so for a prospect whose pain wording rotated
+      // to the alternate it described a paragraph that prospect does not receive, and the one
+      // they do receive was never read.
+      //
+      // REPORT ONLY. It logs and does not throw, does not alter the copy and does not stop
+      // the send, matching checkComposedQuestionCount below. A heuristic about prose must not
+      // be able to halt a send, and the copy belongs to whoever approved it.
+      const fallbackOpening = fallbackOpeningParagraph(composedEmails)
+      if (fallbackOpening) {
+        const faults = findStandaloneOpeningFaults(fallbackOpening)
+        if (faults.length > 0) {
+          logger.warn('compose-sequence: fallback opening does not read as a first line', {
+            prospect_id: prospect.id,
+            client_id,
+            variant_id: variantId,
+            messaging_doc_id: messagingDocId,
+            faults: faults.map(f => ({ kind: f.kind, phrase: f.phrase })),
+          })
+        }
+      }
+      opening = {
+        tier: 'template',
+        detail: {
+          reason: factDecision.reason,
+          ...(factDecision.violations ? { violations: factDecision.violations } : {}),
+          // Why the peer rung, built from the stored record, was not there either, and what
+          // it broke when it was tried with its real words and failed.
+          ...(factDecision.peer_reason ? { peer_reason: factDecision.peer_reason } : {}),
+          ...(factDecision.peer_violations ? { peer_violations: factDecision.peer_violations } : {}),
+          ...(template.rebuilt
+            ? { wording: template.wording, wording_counts: template.wording_counts }
+            : { wording: null, wording_not_rotated: template.reason, ...(template.problems ? { brief_problems: template.problems } : {}) }),
+        },
+      }
+      // A rung that was tried and failed is worth seeing; 'tier_off' and 'no_fact' are the
+      // normal resting state and would only be noise. 'brief_invalid' is the loudest of
+      // these: a brief is there and no longer validates, so this client's firm-fact tier
+      // and wording rotation are off for EVERY prospect until it is fixed.
+      //
+      // WHICH RUNG, said plainly. `reason` is about the stored firm fact and `peer_reason`
+      // about the line built from the stored record (see FactTierDecision). Until
+      // 2026-10-02 a failed peer attempt was written into `reason`, and a prospect who never
+      // had a firm fact was logged here as "firm-fact Email 1 rejected".
+      const rungFailed = (reason: string | undefined) => (RUNG_FAILURE_REASONS as readonly string[]).includes(reason ?? '')
+      const factRejected = rungFailed(factDecision.reason) || ['signoff_unreadable', 'brief_invalid'].includes(factDecision.reason)
+      if (factRejected || rungFailed(factDecision.peer_reason)) {
+        logger.warn(factRejected
+          ? 'compose-sequence: firm-fact Email 1 rejected, template ships'
+          : 'compose-sequence: the Email 1 built from the stored record was rejected, template ships', {
+          prospect_id: prospect.id, client_id, variant_id: variantId,
+          reason: factDecision.reason, violations: factDecision.violations ?? [],
+          ...(factDecision.peer_reason ? { peer_reason: factDecision.peer_reason, peer_violations: factDecision.peer_violations ?? [] } : {}),
+        })
+      }
+    }
   }
 
   // Step 5. Append the opt-out footer to every email, last.
@@ -478,15 +677,17 @@ export async function composeSequence({
 
   // The stored copy, BY POSITION. One entry per follow-up the writer can generate; Email 1
   // is personalised by a different mechanism and the breakup has no generated form.
+  const dryFollowups = dryRun?.followups
   const storedProse: Record<number, string | null> = {
-    2: prospect.followup_email2 ?? null,
-    3: prospect.followup_email3 ?? null,
+    2: dryFollowups ? dryFollowups.email2 : (prospect.followup_email2 ?? null),
+    3: dryFollowups ? dryFollowups.email3 : (prospect.followup_email3 ?? null),
   }
+  const storedFingerprint = dryFollowups ? dryFollowups.email1Fingerprint : prospect.followup_email1_fingerprint
 
   // Evaluated once because they are facts about the prospect and about Email 1, not about
   // either follow-up position.
   const notAssigned = trigger.source !== 'research' || arm !== 'generated'
-  const email1Changed = !followupsMatchEmail1(prospect.followup_email1_fingerprint, email1Body)
+  const email1Changed = !followupsMatchEmail1(storedFingerprint, email1Body)
 
   /**
    * ONE POSITION'S VERDICT, in the SAME PRECEDENCE the pair gate used.
@@ -510,7 +711,7 @@ export async function composeSequence({
       prospect_id: prospect.id,
       client_id,
       variant_id: variantId,
-      stored_fingerprint: prospect.followup_email1_fingerprint,
+      stored_fingerprint: storedFingerprint,
       composed_fingerprint: email1Fingerprint,
     })
   }
@@ -538,7 +739,46 @@ export async function composeSequence({
   //
   // Bodies AND subjects. The subject is where it is least excusable and easiest to forget:
   // it is the first thing seen and the shortest piece of text in the email.
-  const emailsWithFooter = finaliseForReading(applied.emails)
+  // ═══ THE READER'S FIRM BY NAME, IN THE TEMPLATE FOLLOW-UPS THAT STILL SHIP ═══
+  //
+  // Operator note 2 on the fourth reading (2026-10-02): Emails 2 and 3 carry light
+  // personalisation whenever we hold it. Every tier: a template-tier prospect's Email 3
+  // offer names their firm, and so does the template follow-up a personalised prospect
+  // keeps. A position whose generated prose was substituted above is already about this
+  // reader and is left alone.
+  //
+  // AFTER substitution and after the coherence swap, on the body that would ship, and
+  // BEFORE the footer: decideFollowupFills compares that body with the stored template
+  // byte for byte and returns it untouched on any doubt.
+  //
+  // Email 1 is not touched here, so its fingerprint, which the generated follow-ups are
+  // matched against, is unchanged.
+  const forWhomShipped = opening.tier === 'firm_fact'
+    ? ((opening.detail as { fills?: { for_whom?: string | null } } | null)?.fills?.for_whom ?? null)
+    : null
+  const slotFills: NonNullable<FollowupRecord['slot_fills']> = {}
+  const withSlotFills = applied.emails.map(email => {
+    const position = email.sequence_position
+    if (position !== 2 && position !== 3 && position !== 4) return email
+    const generated = position !== 4 && proseToApply[position] !== null && !applied.unreadable.includes(position)
+    if (generated) return email
+    const decision = decideFollowupFills({
+      messagingContent: messagingDoc,
+      body: email.body,
+      position,
+      companyName: prospect.company_name ?? null,
+      forWhom: forWhomShipped,
+      reader: { firstName: prospect.first_name ?? null, lastName: prospect.last_name ?? null },
+      company: companyRecord,
+    })
+    if (!decision.filled) {
+      slotFills[position] = { reason: decision.reason }
+      return email
+    }
+    slotFills[position] = { company: decision.fills.company !== null, for_whom: decision.fills.for_whom !== null }
+    return { ...email, body: decision.body, word_count: decision.word_count }
+  })
+  const emailsWithFooter = finaliseForReading(withSlotFills)
 
   // THE OUTCOME, not the intent, and per position. A frame that could not be read is its
   // own reason: the copy existed and cleared every gate, and the template it had to be
@@ -556,6 +796,7 @@ export async function composeSequence({
     arm,
     email1_fingerprint: email1Fingerprint,
     positions,
+    slot_fills: slotFills,
   }
 
   // Step 5b. One question per composed Email 1. REPORT ONLY.
@@ -590,6 +831,7 @@ export async function composeSequence({
     messaging_doc_id: messagingDocId,
     emails: emailsWithFooter,
     followups,
+    opening,
   }
 }
 
@@ -1067,7 +1309,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, personalisation_subject, followup_email2, followup_email3, followup_email1_fingerprint, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name')
+    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, personalisation_subject, followup_email2, followup_email3, followup_email1_fingerprint, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name, firm_fact, company_industry, apollo_enrichment_data')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()
@@ -1086,7 +1328,9 @@ async function resolveVariant(
   prospect: ProspectRow,
   messagingDoc: MessagingContent,
   client_id: string,
-  messagingDocId: string
+  messagingDocId: string,
+  /** True in a dry run: decide the variant and write nothing. */
+  dryRun = false
 ): Promise<string> {
   // Determine available variant keys from the messaging document.
   const availableVariants = messagingDoc.variants
@@ -1132,6 +1376,8 @@ async function resolveVariant(
       available: availableVariants,
     })
 
+    if (dryRun) return reassigned
+
     const { error: moveError } = await supabase
       .from('prospects')
       .update({
@@ -1157,6 +1403,8 @@ async function resolveVariant(
   // Deterministic assignment, shared with the research writer so both target the same
   // variant. No database read. Stable across runs for the same prospect.
   const assigned = assignVariantDeterministically(prospect.id, availableVariants)
+
+  if (dryRun) return assigned
 
   // Write both variant_id and messaging_doc_id together. Fail if write fails.
   const { error: updateError } = await supabase

@@ -26,6 +26,7 @@ import {
   type IneligibleReason,
 } from '@/lib/sourcing/send-eligibility-policy'
 import { requireTierPresent } from '@/lib/sourcing/tier-verdict'
+import { describeCompetitorScreen, screenCompetitors } from '@/lib/sourcing/competitor-screen'
 
 // ── Runtime budget ────────────────────────────────────────────────────────────
 //
@@ -105,6 +106,13 @@ export interface ResearchBatchEntryInput {
    */
   allow_overwrite_trigger?: boolean
   concurrency?: number
+  /**
+   * Also write the personalised Emails 2 and 3. CLI ONLY, like runtime_budget_seconds, and
+   * for the same reason: it is a caller with no HTTP ceiling saying it has the time. The
+   * dashboard route never sets it, because the calls it adds do not fit the 240s budget
+   * that route is admitted against. See ResearchInput.write_followups.
+   */
+  write_followups?: boolean
 }
 
 export type ResearchBatchEntryResult =
@@ -114,6 +122,12 @@ export type ResearchBatchEntryResult =
       use_stored_findings: boolean
       prospects_selected: number
       estimated_seconds: number
+      /** Selected, then excluded because the company sells what the client sells. */
+      competitors_excluded: number
+      /** Selected, then not researched because the competitor check gave no answer. */
+      competitor_check_held: number
+      /** One sentence saying both, or null when the screen changed nothing. */
+      competitor_note: string | null
     }
   | { ok: false; error: string }
 
@@ -150,6 +164,7 @@ export async function runResearchBatchForOrg({
   allow_overwrite_trigger = false,
   runtime_budget_seconds = RUNTIME_BUDGET_SECONDS,
   concurrency = 5,
+  write_followups = false,
   // Defaults to 'inline', which is what the operator HTTP route is: the agent runs in that
   // route's own process. The two CLI scripts override it, because "what did the CLI spend"
   // is a question asked separately from "what did the product spend".
@@ -171,7 +186,7 @@ export async function runResearchBatchForOrg({
   const selected = await selectProspects(supabase, organisation_id, scope, prospect_ids)
   if (!selected.ok) return selected
 
-  const prospects = selected.prospects
+  let prospects = selected.prospects
   if (prospects.length === 0) {
     // Eligibility takes precedence in the message: it is the actionable reason, and the
     // generic ones below would otherwise hide it.
@@ -231,6 +246,36 @@ export async function runResearchBatchForOrg({
         `Refused: ${prospects.length} prospects exceeds the ${RESEARCH_MAX_PROSPECTS}-prospect ceiling for a ` +
         'single run. This entry point runs the batch inside one request and there is no job queue yet, ' +
         'so a larger batch would be killed mid-run by the platform timeout. Run it in smaller batches.',
+    }
+  }
+
+  // ── COMPETITOR SCREEN: a company that sells what the client sells is not researched ──
+  //
+  // After the two refusals above, which cost nothing, and before anything is paid for. The
+  // same call sits in front of the queue path (src/lib/queue/enqueue/research.ts), in the
+  // same commit: two entry points that screened differently would research different sets.
+  // It applies to explicit prospect_ids too, for the reason the gates above do.
+  //
+  // A client whose live messaging document names no competitor category is not screened,
+  // and this is then one read of that document and nothing else.
+  const screen = await screenCompetitors({
+    supabase,
+    organisationId: organisation_id,
+    prospectIds: prospects.map(p => p.id),
+    persist: true,
+  })
+  if (!screen.ok) {
+    return { ok: false, error: `Refused: ${screen.error} Nothing was researched.` }
+  }
+  const competitorNote = describeCompetitorScreen(screen)
+  if (screen.excluded.length > 0 || screen.held.length > 0) {
+    const passedOver = new Set([...screen.excluded, ...screen.held])
+    prospects = prospects.filter(p => !passedOver.has(p.id))
+    if (prospects.length === 0) {
+      return {
+        ok: false,
+        error: `Nothing to research. Every selected prospect was passed over by the competitor check: ${competitorNote}.`,
+      }
     }
   }
 
@@ -297,6 +342,7 @@ export async function runResearchBatchForOrg({
       // decision with different logic and silently drop the whole 'researched' scope.
       skip_existing: false,
       research_path,
+      write_followups,
       // NEVER true here. At 10 or more prospects the batch prints a cost estimate and then
       // opens a readline on stdin. On a serverless surface stdin never answers and the
       // request hangs until the platform kills it.
@@ -322,6 +368,9 @@ export async function runResearchBatchForOrg({
       use_stored_findings,
       prospects_selected: prospects.length,
       estimated_seconds: Math.round(estimate.seconds),
+      competitors_excluded: screen.excluded.length,
+      competitor_check_held: screen.held.length,
+      competitor_note: competitorNote,
     }
   } catch (err) {
     // The batch throws FatalApiError when a provider credit balance runs out, which aborts

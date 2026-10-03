@@ -283,9 +283,9 @@ export function summariseIneligible(reasons: IneligibleReason[]): string {
  */
 export class ProspectUnmailableError extends Error {
   readonly prospect_id: string
-  readonly ineligible_reason: IneligibleReason | 'suppressed'
+  readonly ineligible_reason: IneligibleReason | 'suppressed' | 'tier_rejected'
 
-  constructor(prospect_id: string, reason: IneligibleReason | 'suppressed', detail: string) {
+  constructor(prospect_id: string, reason: IneligibleReason | 'suppressed' | 'tier_rejected', detail: string) {
     super(
       `Prospect ${prospect_id} is not researchable (${reason}): ${detail} ` +
       'No source or model call was made.',

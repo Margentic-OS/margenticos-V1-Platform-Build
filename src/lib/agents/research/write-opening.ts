@@ -240,7 +240,13 @@ export const OPENING_TARGET_WORDS =
  * A code rather than prose, so anything that lists these prospects does not depend on the
  * wording of judge_reasoning.
  */
-export type NotWrittenReason = 'no_usable_candidate'
+export type NotWrittenReason =
+  | 'no_usable_candidate'
+  /**
+   * The fact research selected matched none of the client's triggers that carry an approved
+   * reason, so there is no approved account of what the event means. See approved-reason.ts.
+   */
+  | 'no_approved_reason'
 
 export interface OpeningResult {
   /**
@@ -344,6 +350,14 @@ export interface OpeningResult {
  * prospect burning three writer attempts sent this prompt three times, and it is ~93%
  * static.
  */
+/**
+ * The first words of the block the writer is shown when its reason is the client's approved
+ * one. EXPORTED so the tests that assert it is present, and the ones that assert it is
+ * absent, name the same string: three "absent" assertions were written against a wording
+ * the prompt never contained, and passed whatever the guard did.
+ */
+export const APPROVED_REASON_HEADING = 'THAT REASON WAS APPROVED IN ADVANCE, WORD FOR WORD.'
+
 export function buildWriterAssignment(params: {
   clientName: string
   /**
@@ -359,6 +373,12 @@ export function buildWriterAssignment(params: {
    * exactly as it did before this existed rather than carrying an empty heading.
    */
   prospectReason?: string | null
+  /**
+   * True when prospectReason is the client's APPROVED trigger reason, verbatim, and not a
+   * sentence synthesis wrote. The block then says so and says what follows from it: the
+   * second line states that reason and adds nothing to it. See approved-reason.ts.
+   */
+  reasonIsApproved?: boolean
   /** A second event that strengthens the same reason. Optional, and usually absent. */
   supportingEvent?: string | null
 }): string {
@@ -370,6 +390,31 @@ export function buildWriterAssignment(params: {
   const reason = params.prospectReason?.trim()
     ? `\nTHE REASON (this is your target. Your second line states it, and your closing question\nasks whether the consequence it names is something they are dealing with):\n\n  ${params.prospectReason.trim()}\n`
     : ''
+  // IN THE ASSIGNMENT AND NOT THE SYSTEM PROMPT, for the reason the buyer is: the system
+  // prompt is a cached constant, and this varies by whether the client has approved reasons.
+  const approved = reason && params.reasonIsApproved
+    // NO EXAMPLE SENTENCE, deliberately. This prompt records seven occasions on which one of
+    // its own examples came back near-verbatim, and an example of a second line here would
+    // be every prospect's second line by the end of a batch. The shape is described instead.
+    //
+    // "ABOUT FIRMS IN GENERAL" is doing two jobs. It is what the rule asks for, a statement
+    // true of any firm the event happens to. And it is the form the fact-check accepts: a
+    // sentence about "the firm" or "your firm" is read as a claim about this reader's
+    // situation, which no finding supports, and is rejected. Measured 2026-10-01 on the
+    // first trial of this block, which said neither: 1 of 8 openings survived.
+    ? `\n${APPROVED_REASON_HEADING} It is a statement about firms like the\n` +
+      'reader\'s, not a finding about this reader.\n\n' +
+      'Your second line is that reason, pointed at this event. Open by pointing at what happened,\n' +
+      'in a few words, then say what the reason says it points to. Keep the reason\'s own words\n' +
+      'wherever you can.\n\n' +
+      'WHERE THE REASON HAS TWO PARTS, what the event points to and then what that needs, your\n' +
+      'second line states the FIRST part and stops. Your closing question asks about the SECOND.\n' +
+      'A short second line is right. It does not have to carry the whole reason.\n\n' +
+      'Say it about firms in general: "a firm" or "firms". Never "the firm", and never "your".\n\n' +
+      'Add nothing the reason does not say: no deadline, no amount, nobody who has to do\n' +
+      'something, nothing the reader is short of. A second line that says more than the reason\n' +
+      'says, or says something else, is rejected.\n'
+    : ''
   const supporting = params.supportingEvent?.trim()
     ? `\nA SECOND EVENT that points at the same reason. One sentence may name both, and only if\nit stays under the word cap and still reads plainly:\n\n  ${params.supportingEvent.trim()}\n`
     : ''
@@ -378,7 +423,7 @@ export function buildWriterAssignment(params: {
 You are writing for: ${params.clientName}
 
 Who you are writing to: ${params.buyer}
-${reason}${supporting}
+${reason}${approved}${supporting}
 `
 }
 
@@ -2251,6 +2296,8 @@ export interface WriteAndJudgeParams {
    * before this existed.
    */
   prospectReason?: string | null
+  /** True when prospectReason is the client's approved trigger reason, verbatim. See buildWriterAssignment. */
+  reasonIsApproved?: boolean
   /** The id of a second candidate that strengthens the same reason. Optional. */
   supportingCandidateId?: string | null
   /**
@@ -2493,6 +2540,7 @@ async function writeAndJudgeOpeningInner(params: WriteAndJudgeParams): Promise<O
   const assignment = buildWriterAssignment({
     clientName: params.clientName, buyer: params.buyer,
     prospectReason: params.prospectReason ?? null,
+    reasonIsApproved: params.reasonIsApproved ?? false,
     supportingEvent,
   })
 

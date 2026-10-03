@@ -7,12 +7,15 @@
 // Classification: icp_fit (strong/moderate/weak, or cannot_tell when no grade was reached) + has_dateable_signal (bool) + signal_relevance (use_as_hook/ignore).
 // v1 agent (prospect-research-agent.ts) remains in place until v2 is dogfooded end-to-end.
 
+import { maybeRunFirmFactAfterResearch } from './research/firm-fact'
+import { reassignedFromMissingVariant, reassignmentColumns } from './research/variant-reassignment'
 import fs from 'fs'
 import path from 'path'
 import readline from 'readline'
 import pLimit from 'p-limit'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { assignFollowupArm } from '@/lib/composition/followup-assignment'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { fetchAllSources } from './research/fetch-sources'
 import { synthesizeResearch, loadClientContext }  from './research/synthesize'
@@ -364,7 +367,7 @@ async function refuseIfUnmailable(prospect_id: string, client_id: string): Promi
     .from('prospects')
     // ONE STRING LITERAL, not a concatenation. The typed client infers the row shape from
     // the literal, and a concatenated select widens it to GenericStringError.
-    .select('suppressed, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
+    .select('suppressed, sourced_tier, tiering_reason, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
     // Agent isolation: scoped by organisation as well as id, like every other read here.
     .eq('id', prospect_id)
     .eq('organisation_id', client_id)
@@ -379,6 +382,21 @@ async function refuseIfUnmailable(prospect_id: string, client_id: string): Promi
     throw new ProspectUnmailableError(
       prospect_id, 'suppressed',
       'The prospect is suppressed, so nothing will be emailed to them.',
+    )
+  }
+
+  // TIERING HAS REJECTED THIS PROSPECT SINCE IT WAS SELECTED. Added 2026-10-01. The tier
+  // gate was at selection only, so a job queued before a removal ran anyway: a prospect
+  // the competitor screen excluded an hour after it was queued was still researched at
+  // about $0.21, with no email to follow, because the send gate requires a tier.
+  //
+  // THE REJECTED SHAPE ONLY: no tier AND a reason (tier-verdict.ts). No tier with no
+  // reason is "not yet tiered", which is the state a settings-change thaw leaves a row in,
+  // and refusing that would refuse rows that are merely waiting.
+  if (live.sourced_tier === null && live.tiering_reason !== null && live.tiering_reason !== undefined) {
+    throw new ProspectUnmailableError(
+      prospect_id, 'tier_rejected',
+      `Tiering removed this prospect (${String(live.tiering_reason)}), so nothing will be emailed to them.`,
     )
   }
 
@@ -437,6 +455,12 @@ export async function updateProspect(
    * a prospect who already had a variant and for every caller that does not choose one.
    */
   chosenVariantId?: string | null,
+  /**
+   * The variant this prospect is leaving because the document no longer has it, from
+   * reassignedFromMissingVariant. Recorded beside the new variant so MON-033 can see the
+   * move. Null or omitted records nothing.
+   */
+  reassignedFromVariantId?: string | null,
 ): Promise<void> {
   const supabase = getServiceClient()
 
@@ -494,7 +518,10 @@ export async function updateProspect(
   // to, and it stays correct whether or not the judge sent the opening. A prospect held on
   // HOLD still ships that variant's authored Email 1, and that is the variant whose offer
   // line best answered their hook, which is a better template for them than the hash's.
-  if (chosenVariantId) update.variant_id = chosenVariantId
+  if (chosenVariantId) {
+    update.variant_id = chosenVariantId
+    Object.assign(update, reassignmentColumns(reassignedFromVariantId, new Date()))
+  }
 
   // Auto-suppress on disqualification.
   if (synthesis.qualification_status === 'disqualified') {
@@ -839,7 +866,9 @@ export async function runProspectResearchAgentV2({
   prospect_id,
   client_id,
   use_stored_findings = true,
+  stored_findings_required = false,
   research_path = 'inline',
+  write_followups = false,
   frameRegistry,
   uniqueness,
 }: ResearchInput & {
@@ -883,6 +912,14 @@ export async function runProspectResearchAgentV2({
       : null
 
     if (use_stored_findings && !stored) {
+      // THE CALLER SAID THERE ARE STORED FINDINGS AND BUDGETED FOR NOTHING ELSE. Reaching
+      // here then means the read just above failed or lost a race with the 30-day window.
+      // Fetching would run four sources, a synthesis, the writer and the follow-up writer
+      // inside a job sized for a reuse run. Thrown, the job is retried, and the retry reads
+      // again.
+      if (stored_findings_required) {
+        throw new Error(`prospect-research-v2: stored findings were required for ${prospect_id} and none could be read; nothing was fetched`)
+      }
       logger.warn('prospect-research-v2: no usable stored findings, falling back to a fetching run', {
         prospect_id,
       })
@@ -1022,7 +1059,17 @@ export async function runProspectResearchAgentV2({
       // need Email 1 names is checked against it. Null when the client has no positioning
       // document, which turns the check off rather than guessing at what the service does.
       positioningText: clientCtx.positioningText,
+      // The client's triggers and their approved reasons, off the same read as the buyer
+      // title above, which is a SECOND read: synthesis numbered its triggers from its own,
+      // earlier one, and a stored-findings run carries positions from an earlier day. So a
+      // position is checked against the trigger's recorded wording before its reason is
+      // used. See resolveApprovedReason.
+      triggers: clientCtx.triggers,
       uniqueness,
+      // Only where the caller said it has the time. See ResearchInput.write_followups. The
+      // arm is read exactly as phase 2 of the batch path reads it, so the two paths cannot
+      // put different prospects in the generated arm.
+      writeFollowupEmails: write_followups && assignFollowupArm(ctx.id) === 'generated',
     })
 
     logger.info('prospect-research-v2: judge verdict', {
@@ -1095,12 +1142,31 @@ export async function runProspectResearchAgentV2({
     await updateProspect(
       ctx, synthesis, resultId, opening,
       stored ? (stored.synthesized_at ?? stored.created_at) : null,
-      null,
+      // The follow-ups, when this run was asked for them. NULL OTHERWISE, which writes the
+      // three columns NULL: a caller that did not ask must not leave an earlier run's
+      // follow-ups stranded beside a newly written Email 1 they were not written against.
+      write_followups
+        ? {
+            email2: opening.email2?.prose ?? null,
+            email3: opening.email3?.prose ?? null,
+            email1Fingerprint: opening.followup_email1_fingerprint ?? null,
+          }
+        : null,
       // Only when THIS run chose it. 'assigned' means the row already carried one and there
       // is nothing to write; every other basis means this run decided, and composition has to
       // be told or it will hash and land the opening above a different offer line.
       variantChoice.basis === 'assigned' ? null : variantId,
+      reassignedFromMissingVariant(extras.variant_id, variantChoice.basis === 'assigned' ? null : variantId, messaging.content),
     )
+
+    // The firm-fact tier, for a prospect headed to the template. No-op unless the client's
+    // document switched it on; never throws.
+    await maybeRunFirmFactAfterResearch({
+      supabase, apiKey, organisationId: client_id, prospectId: ctx.id,
+      messagingContent: messaging.content,
+      openingWritten: opening.written_won && opening.opening !== null,
+      usagePath: research_path,
+    })
 
     const summaryLine =
       `${fullName} at ${ctx.company_name ?? 'unknown'}. ` +
@@ -1255,6 +1321,7 @@ export async function runProspectResearchAgentV2Batch({
   concurrency = 5,
   use_stored_findings = true,
   research_path = 'inline',
+  write_followups = false,
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
   const failures: ResearchBatchFailure[] = []
   const frame_collisions: ResearchFrameCollision[] = []
@@ -1380,6 +1447,7 @@ export async function runProspectResearchAgentV2Batch({
       try {
         const result = await runProspectResearchAgentV2({
           prospect_id, client_id, frameRegistry, uniqueness, use_stored_findings, research_path,
+          write_followups,
         })
         if (result.bridge_text && result.question_text) {
           shipped.push({

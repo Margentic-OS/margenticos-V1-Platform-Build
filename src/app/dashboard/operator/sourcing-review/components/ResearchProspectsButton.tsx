@@ -24,6 +24,8 @@ interface ResearchResult {
   failed: number
   skipped: number
   use_stored_findings: boolean
+  /** Why fewer were researched than were selected, from the competitor check. */
+  competitor_note?: string | null
   bridge_frame_collisions: number
   question_collisions: number
   distinct_questions: number
@@ -208,6 +210,12 @@ export function ResearchProspectsButton({ organisationId, verdict }: ResearchPro
           {result.failed} failed, {result.skipped} skipped, {result.distinct_questions} distinct closing questions.
           {result.use_stored_findings ? ' Findings on file were reused where available.' : ''}
         </div>
+
+        {result.competitor_note && (
+          <div className="text-xs text-text-secondary">
+            Not researched: {result.competitor_note}.
+          </div>
+        )}
 
         {(result.bridge_frame_collisions > 0 || result.question_collisions > 0) && (
           <div className="px-3 py-2 rounded-[6px] bg-[#FEF7E6] border border-[#F0D080] text-xs text-[#7A4800]">

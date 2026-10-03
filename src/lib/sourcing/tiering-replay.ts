@@ -50,7 +50,9 @@ export interface ReplayProspect extends EnrichedProspect {
 /** What tiering reads from a prospect, plus the verdict stored on the row. */
 export const REPLAY_COLUMNS =
   'id, organisation_id, email_status, enrichment_status, job_title, company_headcount, ' +
-  'company_industry, company_name, sourced_tier, tiering_reason, fit_score'
+  // competitor_check: the competitor screen's stored verdict. Without it the replay would
+  // show an excluded company gaining a tier under any settings, which the real pass never does.
+  'company_industry, company_name, sourced_tier, tiering_reason, fit_score, competitor_check'
 
 export const REPLAY_PAGE_SIZE = 1000
 

@@ -173,9 +173,12 @@ thing you could do here. Say what happens, who does it, and what the reader stop
 
 EMAIL 3 TAKES A DIFFERENT ANGLE ON THE SAME FINDING.
 
-If the findings hold a second usable fact, use it. If they do not, stay on the first one and
-come at it from a different consequence: what it costs somewhere else, what it makes harder
-later, how it looks from another seat.
+Stay on the thing email 1 observed and come at it from a different consequence: what it
+costs somewhere else, what it makes harder later, how it looks from another seat.
+
+You are shown the finding email 1 opened on, and nothing else from the research, on purpose.
+Where a supporting event is given it backs the same reason: it may be mentioned in passing,
+and neither email may open on it.
 
 A different angle. Never a second topic, and never the same point said again.
 
@@ -250,7 +253,7 @@ that is the one word in it you must not copy: the email greets them by name on t
 above, and a second use reads as talking about them rather than to them.
 
 THE SAME INSTRUCTION EMAIL 1'S WRITER HAS, and it is here for the same reason it is there.
-The gate below rejects it either way, and a rejection costs BOTH follow-ups.
+The gate below rejects it either way, and a rejection costs that email.
 
 No figure from their record: no revenue, no headcount, no funding, no money amount. Qualify
 by role, stage or situation instead. A wrong number reads as a database lookup.
@@ -302,7 +305,13 @@ export interface WriteFollowupsParams {
   email1Body: string
   /** The approved offer line from email 1, for the narrow offer-line echo gate. */
   offerLine: string
-  /** The findings block, so email 3 can reach a second fact where one exists. */
+  /**
+   * The finding Email 1 opened on, and the supporting event where there is one. NOT every
+   * candidate research produced: see candidatesForThread in produce-opening.ts. A follow-up
+   * carries Email 1's thread forward (operator note 4, 2026-10-01), and a writer shown six
+   * other facts opens on one of them. Measured on 71 stored follow-ups: five opened on a
+   * different fact from the one Email 1 used.
+   */
   findings: string
   /**
    * WHY THIS PROSPECT HAS A REASON, the same sentence Email 1's second line states. Emails
@@ -466,7 +475,19 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
       text = block?.text?.trim() ?? ''
     } catch (err) {
       throwIfFatal(err, `followups for prospect ${params.prospectId}`)
-      throw err
+      // A LATER ATTEMPT FAILING DOES NOT UNDO AN EARLIER ONE. By the second attempt this
+      // function already holds billed usage, the first attempt's recorded prose and often
+      // one accepted email. Rethrowing discarded all three: the caller catches the throw
+      // and stores no follow-ups, so a paid, accepted email 2 was lost because the call
+      // for email 3 hit a network fault. Stop asking, and return what there is, exactly
+      // as when the attempts run out. A FIRST attempt that fails has nothing to keep and
+      // still throws, and a spent balance (throwIfFatal above) always does.
+      if (i === 0) throw err
+      logger.warn('research/write-followups: a retry call failed, keeping what earlier attempts produced', {
+        prospect_id: params.prospectId, attempt: i + 1, error: String(err),
+        kept_email2: kept2 !== null, kept_email3: kept3 !== null,
+      })
+      break
     }
 
     const parsed = parseFollowupOutput(text)

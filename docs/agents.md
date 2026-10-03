@@ -1301,3 +1301,133 @@ There is no operator UI for this yet — see the Notion Backlog.
   suggestion predates provenance recording. Regenerate rather than bypassing this.
 - **"did not pass in N call(s)"** — the slot genuinely failed its gates 8 times. Read the
   logged violations; the variant may be asking for copy the current rules cannot produce.
+
+---
+
+## Outbound template agent and firm-fact extraction (added 2026-09-30)
+
+Two new model-using components, both described in full in `docs/firm-fact-tier.md` and
+ADR-062:
+
+- **`src/agents/outbound-template-agent.ts`** writes a client's template variants, one per
+  lead pain angle, from the outbound brief in their messaging document, and from nothing else. Inputs: the brief
+  and the sender's sign-off. Output: a pending messaging suggestion, never an approval.
+  Isolation: it is given one organisation's brief and reads no other client's data.
+- **`src/lib/agents/research/firm-fact.ts`** extracts one verified clause about what a
+  template-bound prospect's firm does, from website text research already stored for THAT
+  prospect and organisation. Capped at $0.02 a prospect.
+
+Both are stateless and take the organisation id on every call.
+
+**Changed 2026-10-02 (the operator's fourth reading).** The template agent writes one
+flowing offer sentence, contractions, consequences that follow the brief's own, opener
+frames from a closed list of neutral words, and follow-ups that can carry the reader's firm
+by name through a `{company}` slot. The firm-fact extraction repairs a clause by removing
+words before refusing it (the first item of a list, a cut at the word cap). Composition,
+which makes no model call, fills `{company}` from `prospects.company_name` through
+`src/lib/composition/company-short-name.ts`, and only for a name a sentence can carry. The
+rules, their check names and the measurements are in `docs/firm-fact-tier.md`.
+
+
+## Competitor screen, the thread rule and the approved reason (added 2026-10-01)
+
+Three rules from the operator's notes on the second reading file. Each is a decision record
+(ADR-063, ADR-064, ADR-065); this is what each one does and what to check.
+
+### Competitor screen — `src/lib/sourcing/competitor-screen.ts`
+
+**What it does.** Before research is paid for, it removes a prospect whose company sells
+what the client sells. The categories are in the client's outbound brief
+(`competitor_categories`). Code looks for the category's phrases in what the data provider
+records about the company. Only a company carrying a phrase is asked about, in one small
+model call per category it carries a phrase from, stopping at the first yes. The model is
+shown the provider's record and the top of the company's own homepage. A "yes" stands only
+on two pieces of evidence code can find: a name, label or tag carrying one of the category's
+phrases, or a run of words from the homepage.
+
+**What it connects to.** Both research entry points call it
+(`research-batch-entry.ts`, `queue/enqueue/research.ts`). An excluded prospect loses its
+tier with the reason `competitor`, and `classifyTier` reads the stored verdict first so no
+later tiering run hands the tier back. Isolation: every read and write filters on
+`organisation_id`, and the categories are one client's own.
+
+**What to check if it breaks.**
+- *Research refuses with "Could not check the selection for competitors".* The screen could
+  not read. It refuses the run; it does not pass the selection unchecked.
+- *Research refuses with "The competitor list in the outbound brief is not usable".* The
+  list is there and no category in it can be used (a phrase under three characters, a
+  missing statement). Fix the brief. It refuses, because an unusable list would otherwise
+  pass every prospect unscreened.
+- *Prospects are "held because the competitor check gave no answer".* The model call failed,
+  the run met more than 60 questions, or the company's homepage could not be read and the
+  model said "no" without it. That last case is held ONCE: the next run accepts the answer,
+  so a site that never loads does not hold a buyer forever. They are asked about next run.
+- *A buyer was excluded.* Read `prospects.competitor_check`: it holds the model's word and
+  the evidence. Narrow the category in the brief (reword it, add to `not_this`, remove a
+  phrase, or remove the category), then
+  `scripts/run-competitor-screen.ts --rescreen-excluded --commit`. Each restored prospect
+  is printed under RESTORED.
+- *A competitor got through.* Its provider record carried none of the phrases, so it was
+  never asked about. Add the phrase to the brief.
+
+**Why a model.** Whether a company sells a service as a core line, read from a noisy tag
+list and a homepage, is a judgement (ADR-018). The phrase step that decides who is asked is
+deterministic, and so is the check on the evidence the model cites.
+
+### The thread rule — `src/lib/composition/thread-carried.ts`
+
+**What it does.** A personalised Email 1 is not uploaded unless Email 2 or Email 3 is a
+personalised follow-up written against it. The upload holds a prospect that fails: back to
+pending, with a reason on the row that names each position.
+
+**What it connects to.** The upload action reads it after composing each prospect. The
+follow-up writer (`write-followups.ts`) is now shown only the finding Email 1 opened on.
+`scripts/backfill-followups.ts` writes what a held prospect is waiting for.
+
+**Who writes the follow-ups.** The batch research path (both phases, including a run that
+reuses stored findings) and research run from the command line. Research started from the
+dashboard's inline button does not: the calls do not fit its time budget, so those
+prospects are held until the backfill has run. If the follow-up call itself fails, the
+research is still stored and the prospect is held for the backfill.
+
+**What to check if it breaks.** If every personalised prospect is held after a new messaging
+document is approved, that is the rule working: the new offer line retires the stored
+follow-ups. Run the backfill, then upload again. If a prospect is still held afterwards,
+read the backfill's closing list, `STILL HELD AT UPLOAD`: it names each prospect it cannot
+write for and why. Research older than 30 days, and an Email 1 the approved-reason rule
+would not write today, both need the prospect's research run again.
+
+### The approved reason — `src/lib/agents/research/approved-reason.ts`, `reason-match.ts`
+
+**What it does.** The personalised opening's second line states the reason the client
+approved for the trigger the selected fact matched, in the client's ICP
+(`tier_1.triggers[].reason`). A fact that matched no trigger carrying a reason is not
+personalised. After the writer has written, one model call reads the second line back
+against the reason and rejects a line that says something else, or that adds a deadline, an
+amount, who must act, what the reader lacks, or how things stand for them.
+
+**What it connects to.** `produceOpening`, which both research paths call, and the follow-up
+backfill, which resolves the reason through the same function and does not write follow-ups
+for an opening the rule would not produce. The stopped prospects appear on the client
+page's "writer stopped" list with the reason. Synthesis prefers a fact that matched a
+trigger with an approved reason when one is eligible, and stores the trigger's wording
+beside its position, so a reordered trigger list is followed and a rewritten trigger no
+longer matches.
+
+**It is also a hold at upload** (`src/lib/composition/opening-reason.ts`). A personalised
+Email 1 is sent only if the record on the prospect says it was written to one of the
+client's approved reasons as they read today. Every opening written before the rule, and
+every one held to a reason since reworded, is held until its research is run again. The
+follow-up backfill reads the same verdict first and does not write for such an opening.
+
+**What to check if it breaks.**
+- *The upload holds leads because the first email "was not written to one of this client's
+  approved trigger reasons".* Run those prospects' research again from the command line.
+  The backfill cannot release them.
+- *Personalised openings have fallen.* Count `no_approved_reason` on the "writer stopped"
+  list. If many good facts are listed, the trigger list is missing a trigger for that kind
+  of event.
+- *The second line reads like a task, not a direction.* Reword the approved reason in the
+  ICP. The code holds the line to that sentence and to nothing else.
+- *The log says "no approved trigger reason to hold the opening to".* The client's ICP has
+  no trigger with a reason. The rule is not applied to that client.

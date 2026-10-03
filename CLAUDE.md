@@ -755,6 +755,33 @@ Per ADR-013, current agent model assignments:
                                                        (local-dev workaround —
                                                         revert to opus-4-6 when
                                                         streaming works stable)
+  Outbound template agent (from the outbound brief):   claude-opus-4-6, ONE VARIANT PER CALL
+                                                       (generation and repair), streamed,
+                                                       NO THINKING; and a scope judge and a
+                                                       peer label judge, both on
+                                                       claude-sonnet-4-6 at temperature 0.
+                                                       Asked for several variants at once
+                                                       the generator checked its drafts
+                                                       inside its answer and was cut off
+                                                       before the JSON; with thinking on
+                                                       (adaptive, then a budget it did not
+                                                       honour) it spent whole calls
+                                                       thinking and wrote nothing. Do not
+                                                       switch thinking on unmeasured.
+                                                       Once per regeneration, never per
+                                                       prospect. See ADR-062.
+                                                       Sonnet as the WRITER was tried on
+                                                       2026-10-02 and abandoned: first
+                                                       drafts broke 100+ rules each. Opus
+                                                       4.6 costs $5 in / $25 out per MTok;
+                                                       the repo's price table said $15/$75
+                                                       until 2026-10-02, so every Opus spend
+                                                       printed before then was 3x too high.
+  Firm-fact extraction (template-bound prospects):     claude-sonnet-4-6, temperature 0, and a
+                                                       SEPARATE faithfulness judge on
+                                                       claude-haiku-4-5-20251001. PER PROSPECT,
+                                                       capped by construction at $0.02 for both
+                                                       calls at full price. See ADR-062.
   Prospect research — synthesis, writer, judges:       claude-sonnet-4-6
                                                        CORRECTED 2026-08-24. This list and
                                                        ADR-013 both said haiku-4-5. The code
@@ -770,6 +797,25 @@ Per ADR-013, current agent model assignments:
                                                        or six. This is where the per-prospect
                                                        Anthropic spend is, and where prompt
                                                        caching pays.
+                                                       THAT COUNT IS THE FLOOR, NOT THE WHOLE.
+                                                       Each writer attempt that survives its
+                                                       deterministic gates also pays for up to
+                                                       three verifier calls on the same model:
+                                                       the fact-check, the reason check (added
+                                                       2026-10-01, ADR-065: does the second
+                                                       line say what the client's approved
+                                                       trigger reason says) and the need-match
+                                                       check. The follow-up writer adds its
+                                                       own. Read research_usage for a figure.
+  Competitor screen (before research):                 claude-haiku-4-5-20251001, temperature
+                                                       0. One call per competitor CATEGORY a
+                                                       prospect's provider record carries a
+                                                       phrase from, stopping at the first yes,
+                                                       and none for anyone else. A reply cut
+                                                       off at the token limit is asked again
+                                                       once. At most 60 questions a run. A
+                                                       stored verdict is reused until the list
+                                                       changes. See ADR-063.
   Composition (bridge sentence):                       NONE. Composition makes zero model
                                                        calls. BRIDGE_ENABLED has been false
                                                        since 5047e24 (2026-08-19).
@@ -913,6 +959,60 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      2026-09-18: legal Email 1s at 46 and 41 words, rejected only on length,
                      and the only routes back over 50 broke either the slot rule or the
                      25-word sentence cap. Three gates, no legal move, 7 calls burned
+  FIRM-FACT Email 1: 35 to 85 words (75 until 2026-10-02), a SECOND Email 1 band
+                     (FACT_EMAIL1_WORD_LIMITS, beside EMAIL_WORD_LIMITS). It governs only
+                     the Email 1 a tier 2 prospect receives: greeting, opener from their own
+                     site, pain, offer, question, sign-off. Every other Email 1 keeps 40 to
+                     90. Brief-generated templates are also held to the READER RULES in
+                     every email, enforced by
+                     src/lib/outbound-templates/validate-templates.ts: 15-word sentences
+                     (22 for the one offer sentence), grade 5 with slots masked, 2 sentences
+                     and 30 words per paragraph, no paragraph opening on "I". Those are
+                     stricter than the bands here and apply ONLY to templates written by
+                     the outbound template agent.
+                     SIX MORE RULES were added on 2026-10-02 from the operator's fourth
+                     reading: an opener frame never judges or praises (frame_judges);
+                     contractions, never the written-out pair (stiff_wording); a consequence
+                     opens on a linking phrase (consequence_link); the offer is ONE sentence,
+                     what we do then what the reader gets (offer_shape), which REVERSES the
+                     outcome-first shape of 2026-10-01; Emails 2 and 3 name the reader's
+                     firm through {company}, a follow-up-only slot with a slot_free form
+                     (followup_company_missing); and the opener clause has its own reading
+                     grade, graded alone with names masked (opener_clause_grade, cap 16).
+                     The scope judge asks sells_outcome, and is not asked about fragments
+                     on a break-up. Prompt and validator change together, as before.
+                     THREE MORE the same day, from running and reviewing those six:
+                     a frame's own words come from a CLOSED LIST (frame_words, FRAME_WORDS,
+                     stated word for word in the prompt), because praise in an unlisted
+                     word passed and the first live run wrote "Know {does}."; every
+                     consequence holds a word of its angle's outcome, symptom or
+                     consequence in the brief, and an Email 1 pain's two wordings between
+                     them say every part of the brief's consequence
+                     (consequence_from_brief); and a follow-up's slot_free form is held to
+                     the same pain and ask rules as its text, since it is what a prospect
+                     with no usable name is sent. A WRITTEN-OUT "let us" IS NOT REFUSED:
+                     it does not contract, and "let's" is a different sentence.
+                     FIFTH READING, 2026-10-02: no phrase said more than twice across a
+                     sequence (phrase_repeat) and no word in two sentences in a row
+                     (consecutive_word; two forms count as one word only by a listed
+                     ending: plan/planning, hard/harder), checked on every wording, on the
+                     follow-ups and on the email a firm-fact prospect receives, and held
+                     again at composition between the opener and the sentence under it;
+                     "Could" asks a person, a thing takes "Would" (ask_could); {peer_group}
+                     only in the Email 1 pain line; at least one opener frame does not name
+                     the site (frame_site_free). The scope judge also names unnatural
+                     phrasing. See src/lib/style/repetition.ts and docs/firm-fact-tier.md.
+                     ELEVEN MORE RULES were added on 2026-10-01 from the operator's read of
+                     the first reading file (consequences as possibilities, no manual-task
+                     wording, the question in its own paragraph, proof once per sequence and
+                     only the lead differentiator in an Email 1 offer, symptoms not
+                     diagnoses, one variant per lead angle, two wordings per line, and the
+                     rest). The table is in docs/firm-fact-tier.md. Each is in
+                     validate-templates.ts or the brief validator AND stated to the model in
+                     OUTBOUND_TEMPLATE_SYSTEM_PROMPT: change both together.
+                     MANUAL-TASK WORDING HAS NO UNIVERSAL LIST. It lives in each client's
+                     brief under avoid_wording, because for another client the paperwork is
+                     the product. A universal pattern was written and removed the same day.
   Email 2 body:      30 to 85 words. NOT chained to Email 1. The coupling was DELETED on
                      2026-08-28, not relaxed. All four emails are written in one response,
                      so Email 1's final word count does not exist while Email 2 is being
@@ -927,6 +1027,11 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      This is the SAME shape as the deleted Email 2 rule and is kept
                      deliberately: it binds only when Email 2 lands near its 30-word floor,
                      and it was not implicated in any measured failure. See BACKLOG MSG-02.
+                     NO LONGER TRUE OF THE BRIEF-GENERATED TEMPLATES, measured 2026-10-02:
+                     their Email 2 has no offer and their Email 3 has a one-sentence one,
+                     so the rule binds on every variant, and it failed a variant that had
+                     nothing else wrong (40 words against 37). Kept for now; on the
+                     Backlog as a decision.
   Email 4 body:      up to 50 words. NO FLOOR. A breakup at 26 words is not a defect,
                      and the old floor of 30 cost a full regeneration call each time
   Sign-off:          TWO mandatory lines at the end of every email body, consecutive,
@@ -2097,6 +2202,47 @@ For quick reference. Full text in /docs/ADR.md.
            reset only when the built request changes, and only a change tiering reads
            (TIERING_SPEC_FIELDS, the type tiering is compiled against) re-queues a
            removed prospect. persistIcpFilterSpec no longer exists
+
+  ADR-062  Email 1 is routed through three tiers (research, firm fact, template); templates
+           are generated from a confirmed outbound brief in the messaging document, and the
+           brief is the generator's only client input. Firm-fact extraction is capped at
+           $0.02 a prospect by construction. A stored fact is a FROZEN VERDICT and carries
+           FIRM_FACT_CHECKS_VERSION (23 on 2026-10-02): bump it whenever an extraction check changes what
+           passes, or the change reaches no stored row. Composition re-runs "names nothing
+           specific" on the stored words, which reaches a TIGHTENING of that one check and
+           nothing else: a fact stored as failed keeps no words to re-read.
+           WHAT NAMES NOTHING IS PER CLIENT: the brief's generic_kind_words, never a word
+           list in shared code. One variant's offer is the NEUTRAL line: it may sell only
+           an outcome that answers every lead angle, and it goes to the lead angle whose
+           own first answer is that outcome. Below the website rungs, Email 1 may open
+           on a line BUILT IN CODE from the provider record ("Can see you run an HR
+           consultancy."): no model, no judge, and vetoed by any other kind our own
+           website reading stored. See docs/firm-fact-tier.md
+  ADR-063  A prospect that sells what the client sells is excluded BEFORE research. The
+           categories live in the outbound brief. Phrases are checked in code against the
+           provider's record; only a company carrying one is asked about, in one Haiku call
+           that is shown the company's own homepage. Yes excludes (a tier removal, reason
+           'competitor'); no and unclear stay in scope; no answer HOLDS. classifyTier reads
+           the stored verdict first, so no re-tier hands the tier back
+  ADR-064  A personalised Email 1 is HELD at upload unless Email 2 or 3 is personalised too
+           (thread-carried.ts). The follow-up writer is shown only the fact Email 1 opened
+           on. APPROVING A NEW MESSAGING DOCUMENT RETIRES EVERY STORED FOLLOW-UP, so run
+           scripts/backfill-followups.ts before the next upload. THE BACKFILL CANNOT WRITE
+           FOR EVERY HELD PROSPECT and prints the ones it cannot, each with what it needs
+           (STILL HELD AT UPLOAD). Follow-ups are written by the batch path and the command
+           line, NOT by the dashboard's inline research button.
+           sent_sequences is written with the service-role client; it was the session
+           client, and held zero rows
+  ADR-065  A personalised opening argues from the client's APPROVED trigger reason, verbatim.
+           A selected fact that matched no trigger carrying a reason is not personalised
+           (not_written_reason 'no_approved_reason'). The finished second line is read back
+           against the reason by one Sonnet call, and the fact-check may cite the reason.
+           The yield cost is NOT established: 5 of 8 against 6 of 8, inside the noise.
+           HELD AT UPLOAD TOO (opening-reason.ts): a personalised Email 1 is sent only if
+           the record on the prospect says it was held to a reason the client still has.
+           EVERY OPENING WRITTEN BEFORE THE RULE IS HELD until its research is run again;
+           the follow-up backfill cannot release it. The trigger reasons come through a
+           checked read: a failed read stops the upload, never "no reasons"
 
 ---
 

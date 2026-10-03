@@ -38,6 +38,7 @@
 //   send eligibility  unmailable, and writer plus judge is three or more Anthropic calls
 //                     spent on copy that can never be sent.
 
+import { maybeRunFirmFactAfterResearch } from './research/firm-fact'
 import { createClient } from '@supabase/supabase-js'
 import Anthropic from '@anthropic-ai/sdk'
 import type { Message } from '@anthropic-ai/sdk/resources/messages'
@@ -45,6 +46,7 @@ import { logger } from '@/lib/logger'
 import { overusedPhrases, OVERUSE_FRACTION } from '@/lib/agents/research/batch-uniqueness'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { loadProspectContext } from './research/prospect-context'
+import { reassignedFromMissingVariant } from './research/variant-reassignment'
 import {
   synthesisFromMessage,
   synthesisFallback,
@@ -202,8 +204,12 @@ export async function runProspectResearchCollect({
     // point the doc-superseded comparison at a different segment's document than the one
     // actually snapshotted. This line existed as a comment claiming an override that the
     // code did not perform; the claim is now true.
-    const { ctx: liveCtx } = await loadProspectContext(supabase, prospect_id, client_id)
+    const { ctx: liveCtx, extras: liveExtras } = await loadProspectContext(supabase, prospect_id, client_id)
     const ctx = { ...liveCtx, segment_id: entry.segment_id }
+    // The variant on the row now, if this entry's variant replaces it BECAUSE the document
+    // the entry was written against does not have it. Recorded with the write: see
+    // variant-reassignment.ts.
+    const reassignedFrom = reassignedFromMissingVariant(liveExtras?.variant_id, entry.variant_id, entry.messaging_content)
 
     // ── Rebuild the synthesis. THE SAME FUNCTION THE INLINE PATH CALLS. ───────
     //
@@ -290,12 +296,18 @@ export async function runProspectResearchCollect({
     // pure waste. The same policy module the enqueue gate uses, so the two cannot drift.
     const { data: liveRow } = await supabase
       .from('prospects')
-      .select('suppressed, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
+      .select('suppressed, sourced_tier, tiering_reason, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
       .eq('id', prospect_id)
       .eq('organisation_id', client_id)
       .single()
 
     const suppressed = liveRow?.suppressed === true
+    // Tiering has removed this prospect since phase 1 ran: no tier AND a reason. The same
+    // rule, in the same commit, as the inline agent's re-read (refuseIfUnmailable), so the
+    // two paths cannot disagree about who the writer is paid for. The competitor screen is
+    // the usual cause: it excludes by removing the tier.
+    const tierRejected = !!liveRow && liveRow.sourced_tier === null
+      && liveRow.tiering_reason !== null && liveRow.tiering_reason !== undefined
     const eligibility = checkResearchEligibility({
       independent_verified_at:      (liveRow?.independent_verified_at as string | null) ?? null,
       independent_email_status:     (liveRow?.independent_email_status as string | null) ?? null,
@@ -310,8 +322,8 @@ export async function runProspectResearchCollect({
     // classifiedAt, so a wrong value here makes an untouched verdict look freshly reached.
     const synthesizedAt = await batchEndedAt(supabase, entry.batch_id)
 
-    if (suppressed || !eligibility.eligible) {
-      const reason = suppressed ? 'suppressed' : (eligibility.eligible ? 'unknown' : eligibility.reason)
+    if (suppressed || tierRejected || !eligibility.eligible) {
+      const reason = suppressed ? 'suppressed' : tierRejected ? 'tier_rejected' : (eligibility.eligible ? 'unknown' : eligibility.reason)
       logger.info('prospect-research-collect: no longer mailable, skipping writer and judge', {
         prospect_id, entry_id: entry.id, reason,
       })
@@ -335,6 +347,7 @@ export async function runProspectResearchCollect({
         // which template this prospect belongs to, and the authored Email 1 that ships is
         // that variant's. See resolveVariantId.
         entry.variant_id,
+        reassignedFrom,
       )
       await markEntryCollected(supabase, entry.id, false)
       await reportBatchRepetition(supabase, entry.batch_id)
@@ -365,23 +378,23 @@ export async function runProspectResearchCollect({
       // entry written before this field existed carries no key at all and reads back
       // undefined, which turns the check off for that entry, never asserts an empty document.
       positioningText: entry.client_context?.positioningText ?? null,
+      // THE SNAPSHOT'S TRIGGERS, which is the list synthesis matched against, so a
+      // candidate's trigger position and this list agree by construction. An entry written
+      // before the field existed reads back undefined, and the rule is then not applied.
+      triggers: entry.client_context?.triggers ?? null,
       // No batch-uniqueness registry: it is scoped to one in-process batch run and this
       // phase processes one prospect per job.
       //
-      // ═══ THE FOLLOW-UP CALL RUNS HERE, AND ONLY HERE ═══
+      // ═══ THE FOLLOW-UP CALL RUNS HERE ═══
       //
-      // The batch path, not the inline one, and that is enforced by arithmetic rather than
-      // chosen by preference. QUEUE_CONFIG declares a worst case per job type and asserts
-      // at module load that it fits the worker budget:
-      //
-      //     research          worstCase 240 + margin 30 = 270 against a 280s budget
-      //     research_collect  worstCase 170 + margin 30 = 200 against a 280s budget
-      //
-      // The follow-up call adds up to two model calls. On 'research' that pushes the worst
-      // case past the budget and assertQueueConfig would take the process down on import.
-      // On 'research_collect' it fits, which is why research_collect.worstCaseSeconds moved
-      // from 120 to 170 in the same change rather than being left as a number that no
-      // longer describes the job.
+      // And in two other places since 2026-10-01: phase 1's stored-findings shortcut, and
+      // research run from the command line. NOT in the queue's single 'research' job or
+      // the dashboard's inline research, and that is arithmetic rather than preference.
+      // QUEUE_CONFIG declares a worst case per job type and asserts at module load that it
+      // fits the worker budget. 'research' is at 240 seconds against a 280 second budget
+      // with a 30 second margin, on a fetch, a synthesis and the writer; the follow-up
+      // calls on top would push it past. This job fetches nothing, so the same calls fit
+      // inside its own 240 (see QUEUE_CONFIG.research_collect for how that figure moved).
       //
       // Gated on the ASSIGNED ARM. At GENERATED_ARM_PERCENT = 100 that is every prospect;
       // the parameter exists so a comparison is a setting change rather than a rebuild.
@@ -438,7 +451,17 @@ export async function runProspectResearchCollect({
     // the offer line the writer was briefed with. The submission chose it by which offer line
     // answered the detected signal, and composition's own hash would land somewhere else.
     entry.variant_id,
+    reassignedFrom,
     )
+
+    // The firm-fact tier, for a prospect headed to the template. No-op unless the client's
+    // document switched it on; never throws. Reads the SAME snapshot the writer used.
+    await maybeRunFirmFactAfterResearch({
+      supabase, apiKey, organisationId: client_id, prospectId: ctx.id,
+      messagingContent: entry.messaging_content,
+      openingWritten: opening.written_won && opening.opening !== null,
+      usagePath: 'collect',
+    })
 
     // Reported, never acted on. The snapshot is used regardless: that decision is made,
     // not deferred. This column is how often the decision mattered, and MON-021 surfaces

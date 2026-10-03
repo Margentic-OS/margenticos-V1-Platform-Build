@@ -2204,6 +2204,26 @@ export const EMAIL_WORD_LIMITS = {
   email4MaxWords: 50,
 } as const
 
+// THE FIRM-FACT TIER'S EMAIL 1 BAND. A SECOND Email 1 band, and deliberately a separate
+// constant: it governs only the Email 1 a firm-fact prospect receives (greeting, opener
+// from their own site, pain, offer, question, sign-off), rendered by
+// src/lib/outbound-templates/template-shape.ts. Every other Email 1 keeps
+// EMAIL_WORD_LIMITS above. Plan: Notion "Firm-fact tier: plan (decided 30 September)",
+// Round 3, which set 35 to 75. The slot-free Email 1 of the same template must still clear
+// email1MinWords, so in practice the fact-tier email lands well above 35; the floor exists
+// so the validator can test the shortest opener fill and say so.
+//
+// 85, FROM 75, ON 2026-10-02. The operator's fourth reading asked for a consequence opened
+// by a linking phrase and an offer that is one flowing sentence of process then outcome.
+// Both are longer than the clipped lines they replace: his own offer example is 16 words
+// and his consequence 14. At 75 the pain, offer and question together had 52 words for
+// this client, and a pain of two sentences plus an offer of one already takes 51. The
+// slot-free Email 1 keeps its own band (40 to 90).
+export const FACT_EMAIL1_WORD_LIMITS = {
+  minWords: 35,
+  maxWords: 85,
+} as const
+
 // ALL FOUR EMAILS THREAD. Only Email 1 carries a subject. Emails 2, 3 and 4 send with a
 // null subject so the whole sequence sits in one thread, which means a reader who ignored
 // the first three can scroll up from the breakup and see who is writing and why.
@@ -2229,7 +2249,7 @@ export const MAX_QUESTIONS_PER_EMAIL = 1
 // variant B email 3 ("they fix their outreach before they fix their ICP"), which tells
 // the reader they are being processed by a system rather than written to.
 // Word-boundary matched so "positioning" inside ordinary prose is untouched.
-const BANNED_JARGON: ReadonlyArray<{ pattern: RegExp; label: string }> = [
+export const BANNED_JARGON: ReadonlyArray<{ pattern: RegExp; label: string }> = [
   { pattern: /\bICPs?\b/,                    label: 'ICP' },
   { pattern: /\btop[- ]of[- ]funnel\b/i,     label: 'top of funnel' },
   { pattern: /\bTOFU\b/,                     label: 'TOFU' },
@@ -3124,6 +3144,31 @@ function resolveShippedAngle(key: string, recorded: Map<string, string>): string
 
 // ─── Write to document_suggestions ───────────────────────────────────────────
 
+// The messaging document sections this agent does not write, carried forward unchanged.
+//
+// This agent writes only `variants`. Before 2026-09-30 that was the whole document, so
+// writing `{ variants }` was complete. The firm-fact tier added three more sections, and
+// the outbound brief among them is a person's CONFIRMED statement: a regeneration by this
+// agent that dropped it would silently delete the confirmation, and approving the result
+// would promote a document with no brief. Explicit keys, not "everything but variants",
+// so an unknown key is never propagated on a guess.
+//
+// Variants this agent writes carry no `lines`, so the firm-fact tier cannot use them and
+// falls back to the template for every prospect, even with firm_fact_tier.enabled. That is
+// the safe direction.
+const CARRIED_OUTBOUND_SECTIONS = ['outbound_brief', 'opener_frames', 'firm_fact_tier'] as const
+
+export function carriedOutboundSections(
+  existing: { content: Record<string, unknown> } | null,
+): Record<string, unknown> {
+  if (!existing?.content) return {}
+  return Object.fromEntries(
+    CARRIED_OUTBOUND_SECTIONS
+      .filter(key => existing.content[key] !== undefined)
+      .map(key => [key, existing.content[key]]),
+  )
+}
+
 // Writes a single row to document_suggestions.
 // suggested_value stores: { variants: { A: { emails: [...] }, B: {...}, ... } }
 // Matches the full_document pattern used by all document generation agents.
@@ -3245,7 +3290,7 @@ export async function writeDocumentSuggestion(
       // which model produced any existing document is unrecoverable rather than
       // merely unrecorded. Read from the constant this run actually called.
       generated_by_model: MESSAGING_MODEL,
-      suggested_value: JSON.stringify({ variants: gatedVariants }),
+      suggested_value: JSON.stringify({ ...carriedOutboundSections(existingDocument), variants: gatedVariants }),
       suggestion_reason: suggestionReason,
       confidence_level: completeness >= 80 ? 'high' : 'low',
       signal_count: 0,

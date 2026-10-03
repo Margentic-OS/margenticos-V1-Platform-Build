@@ -167,8 +167,13 @@ export const QUEUE_CONFIG: Record<JobType, JobTypeConfig> = {
   // Fetch the four sources, snapshot everything phase 2 needs, submit the synthesis
   // calls to the Batch API. No synthesis, no writer, no judge: those moved to
   // research_collect. So this is the SAME Apify, Apollo, website and Brave work as
-  // 'research' with three Anthropic calls removed, which is why worstCaseSeconds is
-  // 200 rather than research's 240.
+  // 'research' with three Anthropic calls removed on a FETCHING run. worstCaseSeconds was
+  // 200 on that basis. It is 240 since the stored-findings shortcut began writing
+  // follow-ups: that branch fetches nothing, and runs the writer, the judges and the
+  // follow-up writer, which is phase 2's work and phase 2's figure. The two branches never
+  // both run for one job, so the worst case is the larger of them, not their sum. That is
+  // held in code, not assumed: the shortcut passes stored_findings_required, so the agent
+  // it delegates to throws rather than fetching when its own read of the findings fails.
   //
   // maxInFlight 20 is THE APIFY CEILING, NOT A PREFERENCE, and it is the same 20 that
   // 'research' carries, for the same reason: 25 concurrent actor runs measured
@@ -187,7 +192,7 @@ export const QUEUE_CONFIG: Record<JobType, JobTypeConfig> = {
   // enabled both. Proving the exclusion is better than either.
   research_sources: {
     leaseSeconds: 360,
-    worstCaseSeconds: 200,
+    worstCaseSeconds: 240,
     claimBatchSize: 5,
     maxInFlight: 20,
     maxAttempts: 2,
@@ -206,8 +211,10 @@ export const QUEUE_CONFIG: Record<JobType, JobTypeConfig> = {
   // is for per-organisation FAIRNESS, not for a provider limit. It is deliberately
   // NOT in APIFY_JOB_TYPES below.
   //
-  // worstCaseSeconds 120 covers the retry path: the writer runs one to three times and
-  // floor and judge zero to three each, so a retried prospect is five or six calls.
+  // The writer runs one to three times and floor and judge zero to three each, so a
+  // retried prospect is five or six calls, before the follow-up writer and its fact-check.
+  // worstCaseSeconds was 120 on the first of those alone and is 240 now: see the comment
+  // on the number itself below.
   //
   // maxAttempts 3 rather than research's 2. A failed collect does NOT re-buy anything:
   // the sources are already snapshotted and the synthesis is already paid for and

@@ -73,7 +73,15 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, unres
       if (result.ok) {
         const totalAttempted = result.outcomes.reduce((n, o) => n + (o.ok ? o.attempted : 0), 0)
         const totalBlocked = result.blockedSegments.length + result.shellBlockedCampaigns.length
-        if (totalAttempted === 0 && totalBlocked === 0 && pendingCount > 0) {
+        // A result that EXPLAINS why nothing was sent is shown, not replaced. When every
+        // claimed prospect is held or failed composition, the action returns the counts and
+        // no outcomes; until 2026-10-01 that fell into the generic error below, which names
+        // three things that are fine and not the remedy. That is the expected state on the
+        // day a hold ships: every personalised prospect researched before it is held.
+        const totalExplained = result.heldWithoutFollowupCount
+          + (result.heldWithoutApprovedReasonCount ?? 0)
+          + result.compositionFailureCount
+        if (totalAttempted === 0 && totalBlocked === 0 && totalExplained === 0 && pendingCount > 0) {
           setUploadState({
             phase: 'error',
             message: 'Upload claimed prospects but none were sent. Check approval gates, shell sync status, and campaign assignments.',
@@ -292,10 +300,14 @@ function SuccessDisplay({
   const hasBlocked   = result.blockedSegments.length > 0
   const hasShellBlocked = result.shellBlockedCampaigns.length > 0
   const hasCompFails = result.compositionFailureCount > 0
-  const hasIssue     = isPartial || hasBlocked || hasShellBlocked || hasCompFails
+  const hasHeld      = result.heldWithoutFollowupCount > 0
+  const heldForReason = result.heldWithoutApprovedReasonCount ?? 0
+  const hasIssue     = isPartial || hasBlocked || hasShellBlocked || hasCompFails || hasHeld || heldForReason > 0
 
   const headerText = !hasUploaded && (hasBlocked || hasShellBlocked)
     ? 'Upload held'
+    : !hasUploaded && hasIssue
+      ? 'Nothing was sent'
     : hasIssue
       ? 'Upload complete (with issues)'
       : 'Upload complete'
@@ -327,6 +339,19 @@ function SuccessDisplay({
           <p className="text-[11px] text-[#92400E]">
             <span className="mr-1">⚠</span>
             {result.compositionFailureCount} lead{result.compositionFailureCount === 1 ? '' : 's'} excluded — composition failed. Leads marked failed in DB; check agent logs.
+          </p>
+        )}
+
+        {hasHeld && (
+          <p className="text-[11px] text-[#92400E]">
+            <span className="mr-1">⚠</span>
+            {result.heldWithoutFollowupCount} lead{result.heldWithoutFollowupCount === 1 ? '' : 's'} held, not sent: the first email is personalised and neither follow-up carries it forward. They are still waiting. Run the follow-up backfill, then upload again. The backfill names any it cannot write for, with what each one needs.
+          </p>
+        )}
+        {heldForReason > 0 && (
+          <p className="text-[11px] text-[#92400E]">
+            <span className="mr-1">⚠</span>
+            {heldForReason} lead{heldForReason === 1 ? '' : 's'} held, not sent: the first email is personalised and was not written to one of this client&apos;s approved trigger reasons as they read today. They are still waiting. The follow-up backfill cannot fix this. Run their research again, which writes a new first email and its follow-ups together.
           </p>
         )}
 

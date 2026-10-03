@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import { SpendBudget, MEASURED_USD_PER_LOOKUP } from '@/lib/tuner/run-budget'
 import { LookupBudget, type LookupResult } from '@/lib/tuner/lookup'
-import { tokenCost, isPricedModel, MODEL_PRICES, PRICE_PER_BILLABLE_SEARCH } from '@/lib/tuner/pricing'
+import { tokenCost, isPricedModel, MODEL_PRICES, PRICE_PER_BILLABLE_SEARCH, UNKNOWN_MODEL_PRICE } from '@/lib/tuner/pricing'
 
 const HAIKU = 'claude-haiku-4-5-20251001'
 
@@ -62,10 +62,11 @@ describe('the ceiling counts tokens, not only search fees', () => {
 })
 
 describe('an unknown model is priced high, never at zero', () => {
-  it('prices a renamed model at the most expensive published rate', () => {
+  it('prices a renamed model at the explicit ceiling, above every row of the table', () => {
     const dearest = Object.values(MODEL_PRICES).reduce((a, b) => (b.input > a.input ? b : a))
+    expect(UNKNOWN_MODEL_PRICE.input).toBeGreaterThan(dearest.input)
     expect(isPricedModel('claude-something-not-shipped-yet')).toBe(false)
-    expect(tokenCost('claude-something-not-shipped-yet', 1_000_000, 0)).toBeCloseTo(dearest.input * 1_000_000, 6)
+    expect(tokenCost('claude-something-not-shipped-yet', 1_000_000, 0)).toBeCloseTo(UNKNOWN_MODEL_PRICE.input * 1_000_000, 6)
   })
 
   it('never returns zero for real tokens on an unnamed model', () => {

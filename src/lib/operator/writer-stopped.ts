@@ -1,8 +1,9 @@
 // The prospects shipping the approved opening because the writer was stopped, for the
 // operator's client page. READ-ONLY.
 //
-// WHY THIS EXISTS. When synthesis finds no usable candidate the writer does not run and the
-// approved template ships. Decided 2026-09-11: no usable candidate means no hook, not a wrong
+// WHY THIS EXISTS. When synthesis finds no usable candidate, or the fact it selected has no
+// approved trigger reason behind it (2026-10-01), the writer does not run and the approved
+// template ships. Decided 2026-09-11: no usable candidate means no hook, not a wrong
 // buyer, and the template is a legitimate email to send to a good-fit prospect. Without this
 // list the decision is silent: a stopped prospect looks exactly like one whose written
 // opening lost to the template.
@@ -18,7 +19,17 @@
 import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import type { NotWrittenReason } from '@/lib/agents/research/write-opening'
 
-export const WRITER_STOPPED_CODE: NotWrittenReason = 'no_usable_candidate'
+/**
+ * Every code that means "the writer was stopped before it wrote". DERIVED FROM THE TYPE: the
+ * `satisfies` makes a code added to NotWrittenReason and not listed here a compile error,
+ * so a new reason for stopping cannot be invisible on the operator's page.
+ */
+export const WRITER_STOPPED_LABELS = {
+  no_usable_candidate: 'Research found nothing usable to open on',
+  no_approved_reason: 'The fact found matches none of the approved trigger reasons',
+} as const satisfies Record<NotWrittenReason, string>
+
+export const WRITER_STOPPED_CODES = Object.keys(WRITER_STOPPED_LABELS) as NotWrittenReason[]
 
 export interface WriterStoppedProspect {
   id: string
@@ -28,6 +39,8 @@ export interface WriterStoppedProspect {
   research_ran_at: string | null
   /** Synthesis's own relevance note from that run. Its words, shown as its words. */
   synthesis_note: string | null
+  /** Why the writer was stopped, in the operator's words. */
+  stopped_because: string
 }
 
 export async function listWriterStoppedProspects(
@@ -37,9 +50,9 @@ export async function listWriterStoppedProspects(
 ): Promise<{ ok: true; prospects: WriterStoppedProspect[] } | { ok: false; error: string }> {
   const { data, error } = await serviceRole
     .from('prospects')
-    .select('id, first_name, last_name, company_name, job_title, research_ran_at, synthesis_note:trigger_data->>relevance_reason')
+    .select('id, first_name, last_name, company_name, job_title, research_ran_at, synthesis_note:trigger_data->>relevance_reason, stopped_code:trigger_data->judge->>not_written_reason')
     .eq('organisation_id', organisationId)
-    .filter('trigger_data->judge->>not_written_reason', 'eq', WRITER_STOPPED_CODE)
+    .filter('trigger_data->judge->>not_written_reason', 'in', `(${WRITER_STOPPED_CODES.map(c => `"${c}"`).join(',')})`)
     .order('research_ran_at', { ascending: false })
     .limit(limit)
 
@@ -54,6 +67,7 @@ export async function listWriterStoppedProspects(
       job_title: p.job_title ?? null,
       research_ran_at: p.research_ran_at ?? null,
       synthesis_note: typeof p.synthesis_note === 'string' ? p.synthesis_note : null,
+      stopped_because: WRITER_STOPPED_LABELS[p.stopped_code as NotWrittenReason] ?? String(p.stopped_code ?? ''),
     })),
   }
 }

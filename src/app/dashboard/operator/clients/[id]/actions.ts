@@ -16,6 +16,9 @@ import {
 } from '@/lib/composition/compose-sequence'
 import { composedToVariables, assertCompleteVariables } from '@/lib/composition/custom-variables'
 import { recordSentSequence } from '@/lib/composition/record-sent-sequence'
+import { describeThreadHold, threadVerdict } from '@/lib/composition/thread-carried'
+import { describeReasonHold, loadTriggersChecked, openingReasonVerdict } from '@/lib/composition/opening-reason'
+import type { TriggerWithReason } from '@/lib/agents/research/approved-reason'
 import { logger } from '@/lib/logger'
 import { applySendGate } from '@/lib/sourcing/send-gate'
 import { claimNotification } from '@/lib/notifications/claim-notification'
@@ -233,6 +236,19 @@ export type UploadLeadsResult =
       blockedSegments: BlockedSegmentReason[]
       shellBlockedCampaigns: ShellBlockedReason[]
       compositionFailureCount: number
+      /**
+       * Prospects whose Email 1 is personalised and whose follow-ups are both templates.
+       * Not sent and not failed: back to pending, with the reason on the row. See
+       * src/lib/composition/thread-carried.ts.
+       */
+      heldWithoutFollowupCount: number
+      /**
+       * Prospects whose personalised Email 1 was not held to one of the client's approved
+       * trigger reasons as they read today. Not sent and not failed. The remedy is to run
+       * their research again, not the backfill. See src/lib/composition/opening-reason.ts.
+       * Absent on the early returns that happen before anything is composed.
+       */
+      heldWithoutApprovedReasonCount?: number
     }
   | { ok: false; error: string }
 
@@ -251,6 +267,8 @@ type ProspectRow = {
   // role here sent no job title at all to the outbound provider.
   job_title: string | null
   segment_id: string | null
+  /** prospects.trigger_data.judge: what the stored Email 1 was held to when it was written. */
+  opening_judge?: unknown
   campaigns: { id: string; external_id: string | null; shell_step_count: number | null; shell_segment_id: string | null } | null
 }
 
@@ -389,7 +407,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   // If no prospects claimed, return early (nothing to send).
   if (!claimedIds || claimedIds.length === 0) {
-    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments: [], shellBlockedCampaigns: [], compositionFailureCount: 0 }
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments: [], shellBlockedCampaigns: [], compositionFailureCount: 0, heldWithoutFollowupCount: 0 }
   }
 
   const claimedIdSet = new Set(claimedIds.map(r => r.id))
@@ -402,7 +420,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   // campaigns.shell_segment_id IS NULL) OR (prospect.segment_id = campaigns.shell_segment_id).
   const { data: rawRows, error: fetchErr } = await supabase
     .from('prospects')
-    .select('id, email, first_name, last_name, company_name, job_title, segment_id')
+    .select('id, email, first_name, last_name, company_name, job_title, segment_id, opening_judge:trigger_data->judge')
     .eq('organisation_id', orgId)
     .in('id', Array.from(claimedIdSet))
 
@@ -423,7 +441,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
       .update({ outbound_upload_status: 'pending' })
       .in('id', Array.from(claimedIdSet))
 
-    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments: [], shellBlockedCampaigns: [], compositionFailureCount: 0 }
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments: [], shellBlockedCampaigns: [], compositionFailureCount: 0, heldWithoutFollowupCount: 0 }
   }
 
   const rows = rawRows as ProspectRow[]
@@ -491,7 +509,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   })
 
   if (approvedRows.length === 0) {
-    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns: [], compositionFailureCount: 0 }
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns: [], compositionFailureCount: 0, heldWithoutFollowupCount: 0 }
   }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
 
   // ── Campaign resolution by segment (null-safe matching) ────────────────────
@@ -628,14 +646,30 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   })
 
   if (shellApprovedRows.length === 0) {
-    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount: 0 }
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount: 0, heldWithoutFollowupCount: 0 }
   }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
 
   // Compose every approved prospect and build per-lead payloads.
   // Map: campaignExternalId → lead payloads (only fully-composed leads are added).
   const byExternalId = new Map<string, ProspectForUpload[]>()
   let compositionFailureCount = 0
+  let heldWithoutFollowupCount = 0
+  let heldWithoutApprovedReasonCount = 0
   const now = new Date().toISOString()
+
+  // ═══ THE CLIENT'S APPROVED TRIGGER REASONS, READ ONCE PER SEGMENT, CHECKED ═══
+  //
+  // A personalised Email 1 is sent only if it was held to one of these (opening-reason.ts).
+  // A failed read stops the upload: read as an empty list it would mean "this client has
+  // no approved reasons", which switches the rule off for every prospect in the batch.
+  const triggersBySegment = new Map<string | null, TriggerWithReason[]>()
+  for (const segmentId of new Set(shellApprovedRows.map(row => resolvedFromRaw.get(row.segment_id) ?? null))) {
+    const read = await loadTriggersChecked(supabase, orgId, segmentId)
+    if (!read.ok) {
+      return { ok: false, error: `Nothing was uploaded: ${read.error}. The approved trigger reasons are needed to check each personalised opening.` }
+    }
+    triggersBySegment.set(segmentId, read.triggers)
+  }
 
   for (let i = 0; i < shellApprovedRows.length; i += COMPOSE_CHUNK_SIZE) {
     const chunk = shellApprovedRows.slice(i, i + COMPOSE_CHUNK_SIZE)
@@ -658,6 +692,58 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
           preloadedDocs: composeDocs,
         })
 
+        // ═══ A PERSONALISED EMAIL 1 IS NOT SENT WITHOUT A FOLLOW-UP THAT CARRIES IT ═══
+        //
+        // Operator note 4, 2026-10-01. See thread-carried.ts for the rule and the measure.
+        // HELD, not failed: the prospect goes back to pending with the reason on the row,
+        // and the next upload takes it once the follow-up backfill has written one. Marking
+        // it failed would take it out of every later upload for something a script fixes.
+        //
+        // BEFORE the variables are built and before the send is recorded, because a held
+        // prospect was not handed to anybody.
+        // ═══ AND NOT AT ALL UNLESS IT WAS HELD TO AN APPROVED REASON ═══
+        //
+        // Operator note 5. Checked FIRST: an opening that fails this needs its research run
+        // again, and telling the operator to run the follow-up backfill for it would send
+        // them to a script that cannot help. See opening-reason.ts.
+        const reasonVerdict = openingReasonVerdict({
+          tier: composed.opening.tier,
+          judge: row.opening_judge,
+          triggers: triggersBySegment.get(resolvedId) ?? [],
+        })
+        if (!reasonVerdict.ok) {
+          heldWithoutApprovedReasonCount++
+          logger.warn('handleUploadLeads: held, personalised Email 1 not held to a current approved reason', {
+            prospect_id: row.id,
+            why: reasonVerdict.why,
+          })
+          const { error: holdErr } = await supabase
+            .from('prospects')
+            .update({ outbound_upload_status: 'pending', outbound_upload_error: describeReasonHold(reasonVerdict).slice(0, 480) })
+            .eq('id', row.id)
+            .eq('organisation_id', orgId)
+          if (holdErr) logger.warn('handleUploadLeads: could not release a held prospect', { prospect_id: row.id, error: holdErr.message })
+          return
+        }
+
+        const thread = threadVerdict(composed)
+        if (!thread.carried) {
+          heldWithoutFollowupCount++
+          const reason = describeThreadHold(thread)
+          logger.warn('handleUploadLeads: held, personalised Email 1 with no personalised follow-up', {
+            prospect_id: row.id,
+            email2: thread.reasons[2],
+            email3: thread.reasons[3],
+          })
+          const { error: holdErr } = await supabase
+            .from('prospects')
+            .update({ outbound_upload_status: 'pending', outbound_upload_error: reason.slice(0, 480) })
+            .eq('id', row.id)
+            .eq('organisation_id', orgId)
+          if (holdErr) logger.warn('handleUploadLeads: could not release a held prospect', { prospect_id: row.id, error: holdErr.message })
+          return
+        }
+
         const vars = composedToVariables(composed.emails, row.first_name ?? null)
         assertCompleteVariables(vars, docStepCount)
 
@@ -679,7 +765,12 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
         // Failure to record does NOT stop the send. A prospect held back because a
         // diagnostic table was unavailable would be a worse outcome than a missing row,
         // and the row is recoverable from the provider while a missed send window is not.
-        recordSentSequence(supabase, orgId, row.id, composed).catch(err => {
+        // THE SERVICE CLIENT, NOT THE OPERATOR'S SESSION. sent_sequences is service-role
+        // only, so the session client's insert was refused by the grant on every upload
+        // and the refusal was swallowed below. Read live 2026-10-01: 263 prospects
+        // uploaded, 0 rows in sent_sequences, authenticated cannot INSERT and service_role
+        // can. The record of what was sent had never been written once.
+        recordSentSequence(serviceClient, orgId, row.id, composed).catch(err => {
           logger.warn('handleUploadLeads: could not record the sent sequence', {
             prospect_id: row.id,
             error: err instanceof Error ? err.message : String(err),
@@ -729,10 +820,18 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     shell_approved_count: shellApprovedRows.length,
     composed_count: Array.from(byExternalId.values()).reduce((sum, leads) => sum + leads.length, 0),
     composition_failures: compositionFailureCount,
+    held_without_followup: heldWithoutFollowupCount,
+    held_without_approved_reason: heldWithoutApprovedReasonCount,
     campaigns_with_leads: byExternalId.size,
   })
 
   if (byExternalId.size === 0) {
+    // Prospects were held for a follow-up: that is a result, not a fault, and the operator
+    // needs the count and the next step rather than a generic error. A composition failure
+    // beside it does not change that: both counts travel, and the panel shows both.
+    if (heldWithoutFollowupCount > 0 || heldWithoutApprovedReasonCount > 0) {
+      return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount, heldWithoutFollowupCount, heldWithoutApprovedReasonCount }
+    }
     return { ok: false, error: 'No prospects ready for composition. Check approval, shell sync, and campaign assignment.' }
   }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
 
@@ -753,11 +852,14 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   )
 
   if (!finalGate.ok) {
-    // On check failure, reclaim and abort (fail closed)
+    // On check failure, reclaim and abort (fail closed).
+    // ONLY ROWS STILL CLAIMED, as the finally block below: a prospect whose composition
+    // threw has been marked failed by now, and an unfiltered reset put it back to pending.
     await supabase
       .from('prospects')
       .update({ outbound_upload_status: 'pending' })
       .in('id', Array.from(claimedIdSet))
+      .eq('outbound_upload_status', 'uploading')
     return { ok: false, error: `Final rejection check failed: ${finalGate.error}` }
   }
 
@@ -812,12 +914,14 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     // Reclaim only the non-rejected prospects
     const nonRejectedIds = Array.from(claimedIdSet).filter(id => !rejectedIdSet.has(id))
     if (nonRejectedIds.length > 0) {
+      // Only rows still claimed: see the final-gate failure above.
       await supabase
         .from('prospects')
         .update({ outbound_upload_status: 'pending' })
         .in('id', nonRejectedIds)
+        .eq('outbound_upload_status', 'uploading')
     }
-    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount }
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount, heldWithoutFollowupCount, heldWithoutApprovedReasonCount }
   }
 
   // Upload to outbound provider — one batch per campaign.
@@ -864,6 +968,8 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     blockedSegments,
     shellBlockedCampaigns,
     compositionFailureCount,
+    heldWithoutFollowupCount,
+    heldWithoutApprovedReasonCount,
   }
 
   } catch (err) {
@@ -872,10 +978,15 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   } finally {
     // ALWAYS reclaim prospects if the upload did not succeed
     if (shouldReclaim && reclamIds.size > 0) {
+      // ONLY ROWS STILL CLAIMED. Without the status filter this reset every claimed id to
+      // pending, including a prospect whose composition had just been marked failed: the
+      // panel then said "marked failed" about a row that was pending again, and the next
+      // upload retried it. A held prospect has already been set to pending with its reason.
       const { error: reclaimErr } = await supabase
         .from('prospects')
         .update({ outbound_upload_status: 'pending' })
         .in('id', Array.from(reclamIds))
+        .eq('outbound_upload_status', 'uploading')
 
       if (reclaimErr) {
         logger.warn('handleUploadLeads: failed to reclaim prospects after upload failure', {

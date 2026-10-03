@@ -57,6 +57,7 @@ import {
   summariseIneligible,
   type IneligibleReason,
 } from '@/lib/sourcing/send-eligibility-policy'
+import { describeCompetitorScreen, screenCompetitors } from '@/lib/sourcing/competitor-screen'
 import { requireTierPresent } from '@/lib/sourcing/tier-verdict'
 
 export type ResearchScope = 'unresearched' | 'researched'
@@ -171,6 +172,12 @@ export interface EnqueueResearchSuccess {
   skippedIneligible: number
   /** Plain-English counts by reason, or null when nothing was skipped. */
   skippedBreakdown: string | null
+  /** Eligible, then excluded because the company sells what the client sells. No job. */
+  competitorsExcluded: number
+  /** Eligible, then given no job because the competitor check gave no answer this run. */
+  competitorCheckHeld: number
+  /** One sentence saying both, or null when the screen changed nothing. */
+  competitorNote: string | null
   scope: ResearchScope
 }
 
@@ -480,6 +487,34 @@ export async function enqueueResearchForOrganisation(
     return { ok: false, error: verdict.blocked }
   }
 
+  // ── COMPETITOR SCREEN: a company that sells what the client sells is not researched ──
+  //
+  // HERE, AND NOT IN selectProspectsForResearch. That function runs on every poll to word
+  // the button; this runs once, on the click that is about to spend. The same call sits in
+  // front of the inline path (src/lib/operator/research-batch-entry.ts), in the same commit,
+  // for the reason this file's header gives about the two paths researching one set.
+  //
+  // An excluded or held prospect gets NO job. An excluded one has also lost its tier, so the
+  // next selection does not contain it; a held one is asked about again on the next click.
+  const screen = await screenCompetitors({
+    supabase,
+    organisationId,
+    prospectIds: selection.enqueueable,
+    persist: true,
+  })
+  if (!screen.ok) {
+    return { ok: false, error: `Refused: ${screen.error} Nothing was queued.` }
+  }
+  const competitorNote = describeCompetitorScreen(screen)
+  const passedOver = new Set([...screen.excluded, ...screen.held])
+  const toEnqueue = selection.enqueueable.filter(id => !passedOver.has(id))
+  if (toEnqueue.length === 0) {
+    return {
+      ok: false,
+      error: `Nothing to research. Every eligible prospect was passed over by the competitor check: ${competitorNote}.`,
+    }
+  }
+
   // ── THE ONE PLACE THE TWO PATHS DIFFER ───────────────────────────────────
   //
   // The batch phases cannot use enqueue_job. Its ON CONFLICT names only
@@ -491,10 +526,10 @@ export async function enqueueResearchForOrganisation(
     ? await enqueueJobsForProspects(supabase, {
         jobType: 'research',
         organisationId,
-        prospectIds: selection.enqueueable,
+        prospectIds: toEnqueue,
         enqueuedBy,
       })
-    : await enqueueBatchPhaseJobs(supabase, organisationId, selection.enqueueable, enqueuedBy)
+    : await enqueueBatchPhaseJobs(supabase, organisationId, toEnqueue, enqueuedBy)
 
   logger.info('enqueue-research: complete', {
     organisation_id: organisationId,
@@ -508,6 +543,8 @@ export async function enqueueResearchForOrganisation(
     // duplicates; this counts prospects held by ANOTHER research job type, which during
     // a batch rollout is the interesting number.
     skipped_live_elsewhere: selection.skippedLiveElsewhere,
+    competitors_excluded: screen.excluded.length,
+    competitor_check_held: screen.held.length,
     created: created.length,
     already_queued: alreadyQueued.length,
   })
@@ -519,6 +556,9 @@ export async function enqueueResearchForOrganisation(
     alreadyQueued: alreadyQueued.length,
     skippedIneligible: selection.skippedReasons.length,
     skippedBreakdown: verdict.skippedBreakdown,
+    competitorsExcluded: screen.excluded.length,
+    competitorCheckHeld: screen.held.length,
+    competitorNote,
     scope,
   }
 }

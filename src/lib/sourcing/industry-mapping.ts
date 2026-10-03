@@ -99,7 +99,7 @@ export function mapApolloToSpecIndustry(apolloIndustry: string | null): string |
   }
 
   // 2. A known alias, for a tag whose wording differs from the canonical name.
-  if (TAG_ALIASES[normalised]) {
+  if (Object.hasOwn(TAG_ALIASES, normalised)) {
     return TAG_ALIASES[normalised]
   }
 
@@ -117,6 +117,25 @@ export function mapApolloToSpecIndustry(apolloIndustry: string | null): string |
 
   // No match. Fail closed: an unknown tag is flagged for operator mapping, never guessed.
   return null
+}
+
+/**
+ * The canonical industry for a provider's industry name, EXACT ONLY: the name is itself
+ * canonical, or it is a known alias. No substring step.
+ *
+ * mapApolloToSpecIndustry's third step finds an alias INSIDE a longer tag ("logistics &
+ * supply chain" becomes Supply Chain Consulting). That is a fair guess for a tiering score.
+ * It is not good enough for a sentence a prospect reads about their own firm, which is what
+ * this one feeds (src/lib/sourcing/peer-kind.ts): unknown means null, and null means the
+ * sentence is not written.
+ */
+export function canonicalIndustryExact(providerIndustry: string | null | undefined): string | null {
+  if (typeof providerIndustry !== 'string') return null
+  const normalised = providerIndustry.toLowerCase().trim()
+  if (!normalised) return null
+  // Object.hasOwn, never a bare index: TAG_ALIASES is a plain object, and "constructor" or
+  // "__proto__" as a stored industry would otherwise return something that is not a string.
+  return CANONICAL_BY_LOWERCASE.get(normalised) ?? (Object.hasOwn(TAG_ALIASES, normalised) ? TAG_ALIASES[normalised] : null)
 }
 
 // Load database mappings and cache them

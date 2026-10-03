@@ -200,11 +200,18 @@ export async function POST(
           // concurrency of ten against a configured twenty and a minute per prospect
           // against a measured 145 seconds, and would have promised a minute on a path
           // where a prospect can wait a day. See describeQueuedResearch.
-          message: describeQueuedResearch(
-            enqueued.created,
-            enqueued.alreadyQueued,
-            batched ? 'queue:batch' : 'queue:single-job',
-          ),
+          // The competitor check's sentence rides on the same message, so a click that
+          // queued fewer prospects than the label promised says why.
+          message: [
+            describeQueuedResearch(
+              enqueued.created,
+              enqueued.alreadyQueued,
+              batched ? 'queue:batch' : 'queue:single-job',
+            ),
+            enqueued.competitorNote ? `Not queued: ${enqueued.competitorNote}.` : null,
+          ].filter(Boolean).join(' '),
+          competitors_excluded: enqueued.competitorsExcluded,
+          competitor_check_held: enqueued.competitorCheckHeld,
         },
       })
     }
@@ -247,6 +254,8 @@ export async function POST(
       queued: false,
       result: {
         prospects_selected: result.prospects_selected,
+        // Why fewer were researched than were selected, or null.
+        competitor_note: result.competitor_note,
         use_stored_findings: result.use_stored_findings,
         estimated_seconds: result.estimated_seconds,
         total: summary.total,

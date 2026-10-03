@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     // 2. Find all flagged prospects with this Apollo tag across all orgs
     const { data: flaggedProspects, error: fetchError } = await serviceClient
       .from('prospects')
-      .select('id, company_industry, email_status, job_title, company_headcount, sourced_tier, organisation_id, company_name')
+      .select('id, company_industry, email_status, job_title, company_headcount, sourced_tier, organisation_id, company_name, competitor_check')
       .eq('company_industry', apollo_tag)
       .is('sourced_tier', null)
 
@@ -191,6 +191,10 @@ async function reTierProspectsWithMapping(
         job_title: prospect.job_title,
         company_headcount: prospect.company_headcount,
         company_industry: prospect.company_industry,
+        // The competitor screen's verdict. This route re-tiers REMOVED rows, and a
+        // company excluded as a competitor is one of them; without the verdict in hand the
+        // new mapping would hand it a tier.
+        competitor_check: prospect.competitor_check,
       } as any
 
       const result = await classifyTier(

@@ -6,6 +6,7 @@ import {
   mapApolloToSpecIndustryWithDatabase,
   loadIndustryTagMappings,
 } from './industry-mapping'
+import { COMPETITOR_REMOVAL_REASON, isCompetitorExcluded } from './competitor-verdict'
 import {
   evaluateBuyerCriterion,
   seniorityScoreFor,
@@ -27,6 +28,13 @@ export interface EnrichedProspect {
    * no evidence rather than as a removal. See concurrent-roles.ts.
    */
   apollo_enrichment_data?: unknown
+  /**
+   * The competitor screen's stored verdict, when one exists. Read FIRST by classifyTier: a
+   * prospect the screen excluded stays excluded through every re-tier. Optional because a
+   * caller that does not select the column simply cannot see a verdict, which is the same
+   * as there being none; every production caller selects it. See competitor-verdict.ts.
+   */
+  competitor_check?: unknown
 }
 
 // Every reason a prospect can be REMOVED at stage 1. One list, and the reporting
@@ -52,6 +60,10 @@ export const REMOVAL_REASONS = [
   'company_too_large',
   'industry_excluded',
   'industry_off_target',
+  // Written by the competitor screen (src/lib/sourcing/competitor-screen.ts), and returned
+  // here for any prospect whose stored verdict says excluded. The company sells what the
+  // client sells, by the category list in the client's outbound brief.
+  'competitor',
   // NO LONGER WRITTEN. The disqualifier that produced it was withdrawn 2026-09-15 after its
   // six removals were read; see the block where disqualifier 3c used to be. KEPT IN THE LIST
   // because six live rows still carry it and have to render, and because removing it from
@@ -361,6 +373,23 @@ export async function classifyTier(
   }
 
   // STAGE 1: DISQUALIFIERS (binary REMOVE)
+
+  // Disqualifier 0: THE COMPETITOR SCREEN ALREADY EXCLUDED THIS COMPANY.
+  //
+  // Tiering does not decide this; it reads a verdict the screen stored. It comes first so
+  // the reason on the row stays 'competitor' whatever else is true of the prospect, and so
+  // nothing that re-runs tiering can hand a tier back: the industry-tag re-tier and the
+  // settings-change thaw both clear the old reason and call this function, and without this
+  // read they would score the company as an ordinary prospect. A removal that a later run
+  // can silently undo is not a removal.
+  if (isCompetitorExcluded(prospect.competitor_check)) {
+    return {
+      prospect_id: prospectId,
+      sourced_tier: null,
+      fit_score: null,
+      tiering_reason: COMPETITOR_REMOVAL_REASON satisfies RemovalReason,
+    }
+  }
 
   // Disqualifier 1: Email status must be verified
   if (prospect.email_status !== 'verified') {

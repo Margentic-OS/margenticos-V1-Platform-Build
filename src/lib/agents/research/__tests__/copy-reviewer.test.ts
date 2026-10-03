@@ -38,7 +38,22 @@ describe('the rubric is the operator\'s, and it is asked per position', () => {
       'need_the_offer_does_not_serve',
       // MOVED FROM SOFT on 2026-09-30. See the note beside it in the module.
       'bridge_does_not_follow',
+      // ADDED 2026-10-01 for firm-fact emails: the opener says what the reader's firm does,
+      // and the next paragraph addresses a peer group the reader is not in.
+      'opener_pain_disconnect',
     ])
+  })
+
+  it('asks about an opener-to-pain disconnect at Email 1 only, and can be answered no', () => {
+    expect(idsFor(1)).toContain('opener_pain_disconnect')
+    expect(idsFor(2)).not.toContain('opener_pain_disconnect')
+    expect(idsFor(3)).not.toContain('opener_pain_disconnect')
+    const q = HARD_FAIL_CATEGORIES.find(c => c.id === 'opener_pain_disconnect')!.question
+    // It is asked of EVERY Email 1, and most have no opener-and-group pair. A question with
+    // no "no" branch invites a yes.
+    expect(q).toContain('Answer no if')
+    // It must not be excused by the rubric's own allowance for group statements.
+    expect(q.toLowerCase()).toContain('otherwise allowed')
   })
 
   it('asks whether the email explains the reader their own thing, at every position', () => {

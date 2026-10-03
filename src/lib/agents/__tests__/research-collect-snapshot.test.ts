@@ -54,6 +54,9 @@ vi.mock('@/lib/agents/log-agent-run', () => ({
   }),
 }))
 
+/** The trigger list as phase 1 snapshotted it. Invented. */
+const SNAPSHOT_TRIGGERS = [{ trigger: 'A second machine is installed.', reason: 'A second machine points to growth.' }]
+
 const SNAPSHOT_DOC = { variants: { A: { snapshot: true } } }
 const CURRENT_DOC  = { variants: { A: { snapshot: false } } }
 
@@ -72,6 +75,7 @@ interface FakeOpts {
    * the last one.
    */
   remainingEntries?: number
+  tier?: { sourced_tier: string | null; tiering_reason: string | null }
 }
 
 function fakeSupabase(opts: FakeOpts = {}) {
@@ -83,7 +87,7 @@ function fakeSupabase(opts: FakeOpts = {}) {
     state: opts.entryState ?? 'succeeded',
     raw_sources: { linkedin: { available: true }, apollo: {}, website: {}, web_search: { search_count: 1 } },
     detected_signal: { has_dateable_signal: true, signal_observation: 'snapshotted signal' },
-    client_context: { clientName: 'Northwind', icpSummary: 'snapshotted icp' },
+    client_context: { clientName: 'Northwind', icpSummary: 'snapshotted icp', triggers: SNAPSHOT_TRIGGERS },
     client_name: 'Northwind Advisory',
     variant_id: 'A_SNAPSHOTTED',
     messaging_doc_id: 'doc-snapshot',
@@ -151,6 +155,10 @@ function fakeSupabase(opts: FakeOpts = {}) {
             return {
               data: {
                 suppressed: opts.suppressed ?? false,
+                // A prospect holding a tier, unless the test says tiering has since removed it
+                // (no tier, a reason) or has not reached it yet (no tier, no reason).
+                sourced_tier: opts.tier === undefined ? 'tier_1' : opts.tier.sourced_tier,
+                tiering_reason: opts.tier === undefined ? 'tier_1 (score 80)' : opts.tier.tiering_reason,
                 independent_verified_at: '2026-08-10T00:00:00Z',
                 independent_email_status: opts.emailStatus === undefined ? 'Valid' : opts.emailStatus,
                 email_send_ineligible_reason: null,
@@ -215,6 +223,10 @@ describe('phase 2 writes against the SNAPSHOT, never a fresh read', () => {
     const arg = produceOpening.mock.calls[0][0]
     // The document the writer was scoped to in phase 1, not whatever is approved now.
     expect(arg.messagingContent).toBe(SNAPSHOT_DOC)
+    // AND THE SNAPSHOT'S TRIGGERS, the list synthesis matched against. Without them the
+    // opening is not held to the client's approved reason at all (ADR-065), and the only
+    // sign is a warning in a log.
+    expect(arg.triggers).toBe(SNAPSHOT_TRIGGERS)
     expect(arg.messagingContent).not.toBe(CURRENT_DOC)
   })
 
@@ -227,6 +239,14 @@ describe('phase 2 writes against the SNAPSHOT, never a fresh read', () => {
     expect(produceOpening.mock.calls[0][0].variantId).not.toBe('D_ASSIGNED_DURING_THE_WAIT')
   })
 
+  it('records the variant the prospect leaves when the snapshot document does not have it', async () => {
+    // The row holds 'D_ASSIGNED_DURING_THE_WAIT'; the snapshot document has only variant A.
+    // The write replaces it, and the eighth argument is what lets MON-033 see that it did.
+    await runCollect()
+    expect(updateProspect.mock.calls[0][6]).toBe('A_SNAPSHOTTED')
+    expect(updateProspect.mock.calls[0][7]).toBe('D_ASSIGNED_DURING_THE_WAIT')
+  })
+
   it('uses the snapshotted client name rather than re-reading the organisation', async () => {
     await runCollect()
     expect(produceOpening.mock.calls[0][0].clientName).toBe('Northwind Advisory')
@@ -235,7 +255,7 @@ describe('phase 2 writes against the SNAPSHOT, never a fresh read', () => {
   it('passes the snapshotted client context and recency signal to the parse', async () => {
     await runCollect()
     const [, , clientContext, detectedSignal] = synthesisFromMessage.mock.calls[0]
-    expect(clientContext).toEqual({ clientName: 'Northwind', icpSummary: 'snapshotted icp' })
+    expect(clientContext).toEqual({ clientName: 'Northwind', icpSummary: 'snapshotted icp', triggers: SNAPSHOT_TRIGGERS })
     expect(detectedSignal).toEqual({ has_dateable_signal: true, signal_observation: 'snapshotted signal' })
   })
 
@@ -279,6 +299,21 @@ describe('phase 2 protects spend on prospects that went bad during the wait', ()
     const { result } = await runCollect({ suppressed: true })
     expect(produceOpening).not.toHaveBeenCalled()
     expect(result).toMatchObject({ outcome: 'stored_without_opening', reason: 'suppressed' })
+  })
+
+  it('PLANTED: skips the writer for a prospect tiering has REMOVED during the wait', async () => {
+    // The competitor screen excludes by removing the tier. A prospect excluded after phase 1
+    // was submitted must not have a writer and a judge paid for.
+    const { result } = await runCollect({ tier: { sourced_tier: null, tiering_reason: 'competitor' } })
+    expect(produceOpening).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ outcome: 'stored_without_opening', reason: 'tier_rejected' })
+  })
+
+  it('does NOT skip a prospect tiering has simply not reached yet (the control)', async () => {
+    // No tier and NO reason is "not yet tiered", the state a settings change leaves a row in.
+    const { result } = await runCollect({ tier: { sourced_tier: null, tiering_reason: null } })
+    expect(produceOpening).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ outcome: 'stored' })
   })
 
   it('still STORES the research, because the synthesis was already paid for', async () => {

@@ -281,3 +281,27 @@ describe('headcount spellings the 2026-09-21 batch got past the gate', () => {
     clean('You work with solo travel operators across the Midlands.')
   })
 })
+
+// "A people search firm" is a kind of firm, not a headcount. The spelled-out headcount
+// pattern took the article for a number word, and two real firm-fact openers that said
+// what kind of firm the reader runs were refused for stating its size (2026-10-01).
+describe('an article is not a count of people', () => {
+  it.each([
+    'Your site shows you run a people search firm.',
+    'Good to see you run a people and talent business.',
+    'You lead a staff training company.',
+    // The same fault in the two team-size patterns, fixed a commit later than the one above.
+    'Your site shows you match a person with a carer.',
+    'When a person visits your site, what do they see?',
+    'You support a team of an agency or a charity.',
+  ])('PLANTED: "%s" states no headcount', text => {
+    expect(findFirmographicFigures(text)).toEqual([])
+  })
+  it.each([
+    ['ten people work here', 'a spelled-out headcount'],
+    ['a firm of twelve staff', 'a spelled-out headcount'],
+    ['You have 12 employees now.', 'a headcount'],
+  ])('"%s" still does (control)', (text, label) => {
+    expect(findFirmographicFigures(text)).toContain(label)
+  })
+})

@@ -359,6 +359,9 @@ export const DISQUALIFIER_LABELS: Record<string, string> = {
   industry_excluded:       'Sector excluded by the specification',
   industry_off_target:     'Sector off specification',
   industry_not_consulting: 'Sector off specification',
+  // Decided by the competitor screen, not by tiering. The wording says what was found, in
+  // terms of the client, and names no market: the category comes from that client's brief.
+  competitor:              'Sells the same service as this client',
   // Counted from the enrichment already bought, not judged. The gloss says WHAT WAS COUNTED
   // rather than "holds another job", because the count is of current positions at other
   // organisations and whether any of them is full-time is not in the data.

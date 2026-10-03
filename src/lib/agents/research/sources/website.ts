@@ -275,6 +275,23 @@ async function fetchPage(
   return null
 }
 
+/**
+ * The homepage's text and nothing else, or null when it could not be read. NEVER THROWS.
+ *
+ * For a caller that wants what a company says about itself and does not want the followed
+ * pages, the dated posts or the source record: the competitor screen, which reads a
+ * homepage for the few companies it has to judge. Same fetch, same fallback, same caps as
+ * the research source, so the two read a site identically.
+ */
+export async function fetchHomepageText(url: string): Promise<string | null> {
+  try {
+    const home = await fetchPage(url, HOMEPAGE_CHARS, [], 'homepage')
+    return home ? home.text : null
+  } catch {
+    return null
+  }
+}
+
 export async function fetchWebsiteSource(prospect: ProspectContext): Promise<WebsiteSourceResult> {
   if (!prospect.website_url && !prospect.company_name) {
     return { available: false, url: null, content: null, fetch_method: null, error: 'No website URL or company name' }

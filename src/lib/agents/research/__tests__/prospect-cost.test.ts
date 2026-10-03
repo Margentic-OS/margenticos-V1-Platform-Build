@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest'
 import {
   prospectCostUsd,
   usdForTokens,
+  UNKNOWN_MODEL_USD_PER_MTOK,
   USD_PER_MTOK,
   COST_APIFY,
   COST_WEB_SEARCH_PER_SEARCH,
@@ -41,11 +42,13 @@ describe('usdForTokens', () => {
     expect(usdForTokens(t, 'claude-sonnet-4-6')).toBeCloseTo(3, 6)
   })
 
-  it('prices an UNKNOWN model at the most expensive rate, never at zero', () => {
+  it('prices an UNKNOWN model at the explicit ceiling, never at zero', () => {
     const t = { input_tokens: 1e6, output_tokens: 0 }
-    const dearest = Math.max(...Object.values(USD_PER_MTOK).map(r => r.input))
-    expect(usdForTokens(t, 'claude-something-unreleased')).toBeCloseTo(dearest, 6)
-    expect(usdForTokens(t, null)).toBeCloseTo(dearest, 6)
+    // The ceiling, not the dearest row: since 2026-10-02 the dearest row is $5 in, and a
+    // dearer model missing from the table must not be counted at that.
+    expect(UNKNOWN_MODEL_USD_PER_MTOK.input).toBeGreaterThan(Math.max(...Object.values(USD_PER_MTOK).map(r => r.input)))
+    expect(usdForTokens(t, 'claude-something-unreleased')).toBeCloseTo(UNKNOWN_MODEL_USD_PER_MTOK.input, 6)
+    expect(usdForTokens(t, null)).toBeCloseTo(UNKNOWN_MODEL_USD_PER_MTOK.input, 6)
     // The failure mode being excluded: a renamed model silently costing nothing.
     expect(usdForTokens(t, 'claude-something-unreleased')).toBeGreaterThan(0)
   })

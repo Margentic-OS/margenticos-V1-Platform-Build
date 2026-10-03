@@ -14,8 +14,8 @@ export function WriterStoppedPanel({ prospects, error }: WriterStoppedPanelProps
       <div className="px-6 py-4 border-b border-border-card bg-surface-shell">
         <h3 className="text-[13px] font-medium text-text-primary">Approved opening, writer stopped</h3>
         <p className="text-[11px] text-text-secondary mt-1">
-          Research found nothing specific, checkable and relevant enough to write from, so these
-          prospects get the approved opening instead of a personalised one.
+          Research found nothing it could write a personalised opening from, so these prospects
+          get the approved opening instead. Each one says why.
           {!error && ` ${prospects.length} prospect${prospects.length === 1 ? '' : 's'}.`}
         </p>
       </div>
@@ -31,6 +31,7 @@ export function WriterStoppedPanel({ prospects, error }: WriterStoppedPanelProps
                 {p.name}{p.company_name ? `, ${p.company_name}` : ''}
               </p>
               {p.job_title && <p className="text-[11px] text-text-secondary">{p.job_title}</p>}
+              <p className="text-[11px] text-text-secondary mt-0.5">Why: {p.stopped_because}</p>
               {p.synthesis_note && (
                 <p className="text-[11px] text-text-secondary mt-0.5">Research note: {p.synthesis_note}</p>
               )}

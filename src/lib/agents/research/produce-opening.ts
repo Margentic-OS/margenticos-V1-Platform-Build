@@ -28,7 +28,10 @@ import {
   type FollowupOutcome,
 } from './followup-frame'
 import { resolveBuyer } from './resolve-buyer'
+import { holdsPersonalisation, reasonTheWritersArgueFrom, resolveApprovedReason, type ApprovedReason, type TriggerWithReason } from './approved-reason'
+import { checkBridgeStatesReason } from './reason-match'
 import { logger } from '@/lib/logger'
+import { FatalApiError } from '@/lib/agents/fatal-api-error'
 import type { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
 import { ZERO_TOKEN_USAGE, addTokenUsage, type TokenUsage, type ProspectContext, type ObservationCandidate } from './types'
 import { hasUsableCandidate } from './synthesize'
@@ -99,6 +102,23 @@ export interface ProduceOpeningInput {
    */
   positioningText?: string | null
   /**
+   * The client's triggers, each with the reason the operator approved, IN THE ORDER
+   * SYNTHESIS READ THEM. The opening argues from the approved reason of the trigger the
+   * selected fact matched, verbatim, and a fact that matched none is not personalised.
+   * See approved-reason.ts.
+   *
+   * Passed IN, as the buyer title and the positioning document are, because the two paths
+   * read it from different places: the inline path from the live ICP, phase 2 from the
+   * snapshot phase 1 took. A candidate's matched_trigger is a position in the list
+   * synthesis was given, which is NOT always this one (the inline path reads the documents
+   * a second time, and a reuse run carries positions from an earlier day), so the position
+   * is checked against the trigger's recorded wording. See resolveApprovedReason.
+   *
+   * Absent, or carrying no reason at all, means the rule cannot be applied and is not: the
+   * writer is briefed as it was before, with a warning logged.
+   */
+  triggers?: ReadonlyArray<TriggerWithReason> | null
+  /**
    * WHETHER THE NEED-MATCH CHECK BLOCKS, OR ONLY REPORTS. Defaults to REPORT.
    *
    * ═══ WHY THIS IS A PARAMETER AND NOT A MODULE CONSTANT ═══
@@ -131,10 +151,12 @@ export interface ProduceOpeningInput {
    * THE FLAG. True also writes emails 2 and 3, in their OWN model call with their own
    * prompt, AFTER Email 1 is finished and only if the personalised Email 1 won.
    *
-   * DEFAULTS TO FALSE AND NEITHER PRODUCTION CALLER PASSES IT. The inline agent and phase
-   * 2 of the batch path both call produceOpening without it, so the feature is off in
-   * production by virtue of the call sites rather than by a constant someone could edit.
-   * The export script is the only caller that passes true.
+   * DEFAULTS TO FALSE. Who passes true, as of 2026-10-01: phase 2 of the batch path
+   * (always, for a prospect on the generated arm), and the inline agent when ITS caller
+   * asked for follow-ups, which is the command line and phase 1's stored-findings
+   * shortcut. The dashboard's inline research and the queue's single 'research' job do
+   * not, because the calls do not fit their time budget; a prospect they personalise is
+   * held at upload until the backfill has written its follow-ups.
    *
    * WITH IT FALSE, EMAIL 1 IS NOT MERELY UNAFFECTED, IT IS UNAWARE. writeAndJudgeOpening
    * takes no follow-up parameter and write-opening.ts is byte-identical to main. The flag
@@ -166,6 +188,13 @@ export interface OpeningWithFollowups extends OpeningResult {
    * ends up describing a body nobody sent.
    */
   followup_email1_fingerprint: string | null
+  /**
+   * What the opening was held to: the client's approved reason for the trigger the selected
+   * fact matched, or why there was none. Absent only where the writer was stopped earlier
+   * for having no usable candidate. Stored with the rest of this result in
+   * prospects.trigger_data.judge, so it can be read back per prospect.
+   */
+  approved_reason?: ApprovedReason
 }
 
 /**
@@ -228,6 +257,14 @@ export function buildFollowupsFor(
  */
 export const NO_USABLE_CANDIDATE_REASON =
   'Not written: synthesis found no usable candidate for this prospect, so the approved template ships.'
+
+/**
+ * The judge_reasoning a prospect carries when no opening was written because the selected
+ * fact has no approved reason behind it. EXPORTED for the same reason as the one above.
+ */
+export const NO_APPROVED_REASON_REASON =
+  'Not written: the fact research selected matched none of this client\'s triggers that carry an approved reason, ' +
+  'so there is no approved account of what it means for the prospect. No personalised opening is written.'
 
 /**
  * What produceOpening returns when the writer is not run. Nothing was written and nothing
@@ -312,7 +349,19 @@ export function resolveVariantId(
     ? Object.keys(messagingContent.variants).sort()
     : ['A', 'B', 'C', 'D']
 
-  if (assignedVariantId) return { variantId: assignedVariantId, basis: 'assigned' }
+  // AN ASSIGNED VARIANT THE DOCUMENT NO LONGER HAS IS NOT AN ASSIGNMENT. Returning it sent
+  // getVariantEmails to its fallback, so the opening was written and judged against the
+  // FIRST variant's offer line under the missing variant's name, nothing was written back
+  // (basis 'assigned' writes nothing), and upload later hashed the prospect across the
+  // survivors: an opening above an offer line it was never written for, with no record.
+  // Composition has reassigned such prospects since 2026-09-20; research never did. Found
+  // 2026-10-01, when brief-generated templates dropped from four variants to three.
+  //
+  // Falling through chooses again by hook, then by hash, exactly as for a prospect with no
+  // variant, and the caller writes that choice back because the basis is not 'assigned'.
+  if (assignedVariantId && availableVariants.includes(assignedVariantId)) {
+    return { variantId: assignedVariantId, basis: 'assigned' }
+  }
 
   const hashed = assignVariantDeterministically(prospectId, availableVariants)
   if (!hookText?.trim()) return { variantId: hashed, basis: 'no_tags' }
@@ -325,6 +374,78 @@ export function resolveVariantId(
     contentOverlap,
   )
   return { variantId: choice.variantId, basis: choice.basis }
+}
+
+/**
+ * The candidates a follow-up may be written from: the one Email 1 opened on, and the one
+ * that supports the same reason. Nothing else research found.
+ *
+ * ─── WHY THE FOLLOW-UP WRITER IS NOT SHOWN EVERYTHING ────────────────────────
+ *
+ * Operator note 4 on the second reading (2026-10-01): when Email 1 is personalised, Email 2
+ * or 3 carries THAT thread forward. The follow-up writer's prompt has always said "one
+ * finding, developed across the three", and it was then handed every candidate, with one
+ * line of the prompt inviting it to use a second fact in Email 3. Measured on the 71 stored
+ * follow-ups of the live client the same day: five open on a different fact from the one
+ * Email 1 used. A reader who was told about their new hire on Monday is told about their
+ * award on Thursday, and the sequence reads as two unrelated emails.
+ *
+ * A prompt instruction is advisory (ADR-028). A fact the writer was never shown cannot be
+ * opened on, so the rule is enforced by what is passed in.
+ *
+ * WHEN NO SELECTION IS KNOWN the whole list is returned, as before. That happens only on
+ * rows whose source run reached no selection, and narrowing to nothing would leave the
+ * writer with no finding at all.
+ *
+ * The EVIDENCE corpus the gates read is deliberately NOT narrowed. Email 1's body is shown
+ * to the writer in full and may name something from another finding; a narrower corpus
+ * would reject a follow-up for repeating what Email 1 itself said.
+ */
+export function candidatesForThread(
+  candidates: ObservationCandidate[],
+  selectedCandidateId: string | null | undefined,
+  supportingCandidateId: string | null | undefined,
+): ObservationCandidate[] {
+  if (!selectedCandidateId) return candidates
+  const selected = candidates.find(c => c.id === selectedCandidateId)
+  if (!selected) return candidates
+  const supporting = supportingCandidateId && supportingCandidateId !== selectedCandidateId
+    ? candidates.find(c => c.id === supportingCandidateId)
+    : undefined
+  return supporting ? [selected, supporting] : [selected]
+}
+
+/**
+ * The evidence the Email 1 fact-check reads: the findings, plus the client's approved reason
+ * as one more numbered line when there is one.
+ *
+ * ─── WHY THE APPROVED REASON IS IN THE FACT-CHECK'S EVIDENCE ─────────────────
+ *
+ * The fact-check asks whether each thing the email says is carried by a finding. Since
+ * 2026-10-01 the second line IS the client's approved reason, restated about the event, and
+ * no finding about one prospect can carry a general statement about firms. So the verifier
+ * rejected the very sentence the rule asks for. Measured on the second trial of that rule:
+ * "A big project starting means a firm will soon need the next one lined up", the approved
+ * reason almost word for word, was rejected as unsupported, and so were two others.
+ *
+ * It is approved, so it is given as what it is: a numbered line the verifier may cite,
+ * labelled as a general statement and NOT a finding about this reader. A second line that
+ * goes beyond it ("three managers in one year") still has to find its support in the real
+ * findings, and still fails when it cannot.
+ *
+ * ONLY THE FACT-CHECK READS THIS. The writer's own gates read buildFindingsEvidence, where a
+ * name or a number must trace to something research actually found.
+ */
+export function evidenceWithApprovedReason(candidates: ObservationCandidate[], approvedReason: string | null): string {
+  const evidence = buildFindingsEvidence(candidates)
+  if (!approvedReason) return evidence
+  return (
+    `${evidence}
+${candidates.length + 1}. A general statement, approved in advance. It is true of firms ` +
+    `in general and is NOT a finding about this reader: ${approvedReason}
+` +
+    '   source: approved in advance | not research about this reader'
+  )
 }
 
 /** Read the organisation's name, used as the client name the writer is briefed with. */
@@ -351,6 +472,7 @@ export async function produceOpening({
   variantId,
   icpBuyerTitle,
   positioningText,
+  triggers,
   needMatchMode = 'report',
   uniqueness,
   onAttempt,
@@ -379,6 +501,40 @@ export async function produceOpening({
     })
     return notWrittenOpening('no_usable_candidate', NO_USABLE_CANDIDATE_REASON)
   }
+
+  // ═══ THE OPENING ARGUES FROM THE CLIENT'S APPROVED REASON, OR IS NOT WRITTEN ═══
+  //
+  // Operator note 5, 2026-10-01. HERE, for the reason the check above is here: every
+  // research path converges on this function, so the rule is applied once, in one place,
+  // and the inline agent, phase 2 of the batch path and the export cannot disagree about it.
+  //
+  // BEFORE the frame is read and before anything is paid for: a prospect held here costs
+  // nothing more than the research that found it had no approved reason.
+  const approved = resolveApprovedReason(candidates, selectedCandidateId, triggers)
+  if (holdsPersonalisation(approved)) {
+    logger.info('research/produce-opening: not written, the selected fact has no approved reason behind it', {
+      prospect_id: ctx.id,
+      variant_id: variantId,
+      state: approved.state,
+      selected_candidate_id: selectedCandidateId ?? null,
+    })
+    return { ...notWrittenOpening('no_approved_reason', NO_APPROVED_REASON_REASON), approved_reason: approved }
+  }
+  if (approved.state === 'not_checked') {
+    // WARN, because this is the rule NOT being applied, and that has to be visible. It is
+    // the state every client is in whose ICP predates the reason field.
+    logger.warn('research/produce-opening: no approved trigger reason to hold the opening to', {
+      prospect_id: ctx.id, why: approved.why,
+    })
+  }
+  // THE REASON THE WRITER AND THE FOLLOW-UPS ARGUE FROM. The approved sentence, verbatim,
+  // wherever there is one. Synthesis's own sentence for this prospect is no longer the
+  // target: it is a paraphrase the client never saw, and it is where the drift from "what
+  // the event points to" to "what the reader must now do" came from.
+  // Where the rule is not applied the value passes through untouched, undefined included: an
+  // unset field must arrive as unset, not as a different value wearing its name.
+  const reasonForWriter = reasonTheWritersArgueFrom(approved, prospectReason)
+  const approvedReasonText = approved.state === 'approved' ? approved.reason : null
 
   const frame = getVariantEmail1Frame(messagingContent, variantId)
 
@@ -445,7 +601,8 @@ export async function produceOpening({
     // only other target instruction, so the prompt told the model to read a block section
     // that was never emitted, while emails 2 and 3 argued from a reason Email 1 never saw.
     selectionReason,
-    prospectReason,
+    prospectReason: reasonForWriter,
+    reasonIsApproved: approvedReasonText !== null,
     supportingCandidateId,
     p3: frame.p3,
     // frame.cta is deliberately NOT passed. See WriteAndJudgeParams.
@@ -484,7 +641,9 @@ export async function produceOpening({
         apiKey,
         bridge,
         question,
-        findingsEvidence: buildFindingsEvidence(candidates),
+        // WITH THE APPROVED REASON AS ONE MORE NUMBERED LINE, where there is one. See
+        // evidenceWithApprovedReason. Only this verifier reads the longer list.
+        findingsEvidence: evidenceWithApprovedReason(candidates, approvedReasonText),
         prospectId: ctx.id,
         companyName: ctx.company_name ?? null,
       })
@@ -503,6 +662,23 @@ export async function produceOpening({
       // paying a second Sonnet call to describe it buys nothing. Returning early is
       // therefore the cheap branch AND the correct one, and they cannot drift apart.
       if (fc.failures.length > 0) return fc.failures
+
+      // ═══ THE REASON CHECK: THE SECOND LINE SAYS WHAT THE APPROVED REASON SAYS ═══
+      //
+      // AFTER the fact-check, for the cost rule stated above: a line the fact-check
+      // rejected is about to be rewritten, and reading it against the reason buys nothing.
+      // BEFORE the need-match check, because that one only reports and this one blocks: a
+      // rejection here ends the attempt and the need-match call is not paid for.
+      //
+      // ONLY WHERE THERE IS AN APPROVED REASON. The not_checked state has nothing to hold
+      // the line to. See reason-match.ts for what is asked and what code verifies.
+      if (approvedReasonText !== null && bridge.trim()) {
+        const match = await checkBridgeStatesReason({
+          apiKey, approvedReason: approvedReasonText, bridge, prospectId: ctx.id,
+        })
+        verifierUsage = addTokenUsage(verifierUsage, match.usage)
+        if (match.failures.length > 0) return match.failures
+      }
 
       // NO DOCUMENT, NO CHECK. Not a silent pass dressed as one: without the client's
       // positioning document there is nothing to check a need against, and a verifier
@@ -546,7 +722,9 @@ export async function produceOpening({
   // Folded once, here, so every return below carries it and none can forget to. AFTER the
   // writer has returned, because the closure runs inside it and verifierUsage is only
   // populated by then.
-  const opening = { ...writerResult, usage: addTokenUsage(writerResult.usage, verifierUsage) }
+  // approved_reason travels on the result, and from there into prospects.trigger_data.judge,
+  // so what the opening was held to can be read back per prospect without re-running anything.
+  const opening = { ...writerResult, usage: addTokenUsage(writerResult.usage, verifierUsage), approved_reason: approved }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // EMAILS 2 AND 3, IN THEIR OWN CALL, AFTER EMAIL 1 IS FINISHED
@@ -614,7 +792,19 @@ export async function produceOpening({
     messagingContent, variantId, opening.opening, opening.question, undefined, opening.subject,
   ).body
 
-  const followups = await writeFollowups({
+  // ═══ A FAILED FOLLOW-UP CALL COSTS THE FOLLOW-UPS, NEVER THE RESEARCH ═══
+  //
+  // writeFollowups rethrows any API error. Email 1 has already won by this point, and the
+  // callers store the research AFTER this function returns: on the full-price route a
+  // throw here discarded the sources, the synthesis and the winning Email 1, with no row
+  // left for a re-run to reuse. A spent balance still aborts the run (FatalApiError); any
+  // other failure returns the opening with no follow-ups, the run is stored, and the
+  // prospect is held at upload until the backfill writes one. On the batch path the job
+  // used to fail and its retry rewrote everything; it now completes, and the backfill
+  // owes that prospect its follow-ups.
+  let followups: Awaited<ReturnType<typeof writeFollowups>>
+  try {
+    followups = await writeFollowups({
     apiKey,
     clientName,
     buyer: buyer.description,
@@ -623,7 +813,8 @@ export async function produceOpening({
     prospectFirstName: ctx.first_name ?? null,
     email1Body,
     offerLine: frame.p3,
-    findings: buildFindingsBlock(candidates, {
+    // ONLY THE FINDING EMAIL 1 OPENED ON, and its supporting event. See candidatesForThread.
+    findings: buildFindingsBlock(candidatesForThread(candidates, selectedCandidateId, supportingCandidateId), {
       selectedCandidateId: selectedCandidateId ?? null,
       relevanceReason: relevanceReason ?? null,
       selectionReason: selectionReason ?? null,
@@ -632,7 +823,8 @@ export async function produceOpening({
     // emails then argue one thing. Before this, emails 2 and 3 were written from the
     // findings block alone and were free to pick a different angle from Email 1, which is
     // how a sequence ends up making four separate cases to one reader.
-    prospectReason: prospectReason ?? null,
+    // The approved reason where there is one: the same sentence Email 1 was held to.
+    prospectReason: reasonForWriter ?? null,
     supportingEvent: supportingCandidateId
       ? candidates.find(c => c.id === supportingCandidateId)?.observation ?? null
       : null,
@@ -652,7 +844,14 @@ export async function produceOpening({
     // would be measuring two different rules in one number.
     needMatchMode,
     prospectId: ctx.id,
-  })
+    })
+  } catch (err) {
+    if (err instanceof FatalApiError) throw err
+    logger.warn('research/produce-opening: the follow-up call failed; the opening is kept and no follow-up is stored', {
+      prospect_id: ctx.id, variant_id: variantId, error: err instanceof Error ? err.message : String(err),
+    })
+    return { ...opening, email2: EMPTY_FOLLOWUP, email3: EMPTY_FOLLOWUP, followup_usage: null, followup_attempts: [], followup_email1_fingerprint: null }
+  }
 
   return {
     ...opening,
