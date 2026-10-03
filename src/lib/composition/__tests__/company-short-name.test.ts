@@ -148,7 +148,7 @@ describe('companyShortName', () => {
 
   describe('a firm named after the reader', () => {
     const jane = { firstName: 'Jane', lastName: 'Marlow' }
-    it.each(['Jane Marlow Ltd', 'Dr. Jane Marlow', 'Dr Jane Marlow', 'Jane Marlow PhD', 'Marlow Ltd', 'The Jane Marlow Company'])(
+    it.each(['Jane Marlow Ltd', 'Dr. Jane Marlow', 'Dr Jane Marlow', 'Jane Marlow PhD', 'The Jane Marlow Company'])(
       'PLANTED: "%s" is not written back to Jane Marlow in the third person', stored => {
         expect(companyShortName(stored, NONE, jane)).toBeNull()
       })
@@ -160,9 +160,19 @@ describe('companyShortName', () => {
       expect(companyShortName('Jane Marlow Ltd', NONE)).toBe('Jane Marlow')
       expect(companyShortName('Jane Marlow Ltd', NONE, { firstName: 'Tom', lastName: 'Kessel' })).toBe('Jane Marlow')
     })
-    it('PLANTED: a remainder that is the reader\'s own name is not said, and the full name is', () => {
-      // One word left, and it is the reader's surname: titles ignored, first or last.
-      expect(companyShortName('Marlow Consulting', NONE, { lastName: 'Marlow' })).toBe('Marlow Consulting')
+    it('READING FILE 7: the reader\'s surname alone is said, with an entity word that follows it', () => {
+      // The operator's two examples were real firms named after their reader; these are
+      // invented names of the same shapes.
+      expect(companyShortName('Marlow Consulting', NONE, { lastName: 'Marlow' })).toBe('Marlow')
+      expect(companyShortName('Marlow Consulting', NONE, jane)).toBe('Marlow')
+      expect(companyShortName('Marlow Group Consulting', NONE, jane)).toBe('Marlow Group')
+      expect(companyShortName('Marlow Partners Advisory LLC', NONE, jane)).toBe('Marlow Partners')
+      expect(companyShortName('Marlow Ltd', NONE, jane)).toBe('Marlow')
+      // Control: to anybody else the entity word goes as before.
+      expect(companyShortName('Marlow Group Consulting', NONE, { firstName: 'Tom', lastName: 'Kessel' })).toBe('Marlow')
+    })
+    it('PLANTED: a remainder that is the reader as a PERSON is not said, and the full name is', () => {
+      // One word left, and it is the reader's first name.
       expect(companyShortName('Jane Advisory Ltd', NONE, { firstName: 'Jane' })).toBe('Jane Advisory')
       // Two words left, and they are the reader.
       expect(companyShortName('Jane Marlow Group', NONE, jane)).toBe('Jane Marlow Group')

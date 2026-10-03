@@ -169,10 +169,11 @@
 //   - made only of words that name no firm in particular ("Services Partners"): judged by
 //     the caller's own generic words, the same list the firm-fact kind check uses
 //   - a value a record holds where there is no firm ("Self-employed", "Confidential")
-//   - the reader's own name ("Jane Marlow Ltd" written to Jane Marlow). This is why "Marlow
-//     Consulting" written to a Marlow stays "Marlow Consulting": the remainder is the
-//     reader, so the full name is said. Titles, one-letter initials and a possessive are
-//     set aside first, so "J Marlow", "Jane M. Marlow" and "Marlow's" are the reader too.
+//   - the reader's own name as a PERSON ("Jane Marlow Ltd" written to Jane Marlow): their
+//     first name, or their surname with an initial, a title or a possessive ("J Marlow",
+//     "Jane M. Marlow", "Marlow's"). The SURNAME ALONE IS SAID (reading file 7, 2026-10-03):
+//     "Marlow Consulting" written to a Marlow is "Marlow", and an entity word straight after
+//     the surname stays, so "Marlow Group Consulting" is "Marlow Group".
 //     NOT MODELLED: a firm named by initials alone ("K & M Consulting"). For a client
 //     whose generic words hold "consulting" it is "your firm", as it was before
 //
@@ -585,6 +586,20 @@ function insideAPlaceOfSeveralWords(words: string[], i: number): boolean {
 }
 
 /**
+ * True when the words are exactly the reader's surname: every word one of its words, each
+ * written plainly (no initial, no possessive, no title), and the reader's first name absent.
+ */
+function isTheReadersSurname(words: string[], reader: Reader): boolean {
+  const surname = typeof reader.lastName === 'string' ? reader.lastName.split(/\s+/).map(bare).filter(w => w.length > 1) : []
+  if (surname.length === 0 || words.length === 0) return false
+  const first = typeof reader.firstName === 'string' ? reader.firstName.split(/\s+/).map(bare).filter(Boolean) : []
+  return words.every(word => {
+    const b = bare(word)
+    return b.length > 1 && /^\p{L}[\p{L}-]*$/u.test(word) && surname.includes(b) && !first.includes(b) && !PERSON_TITLES.has(b)
+  })
+}
+
+/**
  * The words as one name, or null when they would read badly in a sentence or are not a
  * firm's name at all. Every refusal in the file header that is about what is SAID lives
  * here, and it is applied to a remainder and to a full name alike.
@@ -691,6 +706,19 @@ export function companyShortName(
   // may still pass. A remainder that is the trade joined to a service word ("Tax" from
   // "Tax & Advisory") is not a name at all, so it falls back the same way.
   const distinctive = !isATrade && remainderIsDistinctive(remainder, sets)
+  // A FIRM NAMED AFTER THE READER'S SURNAME IS STILL SHORTENED (operator, reading file 7,
+  // 2026-10-03): "Marlow Group Consulting" written to Jane Marlow is "Marlow Group", and
+  // "Marlow Consulting" written to her is "Marlow". A surname alone is
+  // how a founder-named firm is spoken of. Where the registered name puts an entity word
+  // straight after the surname, it stays, so the firm is named rather than the person. The
+  // refusal still holds for anything that reads as the PERSON: their first name, an
+  // initial, a title or a possessive ("Jane Marlow", "J Marlow", "Marlow's").
+  if (distinctive && isTheReadersSurname(remainder, reader)) {
+    const next = full[remainder.length]
+    const named = next !== undefined && ENTITY_WORDS.has(bare(next)) ? [...remainder, next] : remainder
+    const short = nameForASentence(named, clientGenericWords, {})
+    if (short !== null) return short
+  }
   if (distinctive) {
     const short = nameForASentence(remainder, clientGenericWords, reader)
     if (short !== null) return short
