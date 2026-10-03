@@ -84,6 +84,9 @@ let icpTriggers: unknown[] = []
 let icpReadError: string | null = null
 /** Every column list asked of prospects, so a test can see what the action selects. */
 let prospectSelects: string[] = []
+/** The client's upload hold, as organisations holds it. */
+let hold: { outbound_upload_hold: boolean; outbound_upload_hold_note: string | null } | null = { outbound_upload_hold: false, outbound_upload_hold_note: null }
+let holdReadError: string | null = null
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -147,6 +150,17 @@ function tables(kind: 'session' | 'service', table: string): any {
     return b
   }
   if (table === 'prospects') return prospectsTable(kind)
+  if (table === 'organisations') {
+    const filters: Record<string, unknown> = {}
+    const b: any = {
+      select: () => b,
+      eq: (c: string, v: unknown) => { filters[c] = v; return b },
+      maybeSingle: () => Promise.resolve(holdReadError
+        ? { data: null, error: { message: holdReadError } }
+        : { data: filters.id === ORG ? hold : null, error: null }),
+    }
+    return b
+  }
   if (table === 'sent_sequences') {
     // THE GRANT, modelled. authenticated cannot INSERT; service_role can (read live 2026-10-01).
     if (kind === 'session') throw new Error('permission denied for table sent_sequences')
@@ -198,6 +212,8 @@ function seed(ids: string[], judges: Record<string, unknown> = {}) {
 const row = (id: string) => prospects.find(p => p.id === id)!
 
 beforeEach(() => {
+  hold = { outbound_upload_hold: false, outbound_upload_hold_note: null }
+  holdReadError = null
   icpTriggers = [{ trigger: 'Added equipment', reason: REASON }]
   icpReadError = null
   prospectSelects = []
@@ -444,3 +460,34 @@ describe('handleUploadLeads: the reclaim releases only rows still claimed', () =
   })
 })
 
+
+describe('handleUploadLeads: the upload hold (2026-10-03)', () => {
+  it('PLANTED: a held client uploads nothing, claims nothing, and is told why', async () => {
+    seed(['p-1', 'p-2'])
+    hold = { outbound_upload_hold: true, outbound_upload_hold_note: 'copy is being rewritten' }
+    compose.fn.mockImplementation(async ({ prospect_id }: { prospect_id: string }) => composed(prospect_id, 'template', { 2: 'not_assigned', 3: 'not_assigned' }))
+    const result = await handleUploadLeads(ORG)
+    expect(result).toEqual({ ok: false, error: 'Uploads are on hold for this client (copy is being rewritten). Nothing was uploaded.' })
+    expect(upload.fn).not.toHaveBeenCalled()
+    expect(compose.fn).not.toHaveBeenCalled()
+    expect(prospects.every(p => p.outbound_upload_status === 'pending')).toBe(true)
+  })
+
+  it('PLANTED: a hold that cannot be read is treated as a hold', async () => {
+    seed(['p-1'])
+    holdReadError = 'gateway timeout'
+    const result = await handleUploadLeads(ORG)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('could not read whether uploads are held')
+    expect(upload.fn).not.toHaveBeenCalled()
+  })
+
+  it('a client with no hold uploads as before (control)', async () => {
+    seed(['p-1'])
+    compose.fn.mockImplementation(async ({ prospect_id }: { prospect_id: string }) => composed(prospect_id, 'template', { 2: 'not_assigned', 3: 'not_assigned' }))
+    const result = await handleUploadLeads(ORG)
+    if (!result.ok) throw new Error(`expected an upload, got: ${result.error}`)
+    expect(upload.fn).toHaveBeenCalledTimes(1)
+  })
+})

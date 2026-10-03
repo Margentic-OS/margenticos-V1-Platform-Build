@@ -179,6 +179,11 @@ function baseTables(table: string): any {
     const b: any = { select: () => b, eq: () => b, in: () => b, then: (r: any) => r({ data: [], error: null }) }
     return b
   }
+  if (table === 'organisations') {
+    // No upload hold: this file is about the suppression pre-filter.
+    const b: any = { select: () => b, eq: () => b, maybeSingle: () => Promise.resolve({ data: { outbound_upload_hold: false, outbound_upload_hold_note: null }, error: null }) }
+    return b
+  }
   if (table === 'prospects') {
     return {
       select: () => prospectsBuilder('select'),

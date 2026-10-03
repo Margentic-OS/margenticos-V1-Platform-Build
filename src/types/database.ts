@@ -1501,6 +1501,8 @@ export type Database = {
           linkedin_channel_enabled: boolean
           meetings_count: number
           monthly_meetings_target: number
+          outbound_upload_hold: boolean
+          outbound_upload_hold_note: string | null
           name: string
           payment_status: string | null
           pipeline_unlock_at: string | null
@@ -1540,6 +1542,8 @@ export type Database = {
           linkedin_channel_enabled?: boolean
           meetings_count?: number
           monthly_meetings_target?: number
+          outbound_upload_hold?: boolean
+          outbound_upload_hold_note?: string | null
           name: string
           payment_status?: string | null
           pipeline_unlock_at?: string | null
@@ -1579,6 +1583,8 @@ export type Database = {
           linkedin_channel_enabled?: boolean
           meetings_count?: number
           monthly_meetings_target?: number
+          outbound_upload_hold?: boolean
+          outbound_upload_hold_note?: string | null
           name?: string
           payment_status?: string | null
           pipeline_unlock_at?: string | null
