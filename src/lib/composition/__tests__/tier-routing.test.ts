@@ -119,7 +119,7 @@ describe('tier routing, in order', () => {
     expect(email(seq, 1).body).toMatch(/\n\n(When we chat to software makers, a lot of them say|Talking to software makers, we hear that) /)
     expect(email(seq, 1).body).toContain('bakeries')
     // Follow-ups are the template's paragraphs, with the same group named as their source.
-    expect(email(seq, 2).body).toContain('When we chat to software makers, a lot of them say a new market starts slower than hoped.')
+    expect(email(seq, 2).body).toContain('In our chats with software makers, a lot of them say a new market starts slower than hoped.')
   })
 
   it.each([
@@ -171,7 +171,7 @@ describe('sequence coherence at composition (tier 1), both ways', () => {
     expect(detail.email1_angle).toBe('PA1')
     expect([detail.followup_angles[2], detail.followup_angles[3]]).not.toContain('PA1')
     expect(detail.swaps).toEqual([])
-    expect(email(seq, 2).body).toContain('When we chat to exporters, a lot of them say a new market starts slower than hoped.')
+    expect(email(seq, 2).body).toContain('In our chats with exporters, a lot of them say a new market starts slower than hoped.')
   })
 
   it('a document whose Email 2 repeats Email 1\'s angle: Email 2 is replaced from another variant', async () => {
@@ -186,7 +186,7 @@ describe('sequence coherence at composition (tier 1), both ways', () => {
     const detail = seq.opening.detail as { swaps: Array<{ position: number; to_variant: string; to_angle: string }>; followup_angles: Record<number, string> }
     expect(detail.swaps).toContainEqual(expect.objectContaining({ position: 2, to_variant: 'B', to_angle: 'PA3' }))
     expect(detail.followup_angles[2]).not.toBe('PA1')
-    expect(email(seq, 2).body).toContain('When we chat to exporters, a few say they tried free tools first to save money.')
+    expect(email(seq, 2).body).toContain('In our chats with exporters, a few say they tried free tools first to save money.')
     expect(email(seq, 2).body).not.toContain('a new market starts slower')
   })
 
@@ -360,9 +360,9 @@ describe('the reader\'s firm by name in the template follow-ups (fourth reading,
     // Give Email 2's first paragraph a customer-group form.
     const p = c.variants.A.lines.followups[0].paragraphs[0]
     // Its slot_free form is the paragraph as stored, so the stored body still matches the lines.
-    p.text = 'When we chat to exporters, a lot of them say a new market starts slower when {for_whom} are slow to buy.'
+    p.text = 'In our chats with exporters, a lot of them say a new market starts slower when {for_whom} are slow to buy.'
     p.slots = ['for_whom']
-    p.slot_free = 'When we chat to exporters, a lot of them say a new market starts slower than hoped.'
+    p.slot_free = 'In our chats with exporters, a lot of them say a new market starts slower than hoped.'
     const tier2 = await compose(prospect({ firm_fact: GOOD_FACT }), c)
     expect(tier2.seq.opening.tier).toBe('firm_fact')
     expect(email(tier2.seq, 2).body).toContain('when bakeries are slow to buy.')
@@ -459,7 +459,7 @@ describe('the peer rung, from the prospect row to the email', () => {
     // The frame that names their site is never over a line nobody read on their site.
     expect(email(seq, 1).body).not.toContain('Your site says')
     // The follow-ups are the template's paragraphs, with the same group named as their source.
-    expect(email(seq, 2).body).toContain(`When we chat to ${PEER_LABEL_APART}, a lot of them say a new market starts slower than hoped.`)
+    expect(email(seq, 2).body).toContain(`In our chats with ${PEER_LABEL_APART}, a lot of them say a new market starts slower than hoped.`)
     // The word count is of the Email 1 that ships.
     expect(email(seq, 1).word_count).toBe(countWords(email(seq, 1).body.replace('Not for you? Just reply stop.', '').trim()))
   })

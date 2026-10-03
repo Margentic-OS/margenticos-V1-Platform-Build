@@ -1584,14 +1584,14 @@ describe('decideFollowupFills: the reader\'s own peer group names the source in 
   }
 
   it('the stored Email 2 names the default label, slot-free (the premise)', () => {
-    expect(email2()).toContain('When we chat to exporters, a lot of them say a new market starts slower than hoped.')
+    expect(email2()).toContain('In our chats with exporters, a lot of them say a new market starts slower than hoped.')
   })
   it('PLANTED: with the reader\'s group held and nothing else, {peer_group} is filled from it', () => {
     const d = fill('software makers')
     expect(d.filled).toBe(true)
     if (!d.filled) return
-    expect(d.body).toContain('When we chat to software makers, a lot of them say a new market starts slower than hoped.')
-    expect(d.body).not.toContain('chat to exporters')
+    expect(d.body).toContain('In our chats with software makers, a lot of them say a new market starts slower than hoped.')
+    expect(d.body).not.toContain('chats with exporters')
     expect(d.slotted).toEqual([true, false, false])
   })
   it('with no group, no name and no customer group held, nothing is filled (control)', () => {
@@ -1602,7 +1602,7 @@ describe('decideFollowupFills: the reader\'s own peer group names the source in 
     const d = fill('software makers', 'Kessel Labs')
     expect(d.filled).toBe(true)
     if (!d.filled) return
-    expect(d.body).toContain('When we chat to software makers,')
+    expect(d.body).toContain('In our chats with software makers,')
     expect(d.body).toMatch(/Does that match what Kessel[^?]* sees\?/)
     expect(d.slotted).toEqual([true, false, true])
   })
