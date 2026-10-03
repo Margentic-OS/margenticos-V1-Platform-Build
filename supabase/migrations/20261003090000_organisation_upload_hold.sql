@@ -12,7 +12,7 @@
 -- SELECT on its own row. So only an operator can change the hold; a client can see it. No
 -- grant changes: the columns inherit the table's grants, and RLS governs the rows.
 --
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-10-03, production and test database; columns, types and default read back; hold set for MargenticOS)
 
 ALTER TABLE public.organisations
   ADD COLUMN IF NOT EXISTS outbound_upload_hold boolean NOT NULL DEFAULT false,
