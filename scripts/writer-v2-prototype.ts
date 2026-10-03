@@ -272,7 +272,12 @@ function guardFailures(out: WriterOutput, p: ProspectInput, sender: Sender, play
       if (/^[A-Z][\w'’-]*,$/.test(s)) continue // the greeting line
       const isDeclared = [...declared].some(k => k.startsWith(`${e.email}|`) && (k.slice(2).includes(norm(s)) || norm(s).includes(k.slice(2))))
       if (isDeclared) continue
-      const namesFirm = names.some(n => norm(s).includes(n))
+      // NAMING THE FIRM IS NOT BY ITSELF A CLAIM. "If that shows up at <firm>, that's the part
+      // we handle" is hedged, and a question asserts nothing. Flagging every sentence that
+      // named the firm failed both models on the first prospect of the first run and cost a
+      // paid retry each (2026-10-03). A plain statement naming the firm is still a claim.
+      const hedged = /\bif\b|\bwhether\b|\?\s*$|\b(?:firms|teams|people|founders|consultants|companies) like\b/i.test(s)
+      const namesFirm = !hedged && names.some(n => norm(s).includes(n))
       if (namesFirm || EVENT_SHAPE.test(s)) failures.push(`Email ${e.email} sentence "${s}" says something about the prospect or their firm and rests on no declared fact`)
     }
   })
