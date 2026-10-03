@@ -286,6 +286,23 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
+  // THE UPLOAD HOLD (2026-10-03). An operator can hold a client's uploads while its copy is
+  // being reworked: nothing is claimed, composed or sent while organisations.
+  // outbound_upload_hold is true. Read before anything else touches a prospect row. A hold
+  // that cannot be read is treated as a hold: an upload is the one step here that cannot
+  // be taken back.
+  const { data: holdRow, error: holdError } = await supabase
+    .from('organisations')
+    .select('outbound_upload_hold, outbound_upload_hold_note')
+    .eq('id', orgId)
+    .maybeSingle()
+  if (holdError || !holdRow) {
+    return { ok: false, error: `Upload not started: could not read whether uploads are held for this client${holdError ? ` (${holdError.message})` : ''}.` }
+  }
+  if (holdRow.outbound_upload_hold) {
+    return { ok: false, error: `Uploads are on hold for this client${holdRow.outbound_upload_hold_note ? ` (${holdRow.outbound_upload_hold_note})` : ''}. Nothing was uploaded.` }
+  }
+
   // The send gate reads suppressed_emails, which is service-role only: RLS enabled, zero
   // policies, and EXECUTE/SELECT revoked from anon and authenticated by name. The session
   // client above authenticates as `authenticated`, so it gets `permission denied` there,
