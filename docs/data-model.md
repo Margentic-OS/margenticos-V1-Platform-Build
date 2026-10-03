@@ -1131,3 +1131,13 @@ directions). See `docs/firm-fact-tier.md`.
   operator's session client to a service-role-only table, and it held no rows.
 
 No new table and no new policy. A column added to `prospects` inherits the table's RLS.
+
+## Writer v2 columns (2026-10-03, migration 20261003180000_writer_v2.sql, ADR-068)
+
+- `organisations.sequence_writer_v2_enabled` (boolean, NOT NULL, default false): the per-client switch. Set by an operator.
+- `prospects.writer_v2_sequence` (jsonb, nullable): what writer v2 produced (tier, emails or null for the template tier, fact used, angles, every attempt's check failures, playbook version and source). Written only while `outbound_upload_status = 'pending'`.
+- `sent_sequences.sequence_writer` (text, NOT NULL, default 'v1', CHECK v1/v2), `writer_tier` (personalised / semi_personalised / template, required exactly when v2), `playbook_version` (integer). `variant_id` is now nullable, and a CHECK keeps it required except for a v2 personalised or semi-personalised send.
+- `research_usage` rows with `arm = 'writer_v2'` hold the writer's spend (tokens in `opening`, other stages zero).
+- `strategy_documents.content.writer_playbook` (messaging documents): the client's playbook, changed only through its own suggestion.
+
+No new table and no grant changes: the columns inherit their tables' grants and RLS.

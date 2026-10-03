@@ -819,6 +819,12 @@ Per ADR-013, current agent model assignments:
   Composition (bridge sentence):                       NONE. Composition makes zero model
                                                        calls. BRIDGE_ENABLED has been false
                                                        since 5047e24 (2026-08-19).
+  Sequence writer v2 (whole four-email sequence):      claude-sonnet-4-6
+                                                       The production research writer's model,
+                                                       no extended thinking. Only for clients
+                                                       with sequence_writer_v2_enabled. One call
+                                                       per prospect, one retry per tier, so two
+                                                       to four calls at most. See ADR-068.
   Signal processing, batch tasks:                      claude-haiku-4-5-20251001
   Reply handling (positive reply classification):      claude-haiku-4-5-20251001
   Claude Code itself (build, debug, refactor):         claude-sonnet-4-6
@@ -2265,6 +2271,11 @@ For quick reference. Full text in /docs/ADR.md.
            the sender are checked against the brief's scope; and an operator can HOLD a
            client's uploads (organisations.outbound_upload_hold), which handleUploadLeads
            refuses while on. An unreadable hold counts as a hold. Only Doug lifts it
+  ADR-068  Writer v2: one call writes the whole sequence from a playbook stored in the
+           messaging document, behind organisations.sequence_writer_v2_enabled. Three tiers
+           (personalised, semi-personalised, template), one retry each, only three checks
+           (word counts, truth, sender scope). The old path stays for every client with the
+           switch off. See docs/writer-v2.md
 
 ---
 
