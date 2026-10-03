@@ -297,3 +297,48 @@ async function recordWriterUsage(supabase: SupabaseClient, client_id: string, pr
   })
   if (error) logger.error('sequence-writer: FAILED TO RECORD what this prospect cost', { prospect_id, tier: record.tier, calls: usage.calls, error: error.message })
 }
+
+// ─── After research ───────────────────────────────────────────────────────────
+
+/**
+ * The client's writer v2 switch. A read that fails is logged and reads as OFF, deliberately:
+ * off means the old writer runs and its copy is stored as it always was, and with the switch
+ * actually on, upload then holds the prospect for want of a writer v2 sequence. Reading a
+ * failure as ON would skip the old writer AND write nothing, which loses the copy outright.
+ */
+export async function readWriterV2Enabled(supabase: SupabaseClient, client_id: string): Promise<boolean> {
+  const { data, error } = await supabase.from('organisations').select('sequence_writer_v2_enabled').eq('id', client_id).single()
+  if (error || !data) {
+    logger.error('sequence-writer: could not read the writer v2 switch; the old writer runs for this prospect', { client_id, error: error?.message ?? 'no row' })
+    return false
+  }
+  return data.sequence_writer_v2_enabled === true
+}
+
+/**
+ * Called by every research path after the research result and the firm fact are stored. A
+ * no-op unless the client is on writer v2. NEVER THROWS: the research is already paid for and
+ * stored, and a failed write leaves the prospect with no sequence, which upload holds rather
+ * than sends. Rerunning the writer for that prospect is the remedy.
+ */
+export async function maybeWriteSequenceAfterResearch(input: {
+  supabase: SupabaseClient
+  apiKey: string
+  client_id: string
+  prospect_id: string
+  writerV2Enabled: boolean
+  usagePath: WriterV2UsagePath
+}): Promise<void> {
+  if (!input.writerV2Enabled) return
+  try {
+    const anthropic = new Anthropic({ apiKey: input.apiKey, timeout: 120_000, maxRetries: 1 })
+    await writeSequenceForProspect({
+      supabase: input.supabase, anthropic, client_id: input.client_id, prospect_id: input.prospect_id,
+      usagePath: input.usagePath, persist: true,
+    })
+  } catch (err) {
+    logger.error('sequence-writer: writing after research failed; the prospect has no sequence and upload will hold it', {
+      client_id: input.client_id, prospect_id: input.prospect_id, error: err instanceof Error ? err.message : String(err),
+    })
+  }
+}

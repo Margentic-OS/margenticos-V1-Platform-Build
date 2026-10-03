@@ -55,6 +55,11 @@ import { hasUsableCandidate } from './synthesize'
 export type MessagingContent = Parameters<typeof getVariantEmail1Frame>[0]
 
 export interface ProduceOpeningInput {
+  /**
+   * The client is on writer v2 (organisations.sequence_writer_v2_enabled). The old writer is
+   * not run and nothing is paid for: writer v2 writes the whole sequence after research.
+   */
+  writerV2Enabled?: boolean
   apiKey: string
   clientName: string
   ctx: ProspectContext
@@ -311,6 +316,16 @@ function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningWithF
   } satisfies OpeningWithFollowups
 }
 
+/** The judge_reasoning on a prospect whose client is on writer v2. */
+export const WRITER_V2_SKIPPED_REASON =
+  'Not written by this writer: the client is on writer v2, which writes the whole sequence after research.'
+
+/** What produceOpening returns for a writer v2 client: the not-written shape, with no code. */
+export function writerV2SkippedOpening(): OpeningWithFollowups {
+  const { not_written_reason: _code, ...rest } = notWrittenOpening('no_usable_candidate', WRITER_V2_SKIPPED_REASON)
+  return rest
+}
+
 /**
  * Resolve which variant this prospect's opening is written for.
  *
@@ -487,7 +502,13 @@ export async function produceOpening({
   uniqueness,
   onAttempt,
   writeFollowupEmails = false,
+  writerV2Enabled = false,
 }: ProduceOpeningInput): Promise<OpeningWithFollowups> {
+  // WRITER V2 CLIENTS SKIP THIS WRITER ENTIRELY, before anything is paid for. Here, because
+  // every research path converges on this function. The result carries NO not_written_reason:
+  // that code lists a prospect on the operator's "writer stopped" panel, and nothing stopped.
+  if (writerV2Enabled) return writerV2SkippedOpening()
+
   // THE DO-NOT-WRITE VERDICT HAS A READER, AND THIS IS IT. Added 2026-09-11.
   //
   // When synthesis's selection rule finds nothing that clears even SPECIFIC + VERIFIABLE +

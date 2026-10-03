@@ -7,6 +7,7 @@
 // Classification: icp_fit (strong/moderate/weak, or cannot_tell when no grade was reached) + has_dateable_signal (bool) + signal_relevance (use_as_hook/ignore).
 // v1 agent (prospect-research-agent.ts) remains in place until v2 is dogfooded end-to-end.
 
+import { maybeWriteSequenceAfterResearch, readWriterV2Enabled } from '@/agents/sequence-writer-agent'
 import { maybeRunFirmFactAfterResearch } from './research/firm-fact'
 import { reassignedFromMissingVariant, reassignmentColumns } from './research/variant-reassignment'
 import fs from 'fs'
@@ -1043,7 +1044,11 @@ export async function runProspectResearchAgentV2({
     // makes four or more model calls.
     const clientCtx = await loadClientContext(client_id, ctx.segment_id)
 
+    // Writer v2 clients skip the old writer; writer v2 writes the whole sequence below.
+    const writerV2Enabled = await readWriterV2Enabled(supabase, client_id)
+
     const opening = await produceOpening({
+      writerV2Enabled,
       apiKey,
       clientName: await loadClientName(supabase, client_id),
       ctx,
@@ -1166,7 +1171,12 @@ export async function runProspectResearchAgentV2({
       messagingContent: messaging.content,
       openingWritten: opening.written_won && opening.opening !== null,
       usagePath: research_path,
+      writerV2Enabled,
     })
+
+    // Writer v2: the whole sequence, from the facts just stored and the client's playbook.
+    // No-op unless the client is on it; never throws.
+    await maybeWriteSequenceAfterResearch({ supabase, apiKey, client_id, prospect_id: ctx.id, writerV2Enabled, usagePath: research_path })
 
     const summaryLine =
       `${fullName} at ${ctx.company_name ?? 'unknown'}. ` +

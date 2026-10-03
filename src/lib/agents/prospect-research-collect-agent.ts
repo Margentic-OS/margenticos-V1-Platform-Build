@@ -38,6 +38,7 @@
 //   send eligibility  unmailable, and writer plus judge is three or more Anthropic calls
 //                     spent on copy that can never be sent.
 
+import { maybeWriteSequenceAfterResearch, readWriterV2Enabled } from '@/agents/sequence-writer-agent'
 import { maybeRunFirmFactAfterResearch } from './research/firm-fact'
 import { createClient } from '@supabase/supabase-js'
 import Anthropic from '@anthropic-ai/sdk'
@@ -357,7 +358,10 @@ export async function runProspectResearchCollect({
     }
 
     // ── Writer, floor and judge, against the SNAPSHOTTED document ─────────────
+    // Writer v2 clients skip the old writer; writer v2 writes the whole sequence below.
+    const writerV2Enabled = await readWriterV2Enabled(supabase, client_id)
     const opening = await produceOpening({
+      writerV2Enabled,
       apiKey,
       // Snapshotted, so the writer is briefed with the name it was briefed with in phase 1.
       clientName: entry.client_name || await loadClientName(supabase, client_id),
@@ -461,7 +465,11 @@ export async function runProspectResearchCollect({
       messagingContent: entry.messaging_content,
       openingWritten: opening.written_won && opening.opening !== null,
       usagePath: 'collect',
+      writerV2Enabled,
     })
+
+    // Writer v2: the whole sequence. No-op unless the client is on it; never throws.
+    await maybeWriteSequenceAfterResearch({ supabase, apiKey, client_id, prospect_id: ctx.id, writerV2Enabled, usagePath: 'collect' })
 
     // Reported, never acted on. The snapshot is used regardless: that decision is made,
     // not deferred. This column is how often the decision mattered, and MON-021 surfaces
