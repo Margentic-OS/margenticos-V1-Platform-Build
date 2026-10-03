@@ -154,6 +154,14 @@ describe('sequence writer agent', () => {
     expect(db.usageRows).toEqual([])
   })
 
+  it('a sequence the personalised step passed that opens on the standing fact is recorded as semi-personalised', async () => {
+    const db = database({ candidates: RESEARCH, firmFact: FIRM })
+    const r = await run(db, [GOOD_SEMI])
+    expect(r.calls).toHaveLength(1)
+    expect(r.record.tier).toBe('semi_personalised')
+    expect(r.record.attempts[0].tier).toBe('personalised')
+  })
+
   it('a prospect no longer pending is not overwritten', async () => {
     const db = database({ candidates: RESEARCH, status: 'uploaded' })
     const r = await run(db, [GOOD_PERSONAL])

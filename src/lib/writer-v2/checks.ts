@@ -112,7 +112,7 @@ export function initialisms(text: string): Set<string> {
   return out
 }
 
-/** The initials of a multi-word name, in capitals ("Moving Sales Professionals" gives "MSP"), or null. */
+/** The initials of a multi-word name, in capitals ("Northgate Field Services" gives "NFS"), or null. */
 export function acronymOf(name: string | null): string | null {
   if (!name) return null
   const words = name.replace(/[^A-Za-z0-9& -]/g, ' ').split(/\s+/).filter(w => w && !JOINERS.has(w.toLowerCase()))

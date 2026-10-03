@@ -49,6 +49,24 @@ interface Row { id: string; first_name: string | null; company_name: string | nu
 interface Outcome { row: Row; record: WriterV2Record | null; cost: number; composed: ComposedSequence | null; error: string | null }
 
 async function main() {
+  // --render-only <raw-results.json>: rebuild the reading file from a saved run, paying for
+  // nothing. Tiers are re-derived by the rule in recordedTier (a research fact id is R<n>), so
+  // a run saved before that rule existed reads the same as one saved after it.
+  const renderOnly = arg('render-only')
+  if (renderOnly) {
+    const saved = JSON.parse(fs.readFileSync(renderOnly, 'utf-8')) as { outcomes: Outcome[]; spent: number; stoppedAt: string | null }
+    for (const o of saved.outcomes) {
+      if (o.record?.tier === 'personalised' && !/^R\d+$/.test(o.record.fact_used?.fact_id ?? '')) {
+        o.record.tier = 'semi_personalised'
+        if (o.composed?.writer) o.composed.writer.tier = 'semi_personalised'
+      }
+    }
+    const out = path.join(path.dirname(renderOnly), 'reading-file.md')
+    writeReadingFile(out, saved.outcomes, { spent: saved.spent, cap: Number(arg('cap') ?? '3'), stoppedAt: saved.stoppedAt, eligible: saved.outcomes.length, playbookSource: arg('playbook-source') ?? 'file' })
+    fs.writeFileSync(renderOnly, JSON.stringify(saved, null, 2))
+    console.log(`rendered ${out}`)
+    return
+  }
   const orgId = arg('org')
   const outDir = arg('out-dir')
   if (!orgId || !outDir) throw new Error('--org and --out-dir are required')

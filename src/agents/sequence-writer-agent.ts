@@ -133,7 +133,7 @@ export async function writeSequenceForProspect(input: WriteSequenceInput): Promi
     record_version: 1,
     written_at: new Date().toISOString(),
     model: WRITER_V2_MODEL,
-    tier: passed ? passed.tier : 'template',
+    tier: passed ? recordedTier(passed.tier, passed.output, prospect.facts) : 'template',
     emails: passed ? [...passed.output.emails].sort((a, b) => a.email - b.email).map(e => ({ position: e.email, subject: e.email === 1 ? e.subject : null, body: e.body })) : null,
     fact_used: passed ? passed.output.fact_used : null,
     link_sentence: passed ? passed.output.link_sentence : null,
@@ -204,6 +204,19 @@ async function writeTier(
     }
   }
   return { attempts, passed: null }
+}
+
+/**
+ * THE TIER FOLLOWS THE FACT THE SEQUENCE ACTUALLY OPENS ON, not the step it passed in. The
+ * personalised step offers research facts AND the standing description, and the writer may
+ * choose the standing one; a sequence that does is semi-personalised, whatever step wrote it.
+ * Found on the first 20-prospect run (2026-10-03): one sequence opened on the industry label
+ * and was recorded as personalised.
+ */
+export function recordedTier(step: WriterTier, output: WriterOutput, facts: WriterFact[]): WriterTier {
+  if (step !== 'personalised') return step
+  const used = facts.find(f => f.id === output.fact_used?.fact_id)
+  return used?.kind === 'research' ? 'personalised' : 'semi_personalised'
 }
 
 export function parseWriterOutput(text: string): WriterOutput | null {
