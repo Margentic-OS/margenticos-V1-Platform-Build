@@ -24,14 +24,22 @@ export interface VerificationResult {
   diagnosis?: string
 }
 
+/**
+ * The vendor's boolean fields, as they really arrive. The live API returns INTEGERS 0 and 1
+ * (measured 2026-09-15 from validate_single). The strings "true" and "false" were the shape this
+ * handler was written against, and they are kept as accepted input so the handler tolerates a
+ * vendor change back to them.
+ */
+type VendorBoolean = boolean | string | number | null | undefined
+
 interface MyEmailVerifierResponse {
   Address: string
   Status: string
-  catch_all: string // "true" or "false" as string
-  Disposable_Domain: string
-  Role_Based: string
-  Free_Domain: string
-  Greylisted: string
+  catch_all: VendorBoolean
+  Disposable_Domain: VendorBoolean
+  Role_Based: VendorBoolean
+  Free_Domain: VendorBoolean
+  Greylisted: VendorBoolean
   Diagnosis: string
 }
 
@@ -111,17 +119,20 @@ export const myemailverifierHandler = {
 
       // Normalize verdict values
       const status = normaliseStatus(data.Status)
-      const catchAll = parseBooleanString(data.catch_all)
+      // FAIL CLOSED on catch-all. A value we cannot read counts as a catch-all, so an address is
+      // only send-eligible on a positive "0" or "false" from the vendor. Before this, an integer
+      // answer parsed to false, which made a catch-all read as deliverable (D2b, 5 Oct 2026).
+      const catchAll = parseVendorBoolean(data.catch_all) !== false
       const sendEligible = status === 'Valid' && !catchAll
 
       const result: VerificationResult = {
         email,
         status,
         catch_all: catchAll,
-        disposable_domain: parseBooleanString(data.Disposable_Domain),
-        role_based: parseBooleanString(data.Role_Based),
-        free_domain: parseBooleanString(data.Free_Domain),
-        greylisted: parseBooleanString(data.Greylisted),
+        disposable_domain: parseVendorBoolean(data.Disposable_Domain) === true,
+        role_based: parseVendorBoolean(data.Role_Based) === true,
+        free_domain: parseVendorBoolean(data.Free_Domain) === true,
+        greylisted: parseVendorBoolean(data.Greylisted) === true,
         send_eligible: sendEligible,
         verified_at: new Date().toISOString(),
         diagnosis: data.Diagnosis,
@@ -169,11 +180,22 @@ function normaliseStatus(
   return 'Unknown'
 }
 
-// Parse MyEmailVerifier's boolean strings ("true" / "false") to boolean
-function parseBooleanString(value: string | boolean | null | undefined): boolean {
+/**
+ * Read one of the vendor's boolean fields. Returns null when the value is not one we recognise,
+ * and never guesses: the caller decides what "unreadable" means for its field. The catch-all
+ * flag treats null as a catch-all; the informational flags treat it as not set.
+ */
+function parseVendorBoolean(value: VendorBoolean): boolean | null {
   if (typeof value === 'boolean') return value
-  if (typeof value === 'string') {
-    return value.toLowerCase().trim() === 'true'
+  if (typeof value === 'number') {
+    if (value === 1) return true
+    if (value === 0) return false
+    return null
   }
-  return false
+  if (typeof value === 'string') {
+    const normalised = value.toLowerCase().trim()
+    if (normalised === 'true' || normalised === '1') return true
+    if (normalised === 'false' || normalised === '0') return false
+  }
+  return null
 }

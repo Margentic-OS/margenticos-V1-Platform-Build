@@ -53,6 +53,8 @@ import { bouncerHandler, BOUNCER_PROVIDER_KEY, type SecondPassResult } from '@/l
 import { resolveSendEligibility, type SendEligibilityDecision } from '@/lib/sourcing/send-eligibility-resolver'
 import { toCanonicalVerdict, SECOND_PASS_WORTH_PAYING_FOR } from '@/lib/sourcing/verification-verdict'
 import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
+import { lookupSuppressedEmails, normaliseEmail } from '@/lib/suppression/suppression-list'
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
@@ -249,7 +251,62 @@ export async function runSecondPassBatch(
       return run
     }
 
-    const prospects = candidates as SecondPassCandidate[]
+    // A BOUNCE NEVER WRITES prospects.suppressed. It writes suppressed_emails, so a candidate
+    // whose address is already known to be dead still reads suppressed = false and would be a
+    // PAID probe. Measured 2026-09-04 the bounce count was one, so the cost was latent; it grows
+    // with bounce volume (D2b, 5 Oct 2026).
+    //
+    // Checked against the same list the send gate reads. Each listed candidate is RETIRED here,
+    // not only skipped: a skipped row would still match this select and starve the batch on every
+    // run. Setting the attempt count to its bound takes it out of the candidate set, through the
+    // retry bound this file already enforces. The send verdict is not touched: the send gate blocks
+    // these addresses on its own, and ADR-034 freezes the verdict on the row.
+    //
+    // A list we cannot read stops the run. Spending on an address we could not check is the failure
+    // this gate exists to prevent.
+    // The cast: the verify-catch-all route builds this client with the service-role key (its
+    // createClient call is the one with SUPABASE_SERVICE_ROLE_KEY), which is what the brand marks.
+    // The brand is compile-time only, so the route's type is widened here rather than threaded
+    // through every caller.
+    const suppression = await lookupSuppressedEmails(
+      supabase as unknown as ServiceRoleClient,
+      candidates.map(c => c.email ?? ''),
+    )
+    if (!suppression.ok) {
+      logger.error('second-pass: global suppression lookup failed, no probe spent', {
+        operation_id: operationId,
+        organisation_id: organisationId,
+        error: suppression.error,
+      })
+      throw new Error(`second-pass: global suppression lookup failed: ${suppression.error}`)
+    }
+    const listed = candidates.filter(c => c.email !== null && suppression.suppressed.has(normaliseEmail(c.email)))
+    if (listed.length > 0) {
+      const { error: retireError } = await supabase
+        .from('prospects')
+        .update({
+          second_pass_error: 'address_on_global_suppression_list',
+          second_pass_attempt_count: MAX_SECOND_PASS_ATTEMPTS,
+          second_pass_locked_at: null,
+        })
+        .in('id', listed.map(c => c.id))
+        .eq('organisation_id', organisationId)
+      if (retireError) {
+        throw new Error(`second-pass: could not retire suppressed candidates: ${retireError.message}`)
+      }
+      logger.info('second-pass: retired candidates whose address is on the global suppression list, no probe spent', {
+        operation_id: operationId,
+        organisation_id: organisationId,
+        retired: listed.length,
+      })
+    }
+    const probeable = candidates.filter(c => !listed.includes(c))
+    if (probeable.length === 0) {
+      run.daily_calls_used = dailyUsed
+      return run
+    }
+
+    const prospects = probeable as SecondPassCandidate[]
     const prospectIds = prospects.map(p => p.id)
 
     const { error: lockError } = await supabase

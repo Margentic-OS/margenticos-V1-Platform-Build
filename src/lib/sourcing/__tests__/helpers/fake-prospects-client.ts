@@ -123,6 +123,50 @@ interface FakeOptions {
   count?: number
   countError?: string
   ledgerInsertError?: string
+  /** Addresses on the global suppression list (suppressed_emails, unrevoked). */
+  suppressedEmails?: string[]
+  /** When set, a read of the suppression list fails with this message. */
+  suppressedEmailsError?: string
+}
+
+/**
+ * The global suppression list, read by lookupSuppressedEmails. It honours .in('email', ...) and
+ * .is('revoked_at', null) and throws on anything else.
+ *
+ * Before this branch existed, from() ignored the table name, so this read was answered from the
+ * PROSPECTS rows: every candidate's own address matched, and every candidate read as suppressed.
+ * That is the silent-accept shape this file's header rules out (D2b, 5 Oct 2026).
+ */
+function suppressedEmailsTable(opts: FakeOptions) {
+  let wanted: string[] | null = null
+  const chain = {
+    select(columns: string) {
+      if (columns !== 'email') throw new Error(`fake: suppressed_emails select("${columns}") is not implemented`)
+      return chain
+    },
+    in(column: string, values: unknown[]) {
+      if (column !== 'email') throw new Error(`fake: suppressed_emails .in("${column}") is not implemented`)
+      wanted = values.map(String)
+      return chain
+    },
+    is(column: string, value: unknown) {
+      if (column !== 'revoked_at' || value !== null) {
+        throw new Error(`fake: suppressed_emails .is("${column}", ${String(value)}) is not implemented`)
+      }
+      return chain
+    },
+    then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) {
+      if (opts.suppressedEmailsError) {
+        return Promise.resolve({ data: null, error: { message: opts.suppressedEmailsError } }).then(resolve, reject)
+      }
+      const listed = new Set((opts.suppressedEmails ?? []).map(e => e.trim().toLowerCase()))
+      const data = (wanted ?? [])
+        .filter(e => listed.has(e.trim().toLowerCase()))
+        .map(email => ({ email }))
+      return Promise.resolve({ data, error: null }).then(resolve, reject)
+    },
+  }
+  return chain
 }
 
 export function fakeProspectsClient(rows: FakeRow[], opts: FakeOptions = {}) {
@@ -133,6 +177,7 @@ export function fakeProspectsClient(rows: FakeRow[], opts: FakeOptions = {}) {
 
   const client = {
     from(table: string) {
+      if (table === 'suppressed_emails') return suppressedEmailsTable(opts)
       let ids: string[] = []
       let mode: 'rows' | 'count' | 'single' = 'rows'
       let selectedColumns: string[] = []

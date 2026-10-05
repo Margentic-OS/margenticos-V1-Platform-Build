@@ -374,6 +374,29 @@ vendor to answer a question that is about to answer itself would be waste.
 
 ---
 
+## Two fixes from 5 Oct 2026 (D2b)
+
+**The vendor's booleans are integers.** MyEmailVerifier returns `catch_all`, `Disposable_Domain`,
+`Role_Based`, `Free_Domain` and `Greylisted` as `0` and `1`. The handler used to read only the
+strings `"true"` and `"false"`, so every integer read as false, including catch-all. A catch-all
+that came back as `1` next to `Status: "Valid"` was marked send-eligible. The handler now reads
+both shapes. A catch-all flag it cannot read counts as a catch-all, so an address is never
+eligible on a value it misread. Planted in `adapter-myemailverifier-wire.test.ts`, which calls the
+real handler with the live response body.
+
+**An address already on the global suppression list is not a paid probe.** A bounce writes
+`suppressed_emails` and never `prospects.suppressed`, so the second-pass candidate read still
+returns that prospect. Each listed candidate is now retired before the probe: its attempt count is
+set to the existing bound and `second_pass_error` says why. Retiring, not skipping, is what stops
+it starving the batch, because a skipped row would be selected again on every run. The send
+verdict is not touched; the send gate blocks these addresses on its own. A suppression list that
+cannot be read stops the run as a failed run. Planted in `second-pass-suppressed-candidates.test.ts`.
+
+**Not done here, and why.** The first-pass selector does not read `suppressed_emails` at all. The
+verify-catch-all route's organisation finder still reads `prospects.suppressed`, which is harmless
+because it spends nothing. `second_pass_status` is not used for retirement, because it carries the
+Bouncer's raw status and the send decision reads it.
+
 ## Files
 
 | File | Job |
