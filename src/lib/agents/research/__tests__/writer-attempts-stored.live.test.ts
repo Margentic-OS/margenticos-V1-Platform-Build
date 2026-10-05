@@ -196,7 +196,7 @@ describe('storeResearchResult persists every writer attempt', () => {
       OPENING,
       // Added 2026-09-25 with the research_usage ledger. Required rather than defaulted, so
       // this line is tsc telling the truth: every caller now declares which path it is.
-      { path: 'inline', synthesisBatched: false },
+      { path: 'inline', synthesisBatched: false, arm: 'standard', synthesisBatchId: null },
     )
     const { data, error } = await supabase
       .from('prospect_research_results')

@@ -59,7 +59,22 @@ import { requireTierPresent } from '@/lib/sourcing/tier-verdict'
 interface SendGateFilterable<Q> {
   eq(column: string, value: unknown): Q
   not(column: string, operator: string, value: unknown): Q
+  or(filters: string): Q
 }
+
+/**
+ * THE RESEARCH-ARM HOLD. A prospect researched under the shorter-reasoning arm is not uploaded
+ * until the operator approves the arm for the batch it came from (ADR in the research-arm
+ * migration, 20261006100000). Passes:
+ *   no arm stored       research before the split existed, or never researched: standard
+ *   standard            the standard arm needs no approval
+ *   released            the operator approved the batch and set research_arm_released_at
+ * and so holds exactly one case: a short_reasoning prospect not yet released.
+ *
+ * Exported so a test can assert the clause itself, and so the one place it is written is named.
+ */
+export const RESEARCH_ARM_RELEASED_CLAUSE =
+  'research_arm.is.null,research_arm.eq.standard,research_arm_released_at.not.is.null'
 
 /**
  * Applies every condition a prospect must meet to be uploaded to the outbound provider.
@@ -77,4 +92,5 @@ export function applySendGate<Q extends SendGateFilterable<Q>>(query: Q, organis
     .eq('email_send_eligible', true)
     .eq('client_review_status', 'approved')
     .eq('suppressed', false)
+    .or(RESEARCH_ARM_RELEASED_CLAUSE)
 }

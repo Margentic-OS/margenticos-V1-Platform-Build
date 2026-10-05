@@ -6772,3 +6772,23 @@ by a dry run on a second client's documents, saved nowhere (reading file 7).
 7. **Reporting:** `sent_sequences.sequence_writer`, `writer_tier` and `playbook_version` are recorded in place of the variant, which becomes nullable only for a v2 personalised or semi-personalised send (CHECK).
 
 **Consequences.** The old holds (approved trigger reason, thread carried) do not apply to v2 sequences; a v2 sequence that failed its checks is stored as the template tier. The footer and the provider's List-Unsubscribe header reach v2 sequences exactly as before. Writer spend lands in `research_usage` (arm `writer_v2`), priced by the existing reader. Because only one messaging suggestion may be pending per client and approval replaces the whole document, the playbook can be proposed only once any other pending messaging suggestion is decided.
+
+## ADR-069 — Production research runs on the batch route only, with a 50/50 research-arm split whose shorter-reasoning arm is held at upload until the operator approves it
+
+**Status:** Accepted 2026-10-02 (operator). Built 2026-10-05 on branch `build/research-batch-c1`. Dry run and merge follow the build; the served SHA is the proof the code is live.
+
+**Context.** Synthesis is 78% to 90% of a researched prospect's Anthropic cost. The Batch API bills the same request at half, and the scope-based runs already used it from 2026-09-14. The CLI's `--ids` path and the dashboard's named-prospect path did not: `--ids` ran inline at full price, so 300 prospects from 2026-09-23 to 25 paid the full rate. A shorter-reasoning instruction measured on 2026-10-01 cut synthesis output by 63% with personalised emails inside the writer's noise, but it moved fit grades on 5 of 20, and the fit grade decides who is emailed.
+
+**Decision.**
+1. **Named prospects go down the batch route.** `--ids` enqueues the batch phase, through the same guards as a scope run. The only inline research left is `--fresh`, which asks for a fetch a queued job cannot carry, and says so on the screen.
+2. **A 50/50 arm split, assigned before research.** Each prospect is assigned `standard` or `short_reasoning` at random when it is enqueued for the batch route. The assignment is stored once on `prospects.research_arm` and never redrawn. It is copied onto each research row and spend line; it is never recomputed.
+3. **The short arm is held at upload** until the operator approves that batch (`scripts/research-arms.ts approve`). The hold is one clause in the shared send gate, so the claim, the count and the weekly watch all see it.
+4. **The split never delays a send.** `organisations.research_arm_split_enabled` defaults off. Off, or unreadable, means every prospect is `standard` and nothing is held. A prospect with prior research of any age is `standard`, because its findings predate the split or may be reused.
+
+**Consequences.**
+- Two columns on `prospects` and one on `organisations`, `prospect_research_results`, `research_usage`: additive, nullable, applied to production and the test database (migration `20261006100000_research_arm`).
+- The approval is per Anthropic batch. A prospect whose research failed in the batch is released with the batch, because it ships as a template and the arm does not change that.
+- A prospect researched inline with a stored short arm (an explicit `--fresh`) is not released by any batch and stays held. The report counts these. There is no approval path for them yet; see the Backlog.
+- The comparison is a command-line report, not a panel on the upload page. The panel is not built.
+
+**Rejected.** Random assignment per batch rather than per prospect (the spec says per prospect). Storing the arm on `synthesis_batch_entries` as well as on the prospect (a second place for the same fact). A separate approvals table (the batch id on the research row and the release on the prospect are enough).

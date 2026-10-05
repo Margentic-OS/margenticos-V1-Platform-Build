@@ -56,6 +56,7 @@ import {
   type ClientDocContext,
   type DetectedSignal,
 } from './research/synthesize'
+import { readStoredArm } from './research/research-arm-store'
 import { produceOpening, loadClientName, type MessagingContent } from './research/produce-opening'
 import { writerInputFromSynthesis } from './research/writer-input'
 import { storeResearchResult, updateProspect } from './prospect-research-agent-v2'
@@ -242,6 +243,11 @@ export async function runProspectResearchCollect({
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) throw new Error('prospect-research-collect: ANTHROPIC_API_KEY not set')
 
+    // THE ARM THIS SYNTHESIS RAN UNDER. Read from the stored prospect value, which was assigned
+    // before the batch and is never recomputed, so it is what the submitted request used. Read
+    // BEFORE the retry, because a retry of a short-arm answer must be built under the same arm.
+    const researchArm = await readStoredArm(supabase, client_id, prospect_id)
+
     let retriedTruncation = false
     let discardedUsage = ZERO_TOKEN_USAGE
     let synthesisMessage = entry.response_message
@@ -258,6 +264,7 @@ export async function runProspectResearchCollect({
       const retry = await retryTruncatedSynthesis(
         new Anthropic({ apiKey }),
         ctx, entry.raw_sources, entry.client_context, entry.detected_signal,
+        researchArm,
       )
       if (retry) {
         retriedTruncation = true
@@ -339,7 +346,7 @@ export async function runProspectResearchCollect({
         // synthesis to the Anthropic Batch API and it was billed at 50% of standard hours
         // before this ran. Recording it as standard would overstate ~90% of the prospect's
         // Anthropic cost by a factor of two.
-        { path: 'collect', synthesisBatched: true },
+        { path: 'collect', synthesisBatched: true, arm: researchArm, synthesisBatchId: entry.batch_id ?? null },
         synthesizedAt,
       )
       await updateProspect(
@@ -433,7 +440,7 @@ export async function runProspectResearchCollect({
     // ── One complete row, written once, exactly as the inline path writes it ──
     const resultId = await storeResearchResult(
       ctx, entry.raw_sources, synthesis, agentRun.run_id, opening,
-      { path: 'collect', synthesisBatched: true },
+      { path: 'collect', synthesisBatched: true, arm: researchArm, synthesisBatchId: entry.batch_id ?? null },
       synthesizedAt,
     )
     await updateProspect(ctx, synthesis, resultId, opening, synthesizedAt, {

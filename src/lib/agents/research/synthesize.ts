@@ -12,6 +12,7 @@ import { absenceAboutThem } from '@/lib/style/absence-about-them'
 import { characterisesTheirContent } from '@/lib/style/content-characterisation'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prompt'
+import type { ResearchArm } from './research-arm'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
@@ -126,6 +127,28 @@ Then write the JSON in full.
 
 The JSON is the only part that is read: the parser strips the reasoning and discards it. If
 you cannot fit both, shorten the reasoning. Never shorten or omit the JSON.`
+
+/**
+ * The short_reasoning arm: one instruction appended to the USER message, so the cached system
+ * prefix is byte-identical to the standard arm and the cache still reads it. Model, prompt,
+ * temperature and output ceiling are unchanged. Wording measured on 2026-10-01 (the staged-triage
+ * experiment, arm a); the same text is in the research-triage worktree's gitignored export, which
+ * is a source to copy from and never imported.
+ *
+ * Only ever appended by buildSynthesisParams when the arm is short_reasoning. The standard arm is
+ * the request as it has always been built.
+ */
+export const SHORT_REASONING_INSTRUCTION = `
+
+## Keep the reasoning short. Keep the JSON complete.
+
+Write the same eight reasoning items, in order, but keep each to two sentences at most.
+
+One exception. In item 4 write one short line for each candidate instead: its id, the tests it fails if any, and the word count of its longest sentence.
+
+Then write the JSON in full. The candidates list is not shortened by any of this: every candidate you would have written out after a long analysis is still written there, with all of its fields, including the candidates that fail a test.
+
+The JSON is the only part that is read: the parser strips the reasoning and discards it. If something has to be shorter, it is the reasoning. Never shorten or omit the JSON.`
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
 
@@ -1724,7 +1747,7 @@ export async function buildSynthesisRequest(
   prospect: ProspectContext,
   rawData: RawSourceData,
   clientId: string,
-  opts: { ttl?: '5m' | '1h' } = {},
+  opts: { ttl?: '5m' | '1h'; arm?: ResearchArm } = {},
 ): Promise<SynthesisRequest> {
   // TAKES THE CLOCK, which is why the result is returned and snapshotted rather than
   // recomputed when the response comes back. A LinkedIn post sitting just inside
@@ -1741,7 +1764,7 @@ export async function buildSynthesisRequest(
   return {
     clientCtx,
     detectedSignal,
-    params: buildSynthesisParams(prospect, rawData, clientCtx, detectedSignal, opts.ttl ?? '5m'),
+    params: buildSynthesisParams(prospect, rawData, clientCtx, detectedSignal, opts.ttl ?? '5m', false, opts.arm ?? 'standard'),
   }
 }
 
@@ -1805,6 +1828,14 @@ export function buildSynthesisParams(
    * and the batch resubmission path, producing the exact same bytes as before.
    */
   constrainReasoning = false,
+  /**
+   * Which research arm this request is for. 'standard' appends nothing, so the standard arm's bytes
+   * are the request as it has always been built. 'short_reasoning' appends SHORT_REASONING_INSTRUCTION
+   * to the user message only. A retry of a short_reasoning answer that was cut off is also
+   * constrained, and the constrained instruction follows the short one, so it is the later and
+   * stronger instruction that the model reads last.
+   */
+  arm: ResearchArm = 'standard',
 ): MessageCreateParamsNonStreaming {
   // Per-client only. The per-prospect signal moved to the user message so this string is
   // byte-identical across a batch and can therefore be cached. See buildSignalBlock.
@@ -1826,6 +1857,7 @@ export function buildSynthesisParams(
   //
   // Neither switch survives, so neither is left in the code to be rediscovered as an option.
   const userMessage = buildSynthesisUserMessage(prospect, rawData, detectedSignal)
+    + (arm === 'short_reasoning' ? SHORT_REASONING_INSTRUCTION : '')
     + (constrainReasoning ? CONSTRAINED_REASONING_INSTRUCTION : '')
 
   return {
@@ -2044,8 +2076,10 @@ export async function retryTruncatedSynthesis(
   rawData: RawSourceData,
   clientCtx: ClientDocContext,
   detectedSignal: DetectedSignal,
+  /** The arm the truncated answer was asked under. The retry keeps it, so the record matches the request. */
+  arm: ResearchArm = 'standard',
 ): Promise<Message | null> {
-  const params = buildSynthesisParams(prospect, rawData, clientCtx, detectedSignal, '5m', true)
+  const params = buildSynthesisParams(prospect, rawData, clientCtx, detectedSignal, '5m', true, arm)
 
   try {
     const response = await callWithRetry(client, params, prospect.id)
@@ -2072,11 +2106,12 @@ export async function synthesizeResearch(
   prospect: ProspectContext,
   rawData: RawSourceData,
   clientId: string,
+  arm: ResearchArm = 'standard',
 ): Promise<SynthesisOutput> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('research/synthesize: ANTHROPIC_API_KEY not set')
 
-  const { params, clientCtx, detectedSignal } = await buildSynthesisRequest(prospect, rawData, clientId)
+  const { params, clientCtx, detectedSignal } = await buildSynthesisRequest(prospect, rawData, clientId, { arm })
 
   const client = new Anthropic({ apiKey })
 
@@ -2096,7 +2131,7 @@ export async function synthesizeResearch(
     // usable. Returning only the retry's usage would under-report the prospect by that
     // whole amount, which is the line this entire change exists to make visible.
     const discardedUsage = readTokenUsage(response.usage)
-    const retry = await retryTruncatedSynthesis(client, prospect, rawData, clientCtx, detectedSignal)
+    const retry = await retryTruncatedSynthesis(client, prospect, rawData, clientCtx, detectedSignal, arm)
 
     // No retry was made at all. One call, one usage, the fallback ships.
     if (!retry) return synthesisFromMessage(response, prospect, clientCtx, detectedSignal, rawData)

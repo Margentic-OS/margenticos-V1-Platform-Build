@@ -38,6 +38,7 @@ export type FitCheckName = (typeof FIT_CHECKS)[number]
 export const FIT_CHECK_RESULTS = ['yes', 'no', 'unknown', 'not_applicable'] as const
 export type FitCheckResult = (typeof FIT_CHECK_RESULTS)[number]
 
+import type { ResearchArm } from './research-arm'
 import type { AssumedCapacityKind } from '@/lib/style/assumed-capacity'
 
 export interface FitCheck {
@@ -713,6 +714,14 @@ export type ResearchUsagePath = typeof RESEARCH_USAGE_PATHS[number]
 export interface ResearchUsageMeta {
   path: ResearchUsagePath
   synthesisBatched: boolean
+  /**
+   * The arm the synthesis for this row was asked under. Copied onto the research row and the spend
+   * line, never recomputed here. Required: a caller that does not know its arm is a bug, and a
+   * default would record a guess as a fact.
+   */
+  arm: ResearchArm
+  /** The Anthropic batch this row was collected from. Null on an inline run. */
+  synthesisBatchId: string | null
 }
 
 /** What the web-search calls cost, in the only two units the provider bills them in. */

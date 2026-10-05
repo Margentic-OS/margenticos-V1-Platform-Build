@@ -59,6 +59,7 @@ import {
 } from '@/lib/sourcing/send-eligibility-policy'
 import { describeCompetitorScreen, screenCompetitors } from '@/lib/sourcing/competitor-screen'
 import { requireTierPresent } from '@/lib/sourcing/tier-verdict'
+import { assignResearchArms } from '@/lib/agents/research/research-arm-store'
 
 export type ResearchScope = 'unresearched' | 'researched'
 
@@ -192,6 +193,11 @@ export async function selectProspectsForResearch(
   organisationId: string,
   scope: ResearchScope,
   maxProspects = 5000,
+  /**
+   * Named prospects instead of a scope. The same guards apply to them, and scope is ignored: an
+   * operator naming ids is asking for those prospects, the way the inline path has always read them.
+   */
+  prospectIds?: readonly string[],
 ): Promise<{ ok: true; selection: ResearchSelection } | { ok: false; error: string }> {
   // ── Organisation must exist and be active ──────────────────────────────────
   const { data: org, error: orgError } = await supabase
@@ -259,9 +265,13 @@ export async function selectProspectsForResearch(
     .eq('suppressed', false)
     .limit(maxProspects))
 
-  query = scope === 'unresearched'
-    ? query.is('current_research_result_id', null)
-    : query.not('current_research_result_id', 'is', null)
+  if (prospectIds) {
+    query = query.in('id', [...prospectIds])
+  } else {
+    query = scope === 'unresearched'
+      ? query.is('current_research_result_id', null)
+      : query.not('current_research_result_id', 'is', null)
+  }
 
   const { data, error } = await query
   if (error) {
@@ -476,8 +486,10 @@ export async function enqueueResearchForOrganisation(
   enqueuedBy: string,
   maxProspects = 5000,
   jobType: ResearchEnqueueJobType = 'research',
+  /** Named prospects, routed through the same batch path as a scope run. See selectProspectsForResearch. */
+  prospectIds?: readonly string[],
 ): Promise<EnqueueResearchSuccess | { ok: false; error: string }> {
-  const read = await selectProspectsForResearch(supabase, organisationId, scope, maxProspects)
+  const read = await selectProspectsForResearch(supabase, organisationId, scope, maxProspects, prospectIds)
   if (!read.ok) return read
 
   const { selection } = read
@@ -512,6 +524,23 @@ export async function enqueueResearchForOrganisation(
     return {
       ok: false,
       error: `Nothing to research. Every eligible prospect was passed over by the competitor check: ${competitorNote}.`,
+    }
+  }
+
+  // ── THE RESEARCH ARM, ASSIGNED BEFORE ANY PROSPECT IS RESEARCHED ─────────
+  //
+  // Batch route only. A prospect given the short arm is researched under it, so its arm is decided
+  // here, once, and stored. The single-job path runs its synthesis inline and records what it ran
+  // (standard), so it has nothing to assign. A failed assignment refuses the whole enqueue: a
+  // prospect researched without a stored arm would have no record of what it ran under.
+  if (jobType === 'research_sources') {
+    try {
+      await assignResearchArms(supabase, organisationId, toEnqueue)
+    } catch (err) {
+      return {
+        ok: false,
+        error: `Refused: ${err instanceof Error ? err.message : String(err)} Nothing was queued.`,
+      }
     }
   }
 
