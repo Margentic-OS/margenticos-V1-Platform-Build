@@ -25,7 +25,7 @@
 -- ACCESS. Additive columns on an existing table; they inherit its grants and RLS (operators
 -- ALL, a client SELECT on its own rows). No grant changes.
 --
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-10-05, production and test database; columns, CHECK constraint read back; anon holds no SELECT or UPDATE on campaigns)
 
 ALTER TABLE public.campaigns
   ADD COLUMN IF NOT EXISTS region_name text,

@@ -271,7 +271,9 @@ export default async function ClientDetailPage({
     .filter(c => c.external_id !== null && (c.status === 'active' || c.started_at))
   const campaignState = liveOrActiveCampaigns.length > 0 ? {
     count: liveOrActiveCampaigns.length,
-    status: liveOrActiveCampaigns.some(c => c.paused_at) ? 'paused' as const : 'active' as const,
+    // EVERY, not some: a client may run one campaign per region, and one paused region does
+    // not make the client paused while another is sending.
+    status: liveOrActiveCampaigns.every(c => c.paused_at) ? 'paused' as const : 'active' as const,
   } : undefined
 
   return (
