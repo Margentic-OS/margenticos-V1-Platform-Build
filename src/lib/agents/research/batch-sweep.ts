@@ -41,6 +41,7 @@ import {
   buildSynthesisParams, wasTruncated, truncationReason,
   type ClientDocContext, type DetectedSignal,
 } from './synthesize'
+import { armOf, type ResearchArm } from './research-arm'
 import { BATCH_CACHE_TTL } from '@/lib/agents/prospect-research-sources-agent'
 import { enqueueResearchPhaseJob } from '@/lib/queue/job-queue'
 import { COLLECTABLE_ENTRY_STATES } from './types'
@@ -139,6 +140,8 @@ interface PendingEntry {
   client_context: ClientDocContext
   segment_id: string | null
   submit_attempts: number
+  /** The prospect's stored research arm, read at submission. Never recomputed. See research-arm-store.ts. */
+  research_arm: ResearchArm
   prospect_first_name: string | null
   prospect_last_name: string | null
   prospect_company_name: string | null
@@ -215,7 +218,7 @@ async function submitPendingForOneOrganisation(
 ): Promise<void> {
   const { data: pendingData, error: pendingError } = await supabase
     .from('synthesis_batch_entries')
-    .select('id, organisation_id, prospect_id, raw_sources, detected_signal, client_context, segment_id, submit_attempts, prospects!inner(first_name, last_name, company_name, country, role, job_title, linkedin_url, company_headcount, company_industry, website_url, apollo_enrichment_data)')
+    .select('id, organisation_id, prospect_id, raw_sources, detected_signal, client_context, segment_id, submit_attempts, prospects!inner(first_name, last_name, company_name, country, role, job_title, linkedin_url, company_headcount, company_industry, website_url, apollo_enrichment_data, research_arm)')
     .eq('organisation_id', organisationId)
     .eq('state', 'pending_submission')
     .order('created_at', { ascending: true })
@@ -240,6 +243,7 @@ async function submitPendingForOneOrganisation(
       client_context: r.client_context as ClientDocContext,
       segment_id: (r.segment_id as string | null) ?? null,
       submit_attempts: (r.submit_attempts as number) ?? 0,
+      research_arm: armOf(p?.research_arm as string | null),
       prospect_first_name:   (p?.first_name as string | null) ?? null,
       prospect_last_name:    (p?.last_name as string | null) ?? null,
       prospect_company_name: (p?.company_name as string | null) ?? null,
@@ -324,6 +328,8 @@ async function submitPendingForOneOrganisation(
           entry.client_context,
           entry.detected_signal,
           BATCH_CACHE_TTL,
+          false,
+          entry.research_arm,
         ),
       })),
     })

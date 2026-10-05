@@ -104,7 +104,7 @@ async function storeAndReadBack(
     SYNTHESIS as never,
     null,
     opts.opening ?? OPENING,
-    { path, synthesisBatched: opts.synthesisBatched },
+    { path, synthesisBatched: opts.synthesisBatched, arm: 'standard', synthesisBatchId: null },
   )
   const { data, error } = await supabase
     .from('research_usage')

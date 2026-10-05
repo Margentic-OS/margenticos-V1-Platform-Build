@@ -248,7 +248,7 @@ function usage(message: string): never {
   console.error('')
   console.error('  --org                       organisation id. Required. Must not be archived.')
   console.error('  --scope                     unresearched (default) or researched.')
-  console.error('  --ids                       comma-separated prospect ids. Overrides --scope.')
+  console.error('  --ids                       comma-separated prospect ids. Overrides --scope. Batch route.')
   console.error('  --fresh                     fetch every source again instead of reusing findings on file.')
   console.error('  --allow-overwrite-trigger   permit overwriting copy that already exists. Read the header.')
   console.error('  --no-followups              inline runs only: do not write the personalised Emails 2 and 3.')
@@ -371,7 +371,7 @@ async function main() {
   //
   // The count is read a moment before the run reads it again. A prospect added in between
   // is not in the estimate. That gap is seconds wide and is accepted.
-  const willQueue = routing.kind === 'queue' && !prospectIds
+  const willQueue = routing.kind === 'queue'
   let estimateIds: string[]
   let unlisted = 0
   if (prospectIds) {
@@ -415,17 +415,12 @@ async function main() {
     process.exit(1)
   }
 
-  // Explicit ids cannot be enqueued: enqueueResearchForOrganisation selects by SCOPE, and
-  // there is no ids-based enqueue. Said out loud rather than silently downgraded, because
-  // the whole point of this change is that the expensive path is never taken by accident.
-  if (routing.kind === 'queue' && prospectIds) {
-    console.log('  PATH         : INLINE. --ids cannot be enqueued (enqueue selects by scope).')
-    console.log('                 Synthesis pays FULL price. Use --scope to get the batch discount.')
-  }
-
-  if (routing.kind === 'queue' && !prospectIds) {
+  // Explicit ids go down the batch route like a scope run, through the same guards. Until
+  // 2 Oct 2026 they ran inline at full price, because the enqueue selected by scope only. Now the
+  // only inline run is --fresh, which asks for a fetch a queued job cannot carry, and says so.
+  if (routing.kind === 'queue') {
     const enqueued = await enqueueResearchForOrganisation(
-      supabase, orgId, scope, 'cli:run-research', undefined, routing.jobType,
+      supabase, orgId, scope, 'cli:run-research', undefined, routing.jobType, prospectIds,
     )
     if (!enqueued.ok) {
       console.error('')
@@ -435,6 +430,7 @@ async function main() {
     }
     console.log('')
     console.log(`  PATH         : QUEUE${routing.batched ? ' (Batch API, synthesis at 50%)' : ' (single job, standard price)'}`)
+    if (prospectIds) console.log(`  Selection    : ${prospectIds.length} named ids (scope ignored)`)
     console.log(`  Job type     : ${routing.jobType}`)
     console.log(`  Selected     : ${enqueued.selected}`)
     console.log(`  Queued       : ${enqueued.created}`)

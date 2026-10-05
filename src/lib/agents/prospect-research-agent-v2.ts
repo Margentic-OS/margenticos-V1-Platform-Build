@@ -28,6 +28,7 @@ import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nou
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { produceOpening, resolveVariantId, loadClientName } from './research/produce-opening'
+import { settleInlineArm } from './research/research-arm-store'
 import { writerInputFromSynthesis } from './research/writer-input'
 import { loadProspectContext } from './research/prospect-context'
 import { holdsEvidence } from './research/evidence-record'
@@ -237,6 +238,10 @@ export async function storeResearchResult(
       // Omitted entirely when null so the column's own DEFAULT now() applies. Passing
       // null explicitly would violate NOT NULL.
       ...(synthesizedAt ? { synthesized_at: synthesizedAt } : {}),
+      // The arm this row's synthesis ran under, and the batch it came back in. Copied from the
+      // caller's usage meta, which read them from the stored prospect value.
+      research_arm:       usageMeta.arm,
+      synthesis_batch_id: usageMeta.synthesisBatchId,
     })
     .select('id')
     .single()
@@ -310,6 +315,7 @@ async function recordResearchUsage(
       search_count:  rawData.web_search.search_count,
     },
     synthesis_batched:  usageMeta.synthesisBatched,
+    research_arm:       usageMeta.arm,
   })
 
   if (error) {
@@ -864,6 +870,11 @@ export async function runProspectResearchAgentV2({
     // expensive and irreversible half: an Apify run cannot be un-billed once started.
     await refuseIfUnmailable(prospect_id, client_id)
 
+    // THE ARM, SETTLED BEFORE ANY SPEND. A prospect with a stored arm runs it; one with none is
+    // settled to standard, and the short arm is never assigned on this path. See
+    // src/lib/agents/research/research-arm-store.ts.
+    const researchArm = await settleInlineArm(getServiceClient(), client_id, prospect_id)
+
     // Load prospect and resolve its segment.
     //
     // EXTRACTED to research/prospect-context.ts on 2026-08-26 so the batch path's phase 1
@@ -972,7 +983,7 @@ export async function runProspectResearchAgentV2({
     // ships. The writer below decides that, and the judge decides whether it ships at all.
     const synthesis = stored
       ? await synthesisFromStored(stored, ctx, client_id)
-      : await synthesizeResearch(ctx, rawData, client_id)
+      : await synthesizeResearch(ctx, rawData, client_id, researchArm)
 
     // ── Write the opening FOR the email it lands in, then judge the finished artifact ──
     //
@@ -1111,7 +1122,8 @@ export async function runProspectResearchAgentV2({
       // The inline agent synthesises with a direct call, so NO batch discount applies. The
       // CLI and the queue's full_run executor both arrive here, and both are inline in this
       // sense; `path` is overridden by the caller that knows better.
-      { path: research_path, synthesisBatched: false },
+      // The arm is the one settled above, and there is no batch: the inline path has no batch id.
+      { path: research_path, synthesisBatched: false, arm: researchArm, synthesisBatchId: null },
     )
 
     // Update prospect row.

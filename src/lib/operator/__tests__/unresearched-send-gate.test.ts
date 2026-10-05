@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type { ServiceRoleClient } from '@/lib/supabase/service-role'
+import { RESEARCH_ARM_RELEASED_CLAUSE } from '@/lib/sourcing/send-gate'
 import {
   sendGateCountQuery,
   unresearchedSendGateCountQuery,
@@ -40,6 +41,7 @@ function recordingClient(): { client: ServiceRoleClient; calls: FilterCall[] } {
   chain.eq = (c: string, v: unknown) => { calls.push({ method: 'eq', args: [c, v] }); return self }
   chain.not = (c: string, op: string, v: unknown) => { calls.push({ method: 'not', args: [c, op, v] }); return self }
   chain.is = (c: string, v: unknown) => { calls.push({ method: 'is', args: [c, v] }); return self }
+  chain.or = (filters: string) => { calls.push({ method: 'or', args: [filters] }); return self }
 
   const client = {
     from: (table: string) => ({
@@ -82,6 +84,21 @@ function countingClient(rows: ProspectRow[]): ServiceRoleClient {
       if (v !== null) throw new Error(`fake only implements .is(col, null)`)
       return add(r => (r as unknown as Record<string, unknown>)[c] == null)
     }
+    // The research-arm hold, evaluated the way PostgREST reads or=(...): a comma list of
+    // `col.is.null`, `col.not.is.null` and `col.eq.value` terms. Fixture rows carry no arm, so the
+    // hold admits them, which is the intended behaviour for prospects researched before the split.
+    chain.or = (clause: string) => add(r => {
+      const row = r as unknown as Record<string, unknown>
+      return clause.split(',').some(term => {
+        const [c, ...rest] = term.split('.')
+        const value = row[c] ?? null
+        const op = rest.join('.')
+        if (op === 'is.null') return value === null
+        if (op === 'not.is.null') return value !== null
+        if (rest[0] === 'eq') return value === rest.slice(1).join('.')
+        throw new Error(`fake does not implement or-term ${term}`)
+      })
+    })
     // Awaiting the builder runs the predicates, the way PostgREST would.
     chain.then = (resolve: (value: { count: number; error: null }) => unknown) =>
       Promise.resolve(resolve({ count: rows.filter(r => predicates.every(p => p(r))).length, error: null }))
@@ -159,6 +176,10 @@ describe('unresearched count', () => {
 describe('the send gate itself is unchanged by this work', () => {
   // The frozen predicate, in order. If this literal has to be edited, applySendGate changed,
   // and changing it changes WHICH PROSPECTS ARE UPLOADED, not just what is displayed.
+  //
+  // CHANGED 2026-10-06, deliberately: the research-arm hold is the last clause. It holds a prospect
+  // researched under the shorter-reasoning arm until the operator approves that batch. It is an
+  // upload condition by decision, so the gate is no longer only the seven clauses it was.
   const FROZEN_SEND_GATE: FilterCall[] = [
     { method: 'from.select', args: ['prospects', 'id', { count: 'exact', head: true }] },
     { method: 'eq',  args: ['organisation_id', ORG] },
@@ -168,6 +189,7 @@ describe('the send gate itself is unchanged by this work', () => {
     { method: 'eq',  args: ['email_send_eligible', true] },
     { method: 'eq',  args: ['client_review_status', 'approved'] },
     { method: 'eq',  args: ['suppressed', false] },
+    { method: 'or',  args: [RESEARCH_ARM_RELEASED_CLAUSE] },
   ]
 
   it('applies exactly the frozen predicate, byte for byte', () => {
@@ -188,14 +210,16 @@ describe('the send gate itself is unchanged by this work', () => {
     ])
   })
 
-  it('leaves no research condition inside the gate, so the upload still claims every sendable prospect', () => {
-    // This is the DO-NOT that matters most. If a research clause ever migrates into
-    // applySendGate, the claim silently shrinks and the operator's own count shrinks with
-    // it, so nothing on screen looks wrong. Asserted on the gate query alone.
+  it('leaves the research RUN out of the gate: only the arm hold is a research condition in it', () => {
+    // The DO-NOT that matters most is a research-RUN clause (research_ran_at) migrating into
+    // applySendGate: the claim would silently shrink and so would the operator's count, and nothing
+    // on screen would look wrong. The research-arm hold is the one deliberate exception, asserted
+    // here by name so that any other research column fails this test.
     const { client, calls } = recordingClient()
     sendGateCountQuery(client, ORG)
-    const mentionsResearch = calls.some(c => c.args.some(a => typeof a === 'string' && a.includes('research')))
-    expect(mentionsResearch).toBe(false)
+    const researchTerms = calls.flatMap(c => c.args).filter((a): a is string => typeof a === 'string' && a.includes('research'))
+    expect(researchTerms.every(t => t.includes('research_arm'))).toBe(true)
+    expect(calls.some(c => c.args.some(a => typeof a === 'string' && a.includes('research_ran_at')))).toBe(false)
   })
 })
 

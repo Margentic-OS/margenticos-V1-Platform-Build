@@ -43,10 +43,10 @@ function account(active: boolean, warmupActive = true): ProviderAccount {
 
 /** Minimal thenable Supabase chain; throws on any method the collector did not declare. */
 function chain(result: Record<string, unknown>) {
-  // 'not' is here because applySendGate uses it. It THROWS on anything else, deliberately:
+  // 'not' and 'or' are here because applySendGate uses them. It THROWS on anything else, deliberately:
   // a chainable proxy that silently returned itself would accept a filter that never ran
   // and prove only that the code path executed.
-  const allowed = new Set(['select', 'eq', 'gte', 'lte', 'order', 'limit', 'not'])
+  const allowed = new Set(['select', 'eq', 'gte', 'lte', 'order', 'limit', 'not', 'or'])
   const proxy: unknown = new Proxy({}, {
     get(_t, prop: string) {
       if (prop === 'then') return (resolve: (v: unknown) => void) => resolve(result)
@@ -336,7 +336,7 @@ describe('findLiveCampaign', () => {
 
 function recordingDb(result: Record<string, unknown>) {
   const calls: { method: string; args: unknown[] }[] = []
-  const allowed = new Set(['select', 'eq', 'gte', 'lte', 'order', 'limit', 'not'])
+  const allowed = new Set(['select', 'eq', 'gte', 'lte', 'order', 'limit', 'not', 'or'])
   const proxy: unknown = new Proxy({}, {
     get(_t, prop: string) {
       if (prop === 'then') return (resolve: (v: unknown) => void) => resolve(result)

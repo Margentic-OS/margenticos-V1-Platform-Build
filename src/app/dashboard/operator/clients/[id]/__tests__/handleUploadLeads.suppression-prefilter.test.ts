@@ -110,13 +110,30 @@ let suppressions: { email: string; revoked_at: string | null }[] = []
 function prospectsBuilder(mode: 'select' | 'update', patch?: Record<string, unknown>) {
   const eqs: [string, unknown][] = []
   const notNullCols: string[] = []
+  const armClauses: string[] = []
   let inIds: string[] | null = null
   let notIn: string[] = []
+
+  // The research-arm hold, applied as PostgREST reads or=(...): a comma list of `col.is.null`,
+  // `col.not.is.null` and `col.eq.value` terms. Honoured, so a held prospect is not uploaded by
+  // this fake either. Fixture prospects carry no arm and so pass, as they did before the hold.
+  function armAdmits(r: any, clause: string): boolean {
+    return clause.split(',').some(term => {
+      const [c, ...rest] = term.split('.')
+      const value = r[c] ?? null
+      const op = rest.join('.')
+      if (op === 'is.null') return value === null
+      if (op === 'not.is.null') return value !== null
+      if (rest[0] === 'eq') return value === rest.slice(1).join('.')
+      throw new Error(`fake does not implement or-term ${term}`)
+    })
+  }
 
   function selected() {
     return prospects.filter(r =>
       eqs.every(([c, v]) => (r as any)[c] === v) &&
       notNullCols.every(c => (r as any)[c] !== null && (r as any)[c] !== undefined) &&
+      armClauses.every(clause => armAdmits(r, clause)) &&
       (inIds === null || inIds.includes(r.id)) &&
       !notIn.includes(r.id)
     )
@@ -140,12 +157,16 @@ function prospectsBuilder(mode: 'select' | 'update', patch?: Record<string, unkn
     is: () => builder,
     maybeSingle: () => Promise.resolve({ data: null, error: null }),
     // Gate 1 terminates on `.or('suppressed.eq.true,client_review_status.eq.rejected')`.
-    or: (_expr: string) => Promise.resolve({
+    or: (expr: string) => {
+      // The research-arm hold is a filter of the upload query: record it and keep chaining.
+      if (expr.includes('research_arm')) { armClauses.push(expr); return builder }
+      return Promise.resolve({
       data: selected()
         .filter(r => r.suppressed === true || r.client_review_status === 'rejected')
         .map(r => ({ id: r.id, suppressed: r.suppressed, client_review_status: r.client_review_status })),
       error: null,
-    }),
+      })
+    },
     then: (resolve: (v: unknown) => unknown) => resolve(run()),
   }
 

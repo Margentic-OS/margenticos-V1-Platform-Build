@@ -64,6 +64,8 @@ interface FakeOpts {
   entryState?: string
   hasMessage?: boolean
   suppressed?: boolean
+  /** The prospect's stored research arm. Unset reads as standard, as in production. */
+  researchArm?: 'standard' | 'short_reasoning'
   emailStatus?: string | null
   currentApprovedDocId?: string | null
   entryMissing?: boolean
@@ -142,6 +144,8 @@ function fakeSupabase(opts: FakeOpts = {}) {
             return { data: opts.entryMissing ? null : entryRow, error: null }
           }
           if (table === 'synthesis_batches') return { data: { ended_at: '2026-08-26T09:00:00Z' }, error: null }
+          // The stored research arm, read before the retry. Unset means standard, as in production.
+          if (table === 'prospects') return { data: { research_arm: opts.researchArm ?? null }, error: null }
           if (table === 'strategy_documents') {
             return {
               data: opts.currentApprovedDocId === null ? null : { id: opts.currentApprovedDocId ?? 'doc-snapshot' },
