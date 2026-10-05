@@ -387,3 +387,46 @@ describe('bounce and unsubscribe wiring to the suppression list', () => {
     expect(carryOneSuppression).not.toHaveBeenCalled()
   })
 })
+
+// ── Regional campaigns (2026-10-05) ───────────────────────────────────────────
+//
+// A client may run a second campaign for UK/IE prospects. An opt-out through the
+// List-Unsubscribe header shows up only as a lead status INSIDE the campaign it was sent
+// from, and this scan walks campaigns one by one, so the UK/IE campaign must be one of
+// them. The stub serves leads by the campaign named in each request: a scan that skipped
+// the second campaign would never see the unsubscribe.
+describe('a second, regional campaign of the same client', () => {
+  const US: FakeCampaign = { id: 'internal-us', organisation_id: 'org-a', external_id: 'instantly-us' }
+  const UKIE: FakeCampaign = { id: 'internal-ukie', organisation_id: 'org-a', external_id: 'instantly-ukie' }
+
+  function serveByCampaign(byCampaign: Record<string, Record<string, unknown>[]>) {
+    const asked: string[] = []
+    const fn = vi.fn(async (_url: unknown, init?: { body?: unknown }) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { campaign?: string; starting_after?: string }
+      const campaign = body.campaign ?? '(none)'
+      asked.push(campaign)
+      const items = body.starting_after ? [] : (byCampaign[campaign] ?? [])
+      return new Response(JSON.stringify({ items, pagination: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    return { fn, asked }
+  }
+
+  it('PLANTED: an unsubscribe in the UK/IE campaign is found and suppressed, under that campaign', async () => {
+    const { client, signalInserts, suppressionRows } = createFakeSupabase([US, UKIE])
+    const { fn, asked } = serveByCampaign({ 'instantly-ukie': [{ id: 'lead-uk', email: 'reader@uk.example', status: -2 }] })
+    vi.stubGlobal('fetch', fn)
+
+    const result = await pollInstantlyLeadStatus(client, 'test-key', INSTANTLY_LEAD_STATUS_UNSUBSCRIBED, 'lead_unsubscribed')
+
+    expect(result.errors).toBe(0)
+    expect(new Set(asked)).toEqual(new Set(['instantly-us', 'instantly-ukie']))
+    expect(signalInserts).toHaveLength(1)
+    expect(signalInserts[0].campaign_id).toBe('internal-ukie')
+    expect(signalInserts[0].organisation_id).toBe('org-a')
+    expect(suppressionRows).toEqual([expect.objectContaining({ email: 'reader@uk.example', reason: 'unsubscribed', source_org_id: 'org-a' })])
+    expect(carryOneSuppression).toHaveBeenCalledTimes(1)
+  })
+})

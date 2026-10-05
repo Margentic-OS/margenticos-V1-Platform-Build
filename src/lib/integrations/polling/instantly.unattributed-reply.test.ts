@@ -279,3 +279,44 @@ describe('the recording is scoped, and does not fire on a healthy run', () => {
     expect(row.error_count).toBe(0)
   })
 })
+
+// ── Regional campaigns (2026-10-05) ───────────────────────────────────────────
+//
+// The reply poll is one workspace-wide stream, attributed per email by the campaign it
+// came in on. A reply on the UK/IE campaign must become a signal for the same client,
+// carrying the UK/IE campaign, once that campaign is registered.
+describe('a reply on a second, regional campaign of the same client', () => {
+  it('PLANTED: replies on both campaigns become signals, each under its own campaign', async () => {
+    const UKIE = { id: 'internal-ukie', organisation_id: REGISTERED.organisation_id, external_id: 'campaign-ukie' }
+    const { client, signalInserts, quarantined } = createFakeSupabase()
+    const campaignsTable = client.from.bind(client)
+    client.from = (table: string) => {
+      if (table !== 'campaigns') return campaignsTable(table)
+      let requested: string | null = null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const b: any = {
+        select: () => b,
+        eq: (c: string, v: string) => { if (c === 'external_id') requested = v; return b },
+        maybeSingle: async () => ({
+          data: requested === REGISTERED.external_id ? { id: REGISTERED.id, organisation_id: REGISTERED.organisation_id }
+            : requested === UKIE.external_id ? { id: UKIE.id, organisation_id: UKIE.organisation_id }
+            : null,
+          error: null,
+        }),
+      }
+      return b
+    }
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ items: [replyRow('email-us', REGISTERED.external_id), replyRow('email-uk', UKIE.external_id)] })
+    ))
+
+    const result = await pollInstantlyReplies(client, 'test-key')
+
+    expect(result.errors).toBe(0)
+    expect(quarantined).toHaveLength(0)
+    expect(signalInserts.map(s => [s.external_event_id, s.campaign_id, s.organisation_id])).toEqual([
+      ['email-us', REGISTERED.id, REGISTERED.organisation_id],
+      ['email-uk', 'internal-ukie', REGISTERED.organisation_id],
+    ])
+  })
+})
