@@ -192,10 +192,19 @@ function analyticsRow(overrides: Record<string, unknown> = {}) {
 // Routes the three poller calls to empty results and serves analytics from `rows`.
 // Returns only what the route asked for, so nothing here can accidentally satisfy an
 // assertion the production code did not earn.
+/** Campaign ids the provider holds with no leads, so no analytics row. Reset per test. */
+const EXISTING_EMPTY = new Set<string>()
+
 function stubFetch(rows: unknown[]) {
   return vi.fn(async (url: string | URL) => {
     const u = String(url)
     if (u.includes('/campaigns/analytics')) return jsonResponse(rows)
+    // GET /campaigns/{id}, the existence check for a row with no analytics row. 404 is
+    // what the provider returns for an id it does not hold (measured 2026-10-05), which is
+    // the truth for every never-real id these tests register. EXISTING_EMPTY lists the ids
+    // the provider holds with no leads yet.
+    const one = u.match(/\/campaigns\/([^/?]+)$/)
+    if (one) return EXISTING_EMPTY.has(decodeURIComponent(one[1])) ? jsonResponse({ id: one[1] }) : jsonResponse({ message: 'Campaign not found' }, 404)
     if (u.includes('/emails')) return jsonResponse({ items: [] })
     return jsonResponse({ items: [] })
   })
@@ -213,6 +222,7 @@ function onlyUpdate() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  EXISTING_EMPTY.clear()
   db.heartbeats.length = 0
   db.campaignUpdates.length = 0
   db.campaignUpdateError = null
@@ -571,5 +581,47 @@ describe('contacted_count is stored separately, because emails are not people', 
     expect(payload).not.toHaveProperty('contacted_count')
     // The email counters are still good and still written.
     expect(payload.sent_count).toBe(60)
+  })
+})
+
+// ── An empty campaign is not a deleted one (2026-10-05) ───────────────────────
+//
+// The provider omits a campaign with no leads from its analytics. A regional campaign
+// registered before its first upload is exactly that, and reading it as a fault turned the
+// poll heartbeat red every fifteen minutes. The existence check tells the two apart.
+describe('a registered campaign with no analytics row that the provider still holds', () => {
+  it('PLANTED: is counted as awaiting its first lead, written nothing, and the run stays clean', async () => {
+    db.campaigns = [
+      { id: 'internal-real', organisation_id: 'org-a', external_id: EXT, status: 'active' },
+      { id: 'internal-ukie', organisation_id: 'org-a', external_id: 'ukie-empty', status: 'paused' },
+    ]
+    EXISTING_EMPTY.add('ukie-empty')
+    vi.stubGlobal('fetch', stubFetch([analyticsRow()]))
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    expect(body.campaign_stats.awaitingFirstLead).toBe(1)
+    expect(body.campaign_stats.missingAnalytics).toBe(0)
+    expect(body.campaign_stats.errors).toBe(0)
+    expect(body.ok).toBe(true)
+    // Nothing was written for the empty campaign: there are no counters to write.
+    expect(db.campaignUpdates.map(u => u.id)).toEqual(['internal-real'])
+  })
+
+  it('PLANTED: a lookup that fails is NOT read as "exists": the row stays a named failure', async () => {
+    db.campaigns = [localCampaign('active', 'ukie-empty')]
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+      const u = String(url)
+      if (u.includes('/campaigns/analytics')) return jsonResponse([])
+      if (/\/campaigns\/ukie-empty$/.test(u)) return jsonResponse({ message: 'upstream' }, 503)
+      return jsonResponse({ items: [] })
+    }))
+
+    const body = await (await POST(cronRequest())).json()
+
+    expect(body.campaign_stats.awaitingFirstLead).toBe(0)
+    expect(body.campaign_stats.missingAnalytics).toBe(1)
+    expect(body.ok).toBe(false)
   })
 })

@@ -274,3 +274,31 @@ export async function fetchCampaignStats(
 
   return result
 }
+
+// campaignExistsOnProvider — does the provider still hold this campaign?
+//
+// The analytics call above OMITS a campaign that has never had a lead (measured 2026-10-05:
+// a freshly created, paused UK/IE campaign was absent from GET /campaigns/analytics, and
+// absent even when asked for by id, while GET /campaigns/{id} returned 200). So "no
+// analytics row" has two causes that need opposite treatment: a campaign deleted on the
+// provider (or an external_id that was never real), which is a fault, and an empty campaign
+// waiting for its first upload, which is not. GET /campaigns/{id} tells them apart: 404 for
+// the first (measured with a random uuid), 200 for the second.
+//
+// Anything else throws, so the caller keeps treating the row as a failure. Unknown is never
+// read as "exists".
+export async function campaignExistsOnProvider(
+  externalId: string,
+  apiKey: string,
+  isActive: boolean,
+  baseUrl: string,
+): Promise<boolean> {
+  if (shouldUseMockDispatch(isActive)) return false
+  const response = await fetch(`${baseUrl}/campaigns/${encodeURIComponent(externalId)}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+  })
+  if (response.status === 404) return false
+  if (response.ok) return true
+  throw new Error(`campaign lookup returned HTTP ${response.status}`)
+}

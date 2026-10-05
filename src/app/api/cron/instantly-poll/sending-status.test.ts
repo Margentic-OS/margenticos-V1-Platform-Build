@@ -199,10 +199,19 @@ function sendingStatusBody(status: string | null) {
 const sendingCalls: string[] = []
 
 // `sending` is either a body to return or a status code to fail with.
+/** Campaign ids the provider holds with no leads, so no analytics row. Reset per test. */
+const EXISTING_EMPTY = new Set<string>()
+
 function stubFetch(rows: unknown[], sending: unknown | number = sendingStatusBody('healthy')) {
   return vi.fn(async (url: string | URL) => {
     const u = String(url)
     if (u.includes('/campaigns/analytics')) return jsonResponse(rows)
+    // GET /campaigns/{id}, the existence check for a row with no analytics row. 404 is
+    // what the provider returns for an id it does not hold (measured 2026-10-05), which is
+    // the truth for every never-real id these tests register. EXISTING_EMPTY lists the ids
+    // the provider holds with no leads yet.
+    const one = u.match(/\/campaigns\/([^/?]+)$/)
+    if (one) return EXISTING_EMPTY.has(decodeURIComponent(one[1])) ? jsonResponse({ id: one[1] }) : jsonResponse({ message: 'Campaign not found' }, 404)
     if (u.includes('/sending-status')) {
       sendingCalls.push(u)
       if (typeof sending === 'number') return jsonResponse({ message: 'nope' }, sending)
@@ -229,6 +238,7 @@ function updateFor(id: string) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  EXISTING_EMPTY.clear()
   db.heartbeats.length = 0
   db.campaignUpdates.length = 0
   db.campaignUpdateError = null

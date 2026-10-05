@@ -44,7 +44,7 @@ import {
   INSTANTLY_LEAD_STATUS_BOUNCED,
   INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
 } from '@/lib/integrations/polling/instantly'
-import { fetchCampaignStats, INSTANTLY_ABNORMAL_STOP_STATUSES } from '@/lib/integrations/handlers/instantly/campaign-analytics'
+import { campaignExistsOnProvider, fetchCampaignStats, INSTANTLY_ABNORMAL_STOP_STATUSES } from '@/lib/integrations/handlers/instantly/campaign-analytics'
 import { fetchCampaignSendingStatus, SENDING_STATES_NEEDING_ATTENTION } from '@/lib/integrations/handlers/instantly/campaign-sending-status'
 import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { syncSendingHealth } from '@/lib/sending-health/sync'
@@ -219,7 +219,9 @@ export async function POST(request: NextRequest) {
   // and a field that can only ever read 0 invites someone to trust it.
   // missingAnalytics is a BREAKDOWN of errors, not a separate total: every increment of
   // it also increments errors, which is the number runOk reads.
-  const campaignStatsResult = { updated: 0, errors: 0, statusChanged: 0, missingAnalytics: 0, sendingChecked: 0, sendingErrors: 0 }
+  // awaitingFirstLead counts campaigns with no analytics row that the provider confirms
+  // still exist: empty, never uploaded to. Not an error; see campaignExistsOnProvider.
+  const campaignStatsResult = { updated: 0, errors: 0, statusChanged: 0, missingAnalytics: 0, awaitingFirstLead: 0, sendingChecked: 0, sendingErrors: 0 }
   // First failure of the refresh, carried into the heartbeat detail so the row names a
   // cause instead of just a count. Mirrors the poller's last_error discipline; campaign
   // stats has no polling_cursors row of its own, so the heartbeat is where it goes.
@@ -236,6 +238,28 @@ export async function POST(request: NextRequest) {
       if (!campaign.external_id) continue
       const stats = statsMap.get(campaign.external_id)
       if (!stats) {
+        // AN EMPTY CAMPAIGN HAS NO ANALYTICS ROW EITHER. The provider omits a campaign that
+        // has never had a lead, which is exactly the state of a newly registered regional
+        // campaign until its first upload. Ask whether the campaign exists before calling
+        // it a fault: 404 (or a lookup that fails) stays the loud failure below.
+        let exists = false
+        try {
+          exists = await campaignExistsOnProvider(campaign.external_id, apiKey, isActive, baseUrl)
+        } catch (err) {
+          logger.warn('Campaign stats refresh: could not confirm a campaign with no analytics row exists', {
+            campaign_id: campaign.id,
+            external_id: campaign.external_id,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+        if (exists) {
+          logger.info('Campaign stats refresh: campaign exists but has no analytics row yet (no leads uploaded)', {
+            campaign_id: campaign.id,
+            external_id: campaign.external_id,
+          })
+          campaignStatsResult.awaitingFirstLead++
+          continue
+        }
         // A registered external_id that the workspace-wide analytics call does not know
         // about. This is NOT "nothing to do". It is a campaigns row pointing at a
         // campaign that does not exist in Instantly, and its counters and status will
