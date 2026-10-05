@@ -28,6 +28,8 @@ import { ClientProfileBlock } from './ClientProfileBlock'
 import { SetupStatusPanel } from './SetupStatusPanel'
 import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
 import { LeadUploadPanel } from './LeadUploadPanel'
+import { describeRegion, describeSendSettings } from '@/lib/outbound/campaign-region-text'
+import { readCampaignSendSettings } from '@/lib/integrations/handlers/instantly/campaign-send-settings'
 import { MailboxOrderPanel } from './MailboxOrderPanel'
 import { WarmupControlPanel } from './WarmupControlPanel'
 import { WriterStoppedPanel } from './WriterStoppedPanel'
@@ -115,7 +117,7 @@ export default async function ClientDetailPage({
     unresearchedSendGateCountQuery(serviceRole, org.id),
     supabase
       .from('campaigns')
-      .select('id, external_id, name, shell_synced_at, shell_step_count, status, started_at, paused_at')
+      .select('id, external_id, name, shell_synced_at, shell_step_count, status, started_at, paused_at, region_name, region_countries')
       .eq('organisation_id', org.id)
       .order('created_at', { ascending: true }),
     // eq('uploaded'), NOT neq('pending'). outbound_upload_status is NOT NULL with default
@@ -202,15 +204,22 @@ export default async function ClientDetailPage({
     unresearchedCountResult,
     `unresearched prospects ready to send for organisation ${org.id}`,
   )
-  const campaigns = (campaignsResult.data ?? [])
+  // Each campaign's region, and its send window read LIVE from the provider, which is what
+  // enforces it (no second copy is kept in campaigns). A failed read is shown as failed on
+  // that campaign's row; it never stops the page.
+  const campaigns = await Promise.all((campaignsResult.data ?? [])
     .filter(c => c.external_id !== null)
-    .map(c => ({
+    .map(async c => ({
       internalId: c.id,
       externalId: c.external_id as string,
       name: c.name,
       shellSyncedAt: c.shell_synced_at,
       shellStepCount: c.shell_step_count,
-    }))
+      region: describeRegion(c.region_name, c.region_countries),
+      schedule: await readCampaignSendSettings(org.id, c.external_id as string)
+        .then(settings => describeSendSettings(settings))
+        .catch(err => `Send window could not be read: ${err instanceof Error ? err.message : String(err)}`),
+    })))
   const uploadedCount = requireCount(uploadedCountResult, `prospects already uploaded for organisation ${org.id}`)
   const primarySegmentId = primarySegResult.data?.id ?? null
   const clientUser = clientUserResult.data

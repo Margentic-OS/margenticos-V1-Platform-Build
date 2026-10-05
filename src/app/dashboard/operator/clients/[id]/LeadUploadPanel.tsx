@@ -21,6 +21,10 @@ interface CampaignForSync {
   name: string | null
   shellSyncedAt: string | null
   shellStepCount: number | null
+  /** Which prospects this campaign takes, e.g. "UK/IE: GB, IE". */
+  region: string
+  /** When it sends, read from the provider, or why that read failed. */
+  schedule: string
 }
 
 interface Props {
@@ -261,6 +265,8 @@ function ShellRow({
     <div className="flex items-start justify-between gap-4">
       <div className="min-w-0">
         <p className="text-[12px] font-medium text-text-primary truncate">{label}</p>
+        <p className="text-[11px] text-text-secondary mt-0.5">{campaign.region}</p>
+        <p className="text-[11px] text-text-secondary mt-0.5">{campaign.schedule}</p>
         {syncState === 'error' && syncError ? (
           <p className="text-[11px] text-[#8B2020] mt-0.5">{syncError}</p>
         ) : campaign.shellSyncedAt ? (
