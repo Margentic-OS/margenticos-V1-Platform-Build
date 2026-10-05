@@ -944,9 +944,23 @@ When a prompt and a validator enforce the same rule, they must agree exactly.
 If one is updated, the other must be checked and updated in the same session.
 
 Known validator thresholds. Code-enforced, cannot be overridden by the prompt.
-THE SOURCE OF TRUTH IS EMAIL_WORD_LIMITS and EMAIL_SUBJECT_LIMITS in
-src/agents/messaging-generation-agent.ts. The figures below mirror it. If you change one,
-change both in the same commit, and check docs/prompts/messaging-agent.md too.
+
+TWO WRITERS, TWO BAND SETS, KEPT SIDE BY SIDE UNTIL THE OLD WRITER IS REMOVED (decided
+2026-10-05, Option C). Each writer's bands live in its own validator and nowhere else:
+
+  Old path:     EMAIL_WORD_LIMITS and EMAIL_SUBJECT_LIMITS in
+                src/agents/messaging-generation-agent.ts. The Email 1 to Email 4 body figures
+                below are THIS path's. If you change one, change both in the same commit, and
+                check docs/prompts/messaging-agent.md too.
+  Writer v2:    WRITER_V2_WORD_BANDS in src/lib/writer-v2/checks.ts (ADR-068). Email 1 40 to
+                110 words; Emails 2 and 3 30 to 80; Email 4 1 to 44 ("under 45"). The v2 prompt
+                renders its LENGTHS line from this constant, so prompt and validator cannot
+                drift. Counts include the greeting line and the sign-off, as sent.
+  Not both at once: a band change for one writer does not reach the other. When the old
+  writer is removed (Backlog row "Remove the old writing path"), WRITER_V2_WORD_BANDS becomes
+  the single source of truth and the old-path figures below are deleted with it.
+
+Old-path figures, as EMAIL_WORD_LIMITS states them:
 
   Email 1 subject:   maximum 40 characters (target < 25). The ONLY email with a subject.
   Emails 2, 3 and 4: subject_line must be null; subject_char_count must be 0.
