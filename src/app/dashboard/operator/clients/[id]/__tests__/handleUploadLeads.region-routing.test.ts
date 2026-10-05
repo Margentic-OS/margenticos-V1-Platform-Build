@@ -49,6 +49,16 @@ vi.mock('@/lib/sourcing/send-gate', () => ({ applySendGate: (query: unknown) => 
 const upload = vi.hoisted(() => ({ fn: vi.fn() }))
 vi.mock('@/lib/integrations/handlers/instantly/uploadLeads', () => ({ uploadLeads: upload.fn }))
 
+// The provider's campaign controls, in memory. Calls are recorded in order.
+const provider = vi.hoisted(() => ({ calls: [] as string[], limits: {} as Record<string, number | null> }))
+vi.mock('@/lib/integrations/handlers/instantly/campaign-controls', () => ({
+  createCampaignControls: () => ({
+    readDailyLimit: async (ext: string) => { provider.calls.push(`read ${ext}`); return provider.limits[ext] ?? null },
+    setDailyLimit: async (ext: string, n: number) => { provider.calls.push(`set ${ext} ${n}`); provider.limits[ext] = n },
+    activate: async (ext: string) => { provider.calls.push(`activate ${ext}`) },
+  }),
+}))
+
 const compose = vi.hoisted(() => ({ fn: vi.fn() }))
 vi.mock('@/lib/composition/compose-sequence', () => ({
   fetchComposeDocs: vi.fn(async () => ({ messagingDoc: {}, messagingDocId: 'doc-1' })),
@@ -79,7 +89,12 @@ interface Row {
 
 let prospects: Row[] = []
 /** The client's campaigns, as the action's select returns them. */
-let campaigns: Array<{ id: string; external_id: string; shell_step_count: number | null; shell_segment_id: string | null; region_countries: string[] | null }> = []
+let campaigns: Array<{ id: string; external_id: string; shell_step_count: number | null; shell_segment_id: string | null; region_countries: string[] | null } & Record<string, unknown>> = []
+/** organisations.outbound_daily_cap for the client under test. */
+let dailyCap: number | null = null
+/** Rows written to campaign_automation_log, and updates written to campaigns. */
+let automationLog: Array<Record<string, unknown>> = []
+let campaignUpdates: Array<{ id: unknown; patch: Record<string, unknown> }> = []
 /** The client's ICP triggers, as the checked read returns them. */
 let icpTriggers: unknown[] = []
 let icpReadError: string | null = null
@@ -130,9 +145,17 @@ function tables(kind: 'session' | 'service', table: string): any {
     const b: any = { select: () => b, eq: () => b, maybeSingle: () => Promise.resolve({ data: null, error: null }) }
     return b
   }
+  if (table === 'campaign_automation_log') {
+    if (kind === 'session') throw new Error('permission denied for table campaign_automation_log')
+    return { insert: async (row: Record<string, unknown>) => { automationLog.push(row); return { error: null } } }
+  }
   if (table === 'campaigns') {
     const b: any = {
       select: () => b, eq: () => b, in: () => b,
+      update: (patch: Record<string, unknown>) => {
+        const u: any = { eq: (c: string, v: unknown) => { if (c === 'id') campaignUpdates.push({ id: v, patch }); return u }, then: (r: any) => r({ error: null }) }
+        return u
+      },
       then: (r: any) => r({ data: campaigns.map(c => ({ ...c })), error: null }),
     }
     return b
@@ -158,7 +181,7 @@ function tables(kind: 'session' | 'service', table: string): any {
       eq: (c: string, v: unknown) => { filters[c] = v; return b },
       maybeSingle: () => Promise.resolve(holdReadError
         ? { data: null, error: { message: holdReadError } }
-        : { data: filters.id === ORG ? hold : null, error: null }),
+        : { data: filters.id === ORG ? { ...hold, outbound_daily_cap: dailyCap } : null, error: null }),
     }
     return b
   }
@@ -312,5 +335,73 @@ describe('handleUploadLeads: a prospect goes to the campaign for its country', (
     seed({ us: 'US' })
     await handleUploadLeads(ORG)
     expect(prospectSelects.some(s => /\bcountry\b/.test(s))).toBe(true)
+  })
+})
+
+
+// ── A regional campaign switches itself on with its first leads (2026-10-05) ──
+describe('handleUploadLeads: automatic activation of a regional campaign', () => {
+  const PAUSED_UKIE = { ...UKIE, name: 'UK/IE', status: 'paused', sent_count: 0, auto_activated_at: null, daily_limit_share: 15 }
+  const LIVE_US = { ...US, name: 'US', status: 'active', sent_count: 812, auto_activated_at: null, daily_limit_share: null }
+
+  beforeEach(() => {
+    provider.calls.length = 0
+    provider.limits = { 'ext-us': 90, 'ext-ukie': 15 }
+    automationLog = []
+    campaignUpdates = []
+    dailyCap = 90
+  })
+
+  it('PLANTED: GB leads reach the paused UK/IE campaign: US lowered to 75, UK/IE activated, both logged with the service client', async () => {
+    campaigns = [LIVE_US, PAUSED_UKIE]
+    seed({ gb: 'GB', us: 'US' })
+
+    const result = await handleUploadLeads(ORG)
+    if (!result.ok) throw new Error(`expected an upload, got: ${result.error}`)
+
+    // The leads went out first, and the activation came after them.
+    expect(batches()).toEqual({ 'ext-ukie': ['gb'], 'ext-us': ['us'] })
+    expect(provider.calls.filter(c => !c.startsWith('read'))).toEqual(['set ext-us 75', 'activate ext-ukie'])
+    expect(automationLog.map(r => [r.action, r.campaign_id, r.from_value, r.to_value, r.organisation_id])).toEqual([
+      ['daily_limit_set', 'campaign-us', '90', '75', ORG],
+      ['activated', 'campaign-ukie', 'paused', 'active', ORG],
+    ])
+    expect(campaignUpdates).toEqual([{ id: 'campaign-ukie', patch: expect.objectContaining({ status: 'active', auto_activated_at: expect.any(String) }) }])
+    expect(result.campaignAutomation?.map(e => e.action)).toEqual(['daily_limit_set', 'activated'])
+  })
+
+  it('PLANTED: an upload with no GB or IE prospect leaves UK/IE paused and US at 90', async () => {
+    campaigns = [LIVE_US, PAUSED_UKIE]
+    seed({ us: 'US', unknown: null })
+
+    const result = await handleUploadLeads(ORG)
+    if (!result.ok) throw new Error(`expected an upload, got: ${result.error}`)
+
+    expect(provider.calls).toEqual([])
+    expect(automationLog).toEqual([])
+    expect(provider.limits['ext-us']).toBe(90)
+  })
+
+  it('PLANTED: a client with no daily cap: leads are uploaded, the campaign stays paused, and the refusal is logged', async () => {
+    dailyCap = null
+    campaigns = [LIVE_US, PAUSED_UKIE]
+    seed({ gb: 'GB' })
+
+    const result = await handleUploadLeads(ORG)
+    if (!result.ok) throw new Error(`expected an upload, got: ${result.error}`)
+
+    expect(batches()).toEqual({ 'ext-ukie': ['gb'] })
+    expect(provider.calls).toEqual([])
+    expect(automationLog).toEqual([expect.objectContaining({ action: 'refused', campaign_id: 'campaign-ukie' })])
+  })
+
+  it('a UK/IE campaign already switched on once is never switched on again by an upload', async () => {
+    campaigns = [LIVE_US, { ...PAUSED_UKIE, auto_activated_at: '2026-10-06T08:00:00Z' }]
+    seed({ gb: 'GB' })
+
+    await handleUploadLeads(ORG)
+
+    expect(provider.calls).toEqual([])
+    expect(automationLog).toEqual([])
   })
 })

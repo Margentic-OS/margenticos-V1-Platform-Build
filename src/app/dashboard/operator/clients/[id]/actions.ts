@@ -22,6 +22,8 @@ import { describeReasonHold, loadTriggersChecked, openingReasonVerdict } from '@
 import type { TriggerWithReason } from '@/lib/agents/research/approved-reason'
 import { logger } from '@/lib/logger'
 import { routeProspectToCampaign } from '@/lib/outbound/campaign-routing'
+import { activateRegionalCampaigns, awaitsFirstLeads, type AutomationEntry, type ManagedCampaign } from '@/lib/outbound/regional-activation'
+import { createCampaignControls } from '@/lib/integrations/handlers/instantly/campaign-controls'
 import { applySendGate } from '@/lib/sourcing/send-gate'
 import { claimNotification } from '@/lib/notifications/claim-notification'
 import { sendTransactionalEmail } from '@/lib/email/send'
@@ -257,6 +259,8 @@ export type UploadLeadsResult =
        * on the old writer's copy. Absent on the early returns.
        */
       heldWithoutWriterV2Count?: number
+      /** Automatic regional activation and limit changes this upload made or refused. */
+      campaignAutomation?: AutomationEntry[]
     }
   | { ok: false; error: string }
 
@@ -546,7 +550,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   // region configuration that does not give exactly one answer, blocks the prospect.
   const { data: allCampaigns, error: campaignFetchErr } = await supabase
     .from('campaigns')
-    .select('id, external_id, shell_step_count, shell_segment_id, region_countries')
+    .select('id, external_id, name, status, sent_count, auto_activated_at, daily_limit_share, shell_step_count, shell_segment_id, region_countries')
     .eq('organisation_id', orgId)
 
   if (campaignFetchErr) {
@@ -1007,9 +1011,15 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   // Mark success path: prospects will be updated to 'uploaded', no reclaim needed
   shouldReclaim = false
 
+  // ── A regional campaign switches itself on when its first leads arrive ────
+  // AFTER the upload, and never able to undo it: the leads are in the provider whatever
+  // happens here. Every step and every refusal is logged and shown on the upload panel.
+  const campaignAutomation = await runRegionalActivation(serviceClient, orgId, allCampaigns ?? [], outcomes)
+
   return {
     ok: true,
     outcomes,
+    campaignAutomation,
     hasPartialFailure: outcomes.some(o => !o.ok),
     blockedSegments,
     shellBlockedCampaigns,
@@ -1045,6 +1055,88 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     }
   }
   }) // end withServerActionInstrumentation
+}
+
+// ── Regional activation, wired to the database and the provider ──────────────
+
+type CampaignForActivation = {
+  id: string
+  external_id: string | null
+  name: string | null
+  status: string
+  sent_count: number
+  auto_activated_at: string | null
+  daily_limit_share: number | null
+  region_countries: string[] | null
+}
+
+/**
+ * Never throws. A failure anywhere here is logged and returned as a 'failed' entry: the upload
+ * has already happened, and reporting it as failed would invite the operator to repeat it.
+ */
+async function runRegionalActivation(
+  serviceClient: Awaited<ReturnType<typeof createServiceRoleClient>>,
+  orgId: string,
+  campaigns: CampaignForActivation[],
+  outcomes: CampaignOutcome[],
+): Promise<AutomationEntry[]> {
+  const byExternalId = new Map(campaigns.filter(c => c.external_id).map(c => [c.external_id as string, c]))
+  const receivedLeads = new Set(
+    outcomes.filter(o => o.ok && (o.created ?? 0) > 0).map(o => byExternalId.get(o.external_id)?.id).filter((id): id is string => !!id),
+  )
+  const managed: ManagedCampaign[] = campaigns.filter(c => c.external_id).map(c => ({
+    id: c.id,
+    externalId: c.external_id as string,
+    name: c.name,
+    regionCountries: c.region_countries,
+    dailyLimitShare: c.daily_limit_share,
+    status: c.status,
+    sentCount: c.sent_count,
+    autoActivatedAt: c.auto_activated_at,
+  }))
+  if (!managed.some(c => receivedLeads.has(c.id) && awaitsFirstLeads(c))) return []
+
+  const writeLog = async (e: AutomationEntry) => {
+    const { error } = await serviceClient.from('campaign_automation_log').insert({
+      organisation_id: orgId,
+      campaign_id: e.campaignId,
+      action: e.action,
+      from_value: e.fromValue,
+      to_value: e.toValue,
+      detail: e.detail,
+    })
+    if (error) logger.error('handleUploadLeads: could not write the campaign automation log', { organisation_id: orgId, entry: e, error: error.message })
+    else logger.info('handleUploadLeads: campaign automation', { organisation_id: orgId, ...e })
+  }
+
+  try {
+    // A cap that cannot be READ is not "no cap": both leave the campaign paused, but only one
+    // of them is a configuration choice, and the log must say which.
+    const { data: org, error: capErr } = await serviceClient
+      .from('organisations').select('outbound_daily_cap').eq('id', orgId).maybeSingle()
+    if (capErr) throw new Error(`could not read the client's daily cap: ${capErr.message}`)
+
+    return await activateRegionalCampaigns({
+      cap: org?.outbound_daily_cap ?? null,
+      campaigns: managed,
+      receivedLeads,
+      controls: createCampaignControls(orgId),
+      log: writeLog,
+      markActivated: async campaignId => {
+        const { error } = await serviceClient.from('campaigns')
+          .update({ auto_activated_at: new Date().toISOString(), status: 'active' })
+          .eq('id', campaignId).eq('organisation_id', orgId)
+        if (error) logger.error('handleUploadLeads: activated on the provider but auto_activated_at not recorded', { campaign_id: campaignId, error: error.message })
+      },
+    })
+  } catch (err) {
+    const entry: AutomationEntry = {
+      campaignId: null, action: 'failed', fromValue: null, toValue: null,
+      detail: `Automatic activation did not run: ${err instanceof Error ? err.message : String(err)}. Regional campaigns were left as they were.`,
+    }
+    await writeLog(entry)
+    return [entry]
+  }
 }
 
 // ── Shell sync action ─────────────────────────────────────────────────────────

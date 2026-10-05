@@ -116,13 +116,48 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_automation_log: {
+        Row: {
+          action: string
+          campaign_id: string | null
+          created_at: string
+          detail: string
+          from_value: string | null
+          id: number
+          organisation_id: string
+          to_value: string | null
+        }
+        Insert: {
+          action: string
+          campaign_id?: string | null
+          created_at?: string
+          detail: string
+          from_value?: string | null
+          id?: number
+          organisation_id: string
+          to_value?: string | null
+        }
+        Update: {
+          action?: string
+          campaign_id?: string | null
+          created_at?: string
+          detail?: string
+          from_value?: string | null
+          id?: number
+          organisation_id?: string
+          to_value?: string | null
+        }
+        Relationships: []
+      }
       campaigns: {
         Row: {
           bounced_count: number
           campaign_stats_updated_at: string | null
           campaign_type: string
           contacted_count: number
+          daily_limit_share: number | null
           created_at: string
+          auto_activated_at: string | null
           external_id: string | null
           id: string
           name: string | null
@@ -152,7 +187,9 @@ export type Database = {
           campaign_stats_updated_at?: string | null
           campaign_type: string
           contacted_count?: number
+          daily_limit_share?: number | null
           created_at?: string
+          auto_activated_at?: string | null
           external_id?: string | null
           id?: string
           name?: string | null
@@ -182,7 +219,9 @@ export type Database = {
           campaign_stats_updated_at?: string | null
           campaign_type?: string
           contacted_count?: number
+          daily_limit_share?: number | null
           created_at?: string
+          auto_activated_at?: string | null
           external_id?: string | null
           id?: string
           name?: string | null
@@ -1508,6 +1547,7 @@ export type Database = {
           meetings_count: number
           monthly_meetings_target: number
           outbound_upload_hold: boolean
+          outbound_daily_cap: number | null
           outbound_upload_hold_note: string | null
           name: string
           payment_status: string | null
@@ -1549,6 +1589,7 @@ export type Database = {
           meetings_count?: number
           monthly_meetings_target?: number
           outbound_upload_hold?: boolean
+          outbound_daily_cap?: number | null
           outbound_upload_hold_note?: string | null
           name: string
           payment_status?: string | null
@@ -1590,6 +1631,7 @@ export type Database = {
           meetings_count?: number
           monthly_meetings_target?: number
           outbound_upload_hold?: boolean
+          outbound_daily_cap?: number | null
           outbound_upload_hold_note?: string | null
           name?: string
           payment_status?: string | null
