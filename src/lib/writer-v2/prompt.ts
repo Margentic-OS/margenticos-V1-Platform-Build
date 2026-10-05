@@ -113,3 +113,35 @@ ALREADY USED IN THIS BATCH (choose differently where the playbook allows)
 Email 2 / Email 3 angle pairs: ${pairs.length ? pairs.map(([a, b]) => `${a} / ${b}`).join('; ') : 'none yet'}
 Questions: ${questions.length ? questions.map(q => `"${q}"`).join('; ') : 'none yet'}`
 }
+
+// ─── Shortening an over-length email (operator, 2026-10-05) ───────────────────
+//
+// When an attempt fails ONLY on word count, the over-length emails go back alone, to be cut,
+// before paying for a whole rewrite. Stating the limit in the main prompt did not reduce
+// over-length drafts (measured 2026-10-04 and 2026-10-05, Notion Knowledge Base), so the
+// remedy acts on the draft after it exists. Generic, like everything in this file: no client
+// content, and nothing may be added, so the playbook is not needed.
+
+export const WRITER_V2_SHORTEN_INSTRUCTIONS = `You shorten cold emails that are over their word limit. You are given one or more emails from a sequence that has already been written and checked. Each is too long, and nothing else about it is wrong.
+
+For each email, cut words until it is within its limit:
+- Keep the meaning, every fact, every personal detail and the question. Keep the greeting line.
+- Keep each sentence listed under "keep word for word" exactly as it is.
+- Add nothing new: no new claim, fact, name, number, idea or sentence. Only remove or tighten.
+- Cut filler, repetition, and second ways of saying the same thing first.
+- No dashes of any kind. One paragraph per line, with a blank line between paragraphs. Do not write a sign-off or a footer.
+
+Return ONLY one JSON object, no prose before or after:
+{ "emails": [ { "email": 2, "body": "the shortened email, greeting line first" } ] }`
+
+/** Words to remove beyond the bare excess. The check counts exactly and the model does not,
+ *  so asking for exactly the excess lands one or two words over as often as not. */
+export const SHORTEN_MARGIN_WORDS = 3
+
+export function writerV2ShortenMessage(emails: Array<{ email: number; body: string; words: number; max: number; keep: string[] }>): string {
+  return emails.map(e => [
+    `EMAIL ${e.email}: ${e.words} words as sent (greeting and the two-line sign-off included); the limit is ${e.max}. Remove at least ${e.words - e.max + SHORTEN_MARGIN_WORDS} words.`,
+    e.keep.length ? `Keep word for word:\n${e.keep.map(s => `- ${s}`).join('\n')}` : 'Keep word for word: nothing listed.',
+    `Body:\n${e.body}`,
+  ].join('\n')).join('\n\n')
+}

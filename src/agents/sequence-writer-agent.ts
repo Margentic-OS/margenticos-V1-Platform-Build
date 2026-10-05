@@ -15,6 +15,11 @@
 //                       No model output ships; composition uses the client's approved template.
 // Each tier gets ONE retry with its failures stated, then falls to the next.
 //
+// SHORTEN BEFORE RETRYING (operator, 2026-10-05). When an attempt fails ONLY because some emails
+// are too long, just those emails go back to be cut (a small call, no playbook) and the whole
+// output is checked again. If that passes, no rewrite is paid for. If not, the normal retry
+// runs exactly as before. Any other failure goes straight to the normal retry.
+//
 // THE ONLY CHECKS are in src/lib/writer-v2/checks.ts. The old writing path's gates are not run.
 //
 // STATELESS. Everything is read per call and passed explicitly; client_id scopes every query.
@@ -37,13 +42,14 @@ import { companyShortName, firmTradeWords } from '@/lib/composition/company-shor
 import { clientGenericWords, readBrief } from '@/lib/outbound-brief/brief'
 import { peerKindRecordFromRow } from '@/lib/sourcing/peer-kind'
 import { factsForProspect, hasQualifyingResearch, type WriterFact } from '@/lib/writer-v2/facts'
-import { copiedPhrases, splitSentences, transformOutput, writerV2Failures, type Sender, type WriterOutput } from '@/lib/writer-v2/checks'
+import { copiedPhrases, overLengthOnly, splitSentences, transformOutput, writerV2Failures, type Sender, type WriterOutput } from '@/lib/writer-v2/checks'
 import { exampleSentences, playbookFromDocumentContent, type WriterPlaybook } from '@/lib/writer-v2/playbook'
-import { emptyBatchMemory, writerV2System, writerV2UserMessage, type BatchMemory, type WriterTier } from '@/lib/writer-v2/prompt'
+import { emptyBatchMemory, WRITER_V2_SHORTEN_INSTRUCTIONS, writerV2ShortenMessage, writerV2System, writerV2UserMessage, type BatchMemory, type WriterTier } from '@/lib/writer-v2/prompt'
 import type { WriterV2Attempt, WriterV2Record } from '@/lib/writer-v2/record'
 
 export const WRITER_V2_MODEL = RESEARCH_SONNET_MODEL
 const MAX_TOKENS = 8000
+const SHORTEN_MAX_TOKENS = 2000
 
 export type WriterV2UsagePath = 'cli' | 'inline' | 'queue' | 'collect'
 
@@ -147,7 +153,13 @@ export async function writeSequenceForProspect(input: WriteSequenceInput): Promi
   }
 
   if (passed) rememberSequence(memory, record)
-  if (usage.calls > 0) await recordWriterUsage(supabase, client_id, prospect_id, usage, input.usagePath, record)
+  // Shorten calls are their own ledger row (arm 'writer_v2_shorten'), so what shortening costs
+  // can be read on its own. Both rows are priced the same way and both count in run spend.
+  const sumOf = (kind: 'write' | 'shorten') => attempts.filter(a => (a.kind ?? 'write') === kind).reduce((u, a) => addTokenUsage(u, a.usage), ZERO_TOKEN_USAGE)
+  const writeUsage = sumOf('write')
+  const shortenUsage = sumOf('shorten')
+  if (writeUsage.calls > 0) await recordWriterUsage(supabase, client_id, prospect_id, writeUsage, input.usagePath, record, 'writer_v2')
+  if (shortenUsage.calls > 0) await recordWriterUsage(supabase, client_id, prospect_id, shortenUsage, input.usagePath, record, 'writer_v2_shorten')
 
   let persisted = false
   if (input.persist) {
@@ -166,6 +178,7 @@ export async function writeSequenceForProspect(input: WriteSequenceInput): Promi
   logger.info('sequence-writer: written', {
     prospect_id, client_id, tier: record.tier, calls: usage.calls,
     failed_attempts: attempts.filter(a => a.failures.length > 0).length,
+    shorten_calls: attempts.filter(a => a.kind === 'shorten').length,
   })
   return { record, usage, persisted }
 }
@@ -187,7 +200,7 @@ async function writeTier(
     const usage = readTokenUsage(res.usage)
     // A truncated or refused answer is a failure, never a sequence (ADR-059).
     if (res.stop_reason === 'max_tokens' || res.stop_reason === 'refusal') {
-      attempts.push({ tier, failures: [`the model stopped: ${res.stop_reason}`], usage, stop_reason: res.stop_reason })
+      attempts.push({ tier, failures: [`the model stopped: ${res.stop_reason}`], usage, stop_reason: res.stop_reason, kind: 'write' })
       continue
     }
     const raw = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('')
@@ -196,14 +209,66 @@ async function writeTier(
     const failures = output
       ? writerV2Failures({ output, offered, prospect: p, sender, playbook })
       : ['the output was not a JSON object in the shape asked for']
-    attempts.push({ tier, failures, usage, stop_reason: res.stop_reason })
+    attempts.push({ tier, failures, usage, stop_reason: res.stop_reason, kind: 'write' })
     if (failures.length === 0 && output) return { attempts, passed: output }
+    const over = output ? overLengthOnly(output, failures, sender) : null
+    if (output && over) {
+      const shortened = await shortenOverLength(anthropic, output, over, tier, offered, p, sender, playbook)
+      attempts.push(shortened.attempt)
+      if (shortened.passed) return { attempts, passed: shortened.passed }
+    }
     if (i === 0) {
       messages.push({ role: 'assistant', content: raw || '(no text)' })
       messages.push({ role: 'user', content: `Your sequence failed these checks:\n- ${failures.join('\n- ')}\n\nRewrite the whole sequence so every check passes, keeping what was good. Return the same JSON shape.` })
     }
   }
   return { attempts, passed: null }
+}
+
+/**
+ * ONE SHORTEN CALL: only the over-length emails, each with the declared sentences it must keep
+ * word for word, so the declarations still match the body. The result replaces just those
+ * emails and the WHOLE output is checked again, with every check, so a cut that changed a
+ * claim, dropped the question's email below its floor, or added anything is caught the same
+ * way as in a full write. A malformed or truncated answer is a failed attempt, never a pass.
+ */
+async function shortenOverLength(
+  anthropic: Anthropic, output: WriterOutput, over: Array<{ email: number; words: number; max: number }>, tier: WriterTier,
+  offered: WriterFact[], p: LoadedProspect, sender: Sender, playbook: WriterPlaybook,
+): Promise<{ attempt: WriterV2Attempt; passed: WriterOutput | null }> {
+  const declared = (n: number) => [...(output.prospect_claims ?? []), ...(output.sender_claims ?? [])].filter(c => c.email === n).map(c => c.sentence)
+  const asked = over.map(o => ({ ...o, body: output.emails.find(e => e.email === o.email)?.body ?? '', keep: declared(o.email) }))
+  const res = await anthropic.messages.create({
+    model: WRITER_V2_MODEL, max_tokens: SHORTEN_MAX_TOKENS,
+    system: WRITER_V2_SHORTEN_INSTRUCTIONS,
+    messages: [{ role: 'user', content: writerV2ShortenMessage(asked) }],
+  })
+  const usage = readTokenUsage(res.usage)
+  const fail = (failures: string[], shortened?: WriterV2Attempt['shortened']) => ({ attempt: { tier, failures, usage, stop_reason: res.stop_reason, kind: 'shorten' as const, ...(shortened ? { shortened } : {}) }, passed: null })
+  if (res.stop_reason === 'max_tokens' || res.stop_reason === 'refusal') return fail([`the shortening call stopped: ${res.stop_reason}`])
+  const raw = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('')
+  const returned = parseShortened(raw)
+  if (!returned || asked.some(a => typeof returned.get(a.email) !== 'string')) return fail(['the shortened answer was not in the shape asked for'])
+  const merged = transformOutput({ ...output, emails: output.emails.map(e => (returned.has(e.email) && asked.some(a => a.email === e.email) ? { ...e, body: returned.get(e.email)! } : e)) })
+  const shortened = asked.map(a => ({ email: a.email, before: a.body, after: merged.emails.find(e => e.email === a.email)!.body }))
+  const failures = writerV2Failures({ output: merged, offered, prospect: p, sender, playbook })
+  if (failures.length > 0) return fail(failures, shortened)
+  return { attempt: { tier, failures: [], usage, stop_reason: res.stop_reason, kind: 'shorten', shortened }, passed: merged }
+}
+
+export function parseShortened(text: string): Map<number, string> | null {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1)) as { emails?: Array<{ email?: unknown; body?: unknown }> }
+    if (!Array.isArray(parsed.emails)) return null
+    const out = new Map<number, string>()
+    for (const e of parsed.emails) if (typeof e?.email === 'number' && typeof e.body === 'string' && e.body.trim()) out.set(e.email, e.body)
+    return out
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -289,18 +354,19 @@ export function rememberSequence(memory: BatchMemory, record: WriterV2Record): v
 // ─── The spend ledger ─────────────────────────────────────────────────────────
 
 /**
- * One research_usage row per prospect written, arm 'writer_v2'. The writer's tokens go in the
+ * One research_usage row per prospect written, arm 'writer_v2', and a second, arm
+ * 'writer_v2_shorten', when any shorten call was made. The writer's tokens go in the
  * opening column, which researchUsageRowUsd prices at the research writer's rate: the same
  * model, so run spend counts this row with no change to the reader. Every other stage is zero
  * by construction, as on a firm-fact row. Does not throw: the money is already spent, and a
  * lost ledger row is logged with the prospect so it can be rebuilt from the stored attempts.
  */
-async function recordWriterUsage(supabase: SupabaseClient, client_id: string, prospect_id: string, usage: TokenUsage, path: WriterV2UsagePath, record: WriterV2Record): Promise<void> {
+async function recordWriterUsage(supabase: SupabaseClient, client_id: string, prospect_id: string, usage: TokenUsage, path: WriterV2UsagePath, record: WriterV2Record, arm: 'writer_v2' | 'writer_v2_shorten'): Promise<void> {
   const { error } = await supabase.from('research_usage').insert({
     organisation_id: client_id,
     prospect_id,
     research_result_id: null,
-    arm: 'writer_v2',
+    arm,
     path,
     synthesis: ZERO_TOKEN_USAGE,
     opening: usage,
@@ -308,7 +374,7 @@ async function recordWriterUsage(supabase: SupabaseClient, client_id: string, pr
     web_search: { input_tokens: 0, output_tokens: 0, model: null, search_count: 0 },
     synthesis_batched: false,
   })
-  if (error) logger.error('sequence-writer: FAILED TO RECORD what this prospect cost', { prospect_id, tier: record.tier, calls: usage.calls, error: error.message })
+  if (error) logger.error('sequence-writer: FAILED TO RECORD what this prospect cost', { prospect_id, arm, tier: record.tier, calls: usage.calls, error: error.message })
 }
 
 // ─── After research ───────────────────────────────────────────────────────────

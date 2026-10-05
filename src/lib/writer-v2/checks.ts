@@ -209,6 +209,21 @@ export interface CheckInput {
   playbook: WriterPlaybook
 }
 
+/**
+ * THE EMAILS TO SHORTEN, when an attempt failed ONLY because some emails are too long. Null
+ * when anything else failed, or when an email is too SHORT: those keep the full retry. Read from
+ * the counts, never by parsing failure text. Every word-count failure is one distinct line, so
+ * the attempt failed on word count alone exactly when the out-of-band emails account for every
+ * failure.
+ */
+export function overLengthOnly(out: WriterOutput, failures: string[], sender: Sender): Array<{ email: number; words: number; max: number }> | null {
+  if (failures.length === 0) return null
+  const outOfBand = (out.emails ?? []).map(e => ({ email: e.email, words: countWords(withSignOff(e.body, sender)), band: WRITER_V2_WORD_BANDS[e.email] }))
+    .filter(x => x.band && (x.words < x.band.min || x.words > x.band.max))
+  if (outOfBand.length !== failures.length || outOfBand.some(x => x.words < x.band.min)) return null
+  return outOfBand.map(x => ({ email: x.email, words: x.words, max: x.band.max }))
+}
+
 export function writerV2Failures({ output: out, offered, prospect: p, sender, playbook }: CheckInput): string[] {
   const failures: string[] = []
   const emails = [...(out.emails ?? [])].sort((a, b) => a.email - b.email)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { writerV2Failures, transformOutput, transformBody, acronymOf, initialisms, type WriterOutput } from '../checks'
+import { writerV2Failures, transformOutput, transformBody, acronymOf, initialisms, overLengthOnly, type WriterOutput } from '../checks'
 import { researchFact, factsForProspect } from '../facts'
 import { playbookProblems, type WriterPlaybook } from '../playbook'
 
@@ -247,5 +247,25 @@ describe('Email 1 opening paragraph split (transform)', () => {
     o.prospect_claims = [{ email: 1, sentence: 'Saw you spoke at the Vantor summit in June.', fact_id: 'R1' }]
     o.emails[0].body = `Riley,\n\nSaw you spoke at the Vantor summit in June. That kind of stage rarely brings buyers.\n\n${words(40)}.\n\nWorth a chat?`
     expect(run(transformOutput(o))).toEqual([])
+  })
+})
+
+describe('overLengthOnly: when an attempt may be shortened instead of rewritten', () => {
+  it('names the over-length emails when word count is the only failure', () => {
+    const out = output()
+    out.emails[1].body = `Riley,\n\n${words(80)}.\n\nWorth a chat?`
+    out.emails[2].body = `Riley,\n\n${words(90)}.\n\nWorth a chat?`
+    const failures = run(out)
+    expect(overLengthOnly(out, failures, SENDER)).toEqual([{ email: 2, words: 86, max: 80 }, { email: 3, words: 96, max: 80 }])
+  })
+  it('null when anything else failed too, when an email is too short, or when nothing failed', () => {
+    const mixed = output()
+    mixed.emails[1].body = `Riley,\n\n${words(80)}.\n\nWe guarantee it?`
+    expect(overLengthOnly(mixed, run(mixed), SENDER)).toBeNull()
+    const short = output()
+    short.emails[1].body = 'Riley,\n\nToo short?'
+    expect(run(short).join()).toMatch(/Email 2 is \d+ words/)
+    expect(overLengthOnly(short, run(short), SENDER)).toBeNull()
+    expect(overLengthOnly(output(), run(output()), SENDER)).toBeNull()
   })
 })

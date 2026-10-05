@@ -9,6 +9,12 @@
 // --ids-from runs exactly the prospects of an earlier run (still pending ones only), so a
 // re-run after a playbook or guidance change compares like with like.
 //
+// --rerun-written runs prospects that ALREADY HAVE a stored writer v2 sequence, uploaded or not,
+// and compares each new result with the stored one (first-call pass, calls, cost, tier). Trial
+// only: refused with --persist, because an uploaded prospect's sequence is the record of what was
+// sent. Lists every shortened email before and after, for a human to read. Writes
+// comparison.md. --ids <id,id,...> runs exactly those prospects instead of the first --n by id.
+//
 // A TRIAL BY DEFAULT: nothing is written to any prospect. --persist stores each sequence on
 // its prospect (only while it is still pending), which is what the research hook does in
 // production; it is refused with --playbook-file, because a sequence written from a file is
@@ -35,7 +41,7 @@ for (const line of fs.readFileSync(path.join(process.cwd(), '.env.local'), 'utf-
 }
 
 import Anthropic from '@anthropic-ai/sdk'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { writeSequenceForProspect, WRITER_V2_MODEL } from '../src/agents/sequence-writer-agent'
 import { composeSequence, type ComposedSequence } from '../src/lib/composition/compose-sequence'
 import { usdForTokens } from '../src/lib/agents/research/cost-constants'
@@ -49,7 +55,7 @@ function arg(name: string): string | undefined {
 }
 
 interface Row { id: string; first_name: string | null; company_name: string | null }
-interface Outcome { row: Row; record: WriterV2Record | null; cost: number; composed: ComposedSequence | null; error: string | null }
+interface Outcome { row: Row; record: WriterV2Record | null; cost: number; composed: ComposedSequence | null; error: string | null; baseline?: WriterV2Record | null }
 
 async function main() {
   // --render-only <raw-results.json>: rebuild the reading file from a saved run, paying for
@@ -80,6 +86,8 @@ async function main() {
   const persist = process.argv.includes('--persist')
   const playbookFile = arg('playbook-file')
   if (persist && playbookFile) throw new Error('--persist with --playbook-file is refused: a sequence written from a file never ships')
+  const rerunWritten = process.argv.includes('--rerun-written')
+  if (persist && rerunWritten) throw new Error('--persist with --rerun-written is refused: a stored sequence may already have been sent')
   let playbookOverride: WriterPlaybook | undefined
   if (playbookFile) {
     playbookOverride = JSON.parse(fs.readFileSync(playbookFile, 'utf-8')) as WriterPlaybook
@@ -93,6 +101,7 @@ async function main() {
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } })
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 120_000, maxRetries: 1 })
 
+  if (rerunWritten) return rerunWrittenTrial({ supabase, anthropic, orgId, outDir, n, cap, playbookOverride, ids: arg('ids')?.split(',').map(x => x.trim()).filter(Boolean) ?? null })
   const { data: rows, error } = await supabase.from('prospects')
     .select('id, first_name, company_name, current_research_result_id')
     .eq('organisation_id', orgId).eq('outbound_upload_status', 'pending').not('current_research_result_id', 'is', null)
@@ -142,6 +151,84 @@ async function main() {
   }
   writeReadingFile(path.join(outDir, 'reading-file.md'), outcomes, { spent, cap, stoppedAt, eligible: eligible.length, playbookSource: playbookFile ? 'file' : 'document' })
   console.log(`spent $${spent.toFixed(3)} of $${cap}`)
+}
+
+// ─── --rerun-written: the same prospects again, compared with what is stored ──
+
+async function rerunWrittenTrial(a: { supabase: SupabaseClient; anthropic: Anthropic; orgId: string; outDir: string; n: number; cap: number; playbookOverride?: WriterPlaybook; ids: string[] | null }) {
+  const { supabase, anthropic, orgId, outDir, n, cap, playbookOverride, ids } = a
+  const { data: rows, error } = await supabase.from('prospects')
+    .select('id, first_name, last_name, company_name, writer_v2_sequence')
+    .eq('organisation_id', orgId).not('writer_v2_sequence', 'is', null)
+  if (error) throw new Error(error.message)
+  const all = ((rows ?? []) as Array<Row & { writer_v2_sequence: WriterV2Record }>).sort((x, y) => (x.id < y.id ? -1 : 1))
+  const picked = ids ? all.filter(r => ids.includes(r.id)) : all.slice(0, n)
+  if (ids && picked.length !== ids.length) throw new Error(`--ids: ${ids.length - picked.length} of the ids have no stored sequence for this client`)
+  console.log(`stored sequences ${all.length}; rerunning ${picked.length}; cap $${cap}; trial, nothing stored on any prospect`)
+  const memory = emptyBatchMemory()
+  const outcomes: Outcome[] = []
+  let spent = 0
+  let dearestWrite = 0.07
+  let dearestShorten = 0.02
+  let stoppedAt: string | null = null
+  for (const row of picked) {
+    // Worst case per prospect: two tiers, each two writes and two shortens.
+    const worst = 4 * dearestWrite + 4 * dearestShorten
+    if (spent + worst > cap) { stoppedAt = `cap $${cap}: spent $${spent.toFixed(3)}, the next prospect could cost up to $${worst.toFixed(3)}`; console.log(`STOP: ${stoppedAt}`); break }
+    process.stdout.write(`${row.id.slice(0, 8)} ... `)
+    try {
+      const r = await writeSequenceForProspect({ supabase, anthropic, client_id: orgId, prospect_id: row.id, usagePath: 'cli', persist: false, playbookOverride, memory })
+      const cost = r.record.attempts.reduce((s, x) => s + usdForTokens(x.usage, WRITER_V2_MODEL), 0)
+      for (const x of r.record.attempts) {
+        if (x.kind === 'shorten') dearestShorten = Math.max(dearestShorten, usdForTokens(x.usage, WRITER_V2_MODEL))
+        else dearestWrite = Math.max(dearestWrite, usdForTokens(x.usage, WRITER_V2_MODEL))
+      }
+      spent += cost
+      outcomes.push({ row, record: r.record, cost, composed: null, error: null, baseline: row.writer_v2_sequence })
+      console.log(`${r.record.tier} calls ${r.record.attempts.map(x => (x.kind === 'shorten' ? 'S' : 'W')).join('')} $${cost.toFixed(3)} (was ${row.writer_v2_sequence.tier} calls ${row.writer_v2_sequence.attempts.length}) total $${spent.toFixed(3)}`)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      outcomes.push({ row, record: null, cost: 0, composed: null, error: message, baseline: row.writer_v2_sequence })
+      console.log(`ERROR ${message}`)
+    }
+    fs.mkdirSync(outDir, { recursive: true })
+    fs.writeFileSync(path.join(outDir, 'raw-results.json'), JSON.stringify({ outcomes, spent, stoppedAt }, null, 2))
+  }
+  writeComparison(path.join(outDir, 'comparison.md'), outcomes, { spent, cap, stoppedAt })
+  console.log(`spent $${spent.toFixed(3)} of $${cap}; wrote ${path.join(outDir, 'comparison.md')}`)
+}
+
+function stats(records: WriterV2Record[]) {
+  const n = records.length || 1
+  const writes = (r: WriterV2Record) => r.attempts.filter(x => x.kind !== 'shorten').length
+  const calls = records.reduce((s, r) => s + r.attempts.length, 0)
+  const cost = records.reduce((s, r) => s + r.attempts.reduce((t, x) => t + usdForTokens(x.usage, WRITER_V2_MODEL), 0), 0)
+  const firstCall = records.filter(r => r.tier !== 'template' && r.attempts.length === 1).length
+  const noRewrite = records.filter(r => r.tier !== 'template' && writes(r) === 1).length
+  const shortens = records.reduce((s, r) => s + r.attempts.filter(x => x.kind === 'shorten').length, 0)
+  const tiers = ['personalised', 'semi_personalised', 'template'].map(t => records.filter(r => r.tier === t).length).join(' / ')
+  return { count: records.length, firstCall, noRewrite, shortens, calls: (calls / n).toFixed(2), cost: (cost / n).toFixed(4), tiers }
+}
+
+function writeComparison(file: string, outcomes: Outcome[], meta: { spent: number; cap: number; stoppedAt: string | null }) {
+  const ran = outcomes.filter(o => o.record)
+  const row = (label: string, s: ReturnType<typeof stats>) => `| ${label} | ${s.firstCall} of ${s.count} | ${s.noRewrite} of ${s.count} | ${s.shortens} | ${s.calls} | $${s.cost} | ${s.tiers} |`
+  const L: string[] = ['# Writer v2: shorten before retrying, trial rerun', '']
+  L.push(`${ran.length} prospects rerun (${outcomes.length - ran.length} errors). Spent $${meta.spent.toFixed(3)} of $${meta.cap}.${meta.stoppedAt ? ` STOPPED EARLY: ${meta.stoppedAt}` : ''}`, '')
+  L.push('| | passed on the first call | passed with no full rewrite | shorten calls | calls per sequence | cost per sequence | tiers (personalised / semi / template) |', '|---|---|---|---|---|---|---|')
+  L.push(row('this run', stats(ran.map(o => o.record!))))
+  L.push(row('same prospects, stored', stats(ran.map(o => o.baseline!).filter(Boolean))), '')
+  L.push('## Every attempt', '')
+  for (const o of ran) {
+    L.push(`### ${o.row.id.slice(0, 8)}: ${o.record!.tier}, $${o.cost.toFixed(4)}`, '')
+    for (const x of o.record!.attempts) L.push(`- ${x.kind ?? 'write'} (${x.tier}): ${x.failures.length ? x.failures.join(' | ') : 'passed'}`)
+    L.push('')
+  }
+  L.push('## Shortened emails, before and after', '')
+  for (const o of ran) for (const x of o.record!.attempts.filter(x => x.kind === 'shorten')) for (const e of x.shortened ?? []) {
+    L.push(`### ${o.row.id.slice(0, 8)} Email ${e.email} (${x.failures.length ? 'shorten FAILED' : 'shorten passed'})`, '', '**Before**', '', ...e.before.split('\n').map(l => (l ? `> ${l}` : '>')), '', '**After**', '', ...e.after.split('\n').map(l => (l ? `> ${l}` : '>')), '')
+  }
+  fs.writeFileSync(file, L.join('\n'))
 }
 
 const TIER_LABEL: Record<string, string> = { personalised: 'personalised', semi_personalised: 'semi-personalised', template: 'template (last resort)' }

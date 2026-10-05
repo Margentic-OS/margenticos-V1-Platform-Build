@@ -11,6 +11,11 @@ export interface WriterV2Attempt {
   failures: string[]
   usage: TokenUsage
   stop_reason: string | null
+  /** 'shorten' for a call that only shortened over-length emails of the attempt before it.
+   *  Absent on records written before 2026-10-05 and on every full write. */
+  kind?: 'write' | 'shorten'
+  /** A shorten call only: each email it was asked to shorten, as it was and as returned. */
+  shortened?: Array<{ email: number; before: string; after: string }>
 }
 
 export interface WriterV2Record {

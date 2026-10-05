@@ -191,3 +191,90 @@ describe('the old writer is skipped for a writer v2 client', () => {
     expect(opening.usage.calls).toBe(0)
   })
 })
+
+// ─── Shorten before retrying (operator, 2026-10-05) ───────────────────────────
+
+describe('an attempt that fails only on word count is shortened, not rewritten', () => {
+  const CLAIM = 'Saw you spoke at the Vantor summit in June.'
+  // Email 2 as sent: greeting 1 + 80 + "Useful?" 1 + sign-off 2 = 84, over the 80 limit.
+  const longEmail2 = (body2: string) => {
+    const s = JSON.parse(GOOD_PERSONAL)
+    s.emails[1].body = body2
+    return JSON.stringify(s)
+  }
+  const LONG = longEmail2(`Riley,\n\n${words(80)}.\n\nUseful?`)
+  const shortReply = (body: string, email = 2) => JSON.stringify({ emails: [{ email, body }] })
+  const FIXED = shortReply(`Riley,\n\n${words(35)}.\n\nUseful?`)
+
+  it('sends only the over-length email, checks the whole output again, and passes without a rewrite', async () => {
+    const db = database({ candidates: RESEARCH, firmFact: FIRM })
+    const r = await run(db, [LONG, FIXED])
+    expect(r.record.tier).toBe('personalised')
+    expect(r.calls).toHaveLength(2)
+    const asked = r.calls[1].messages[0].content as string
+    expect(asked).toMatch(/^EMAIL 2: 84 words as sent .* the limit is 80\. Remove at least 7 words\./)
+    expect(asked).not.toMatch(/EMAIL 1|EMAIL 3|EMAIL 4/)
+    expect(r.calls[1].messages).toHaveLength(1) // a fresh call, not a turn in the writing conversation
+    expect(r.record.emails![1].body).toBe(`Riley,\n\n${words(35)}.\n\nUseful?`)
+    expect(r.record.emails![0].body).toContain(CLAIM) // the other emails are untouched
+    expect(r.record.attempts.map(a => [a.kind, a.failures.length])).toEqual([['write', 1], ['shorten', 0]])
+    expect(r.record.attempts[1].shortened).toEqual([{ email: 2, before: `Riley,\n\n${words(80)}.\n\nUseful?`, after: `Riley,\n\n${words(35)}.\n\nUseful?` }])
+  })
+
+  it('records shorten spend on its own ledger row', async () => {
+    const db = database({ candidates: RESEARCH, firmFact: FIRM })
+    await run(db, [LONG, FIXED])
+    expect(db.usageRows).toEqual([
+      expect.objectContaining({ arm: 'writer_v2', path: 'cli', opening: expect.objectContaining({ calls: 1 }) }),
+      expect.objectContaining({ arm: 'writer_v2_shorten', path: 'cli', research_result_id: null, opening: expect.objectContaining({ calls: 1 }) }),
+    ])
+  })
+
+  it('lists the declared sentences of that email to keep word for word', async () => {
+    const s = JSON.parse(LONG)
+    s.emails[0].body = `Riley,\n\n${CLAIM}\n\n${words(110)}.\n\nWorth a chat?`
+    s.emails[1].body = `Riley,\n\n${words(35)}.\n\nUseful?`
+    const db = database({ candidates: RESEARCH, firmFact: FIRM })
+    const r = await run(db, [JSON.stringify(s), shortReply(`Riley,\n\n${CLAIM}\n\n${words(40)}.\n\nWorth a chat?`, 1)])
+    expect(r.calls[1].messages[0].content).toContain(`Keep word for word:\n- ${CLAIM}`)
+    expect(r.record.tier).toBe('personalised')
+  })
+
+  it('still too long after shortening: the normal retry runs, stating the original failures', async () => {
+    const db = database({ candidates: RESEARCH, firmFact: FIRM })
+    const r = await run(db, [LONG, shortReply(`Riley,\n\n${words(79)}.\n\nUseful?`), GOOD_PERSONAL])
+    expect(r.calls).toHaveLength(3)
+    const retry = r.calls[2].messages.at(-1)!.content as string
+    expect(retry).toMatch(/Your sequence failed these checks:\n- Email 2 is 84 words/)
+    expect(r.record.attempts.map(a => a.kind)).toEqual(['write', 'shorten', 'write'])
+    expect(r.record.tier).toBe('personalised')
+  })
+
+  it('a shortening that adds a claim, or changes a declared sentence, is caught by the full checks', async () => {
+    const added = await run(database({ candidates: RESEARCH, firmFact: FIRM }), [LONG, shortReply(`Riley,\n\nWe guarantee you new clients.\n\n${words(30)}.\n\nUseful?`), GOOD_PERSONAL])
+    expect(added.record.attempts[1].failures.join()).toMatch(/Results or guarantees/)
+    expect(added.calls).toHaveLength(3)
+
+    const s = JSON.parse(LONG)
+    s.emails[0].body = `Riley,\n\n${CLAIM}\n\n${words(110)}.\n\nWorth a chat?`
+    s.emails[1].body = `Riley,\n\n${words(35)}.\n\nUseful?`
+    const changed = await run(database({ candidates: RESEARCH, firmFact: FIRM }), [JSON.stringify(s), shortReply(`Riley,\n\nYou spoke at Vantor.\n\n${words(40)}.\n\nWorth a chat?`, 1), GOOD_PERSONAL])
+    expect(changed.record.attempts[1].failures.join()).toMatch(/is declared as a claim but is not in Email 1/)
+    expect(changed.calls).toHaveLength(3)
+  })
+
+  it('a malformed answer is a failed shorten, and the normal retry runs', async () => {
+    const r = await run(database({ candidates: RESEARCH, firmFact: FIRM }), [LONG, 'sorry, here you go', GOOD_PERSONAL])
+    expect(r.record.attempts[1]).toMatchObject({ kind: 'shorten', failures: ['the shortened answer was not in the shape asked for'] })
+    expect(r.record.tier).toBe('personalised')
+  })
+
+  it('any other failure goes straight to the normal retry, with no shorten call', async () => {
+    const mixed = JSON.parse(LONG)
+    mixed.emails[2].body = `Riley,\n\nWe guarantee you new clients.\n\n${words(30)}.\n\nUseful?`
+    const r = await run(database({ candidates: RESEARCH, firmFact: FIRM }), [JSON.stringify(mixed), GOOD_PERSONAL])
+    expect(r.calls).toHaveLength(2)
+    expect(r.calls[1].messages.at(-1)!.content).toMatch(/Your sequence failed these checks/)
+    expect(r.record.attempts.map(a => a.kind)).toEqual(['write', 'write'])
+  })
+})
