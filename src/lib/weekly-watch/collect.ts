@@ -45,7 +45,7 @@ export async function collectWeeklyWatch(
   let campaign: Reading<CampaignShape>
   let cascade: string | null = null
   if (campaignRef.status === 'ok') {
-    campaign = await fetchCampaign(provider, campaignRef.value.externalId)
+    campaign = await fetchCampaign(provider, campaignRef.value.externalIds)
     if (campaign.status === 'unknown') cascade = `campaign could not be read: ${campaign.reason}`
   } else {
     campaign = unknown(campaignRef.reason)

@@ -43,13 +43,18 @@ function why(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-// ── The live campaign, read from our own records rather than hardcoded ───────
+// ── The live campaigns, read from our own records rather than hardcoded ──────
 
 export interface LiveCampaign {
-  externalId: string
-  name:       string
   /**
-   * The campaign's organisation. Carried so the prospect counts can be scoped to the
+   * Every active cold-email campaign of the client. A client may run one per region
+   * (campaigns.region_countries) on the SAME mailboxes, so the watch reads them together:
+   * what a mailbox carries is the sum of every campaign sending from it.
+   */
+  externalIds: string[]
+  names:       string[]
+  /**
+   * The campaigns' organisation. Carried so the prospect counts can be scoped to the
    * client the report is about. Without it they were platform-wide, and the report
    * silently described every organisation's rows as this one's supply.
    */
@@ -57,8 +62,11 @@ export interface LiveCampaign {
 }
 
 /**
- * Finds the active cold-email campaign. Read from our records, not pinned in code, so a
+ * Finds the active cold-email campaigns. Read from our records, not pinned in code, so a
  * new campaign does not silently leave the watch reporting on a retired one.
+ *
+ * Several campaigns of ONE client are read together (regional campaigns, 2026-10-05).
+ * Campaigns of two clients are still refused: the report describes one client's supply.
  */
 export async function findLiveCampaign(db: DB): Promise<Reading<LiveCampaign>> {
   try {
@@ -70,12 +78,13 @@ export async function findLiveCampaign(db: DB): Promise<Reading<LiveCampaign>> {
     if (error) return unknown(`campaigns query failed: ${error.code} ${error.message}`)
     const rows = (data ?? []).filter(r => typeof r.external_id === 'string' && r.external_id.length > 0)
     if (rows.length === 0) return unknown('no active cold_email campaign with an external_id in our records')
-    if (rows.length > 1) {
-      return unknown(`${rows.length} active cold_email campaigns; the watch reports on one and cannot choose`)
+    const orgs = new Set(rows.map(r => r.organisation_id))
+    if (orgs.size > 1) {
+      return unknown(`active cold_email campaigns belong to ${orgs.size} organisations; the watch reports on one client and cannot choose`)
     }
     return ok({
-      externalId:     rows[0].external_id as string,
-      name:           rows[0].name ?? '(unnamed)',
+      externalIds:    rows.map(r => r.external_id as string),
+      names:          rows.map(r => r.name ?? '(unnamed)'),
       organisationId: rows[0].organisation_id,
     })
   } catch (err) {
@@ -203,15 +212,34 @@ export interface CampaignShape {
   senders:    string[]
 }
 
+/**
+ * The combined shape of the client's live campaigns: daily limits SUMMED, sender lists
+ * UNIONED. Regional campaigns share mailboxes, so a mailbox's load is the total of every
+ * campaign it sends for, and the ramp reads that total against the mailbox count.
+ *
+ * One unreadable campaign makes the whole reading unknown. A total missing one campaign's
+ * limit would understate the load, which is the reassuring direction.
+ */
 export async function fetchCampaign(
   provider: WatchProvider,
-  externalId: string,
+  externalIds: readonly string[],
 ): Promise<Reading<CampaignShape>> {
-  try {
-    return ok(await provider.fetchCampaignShape(externalId))
-  } catch (err) {
-    return unknown(`campaign unreadable: ${why(err)}`)
+  let dailyLimit = 0
+  const senders: string[] = []
+  const seen = new Set<string>()
+  for (const externalId of externalIds) {
+    try {
+      const shape = await provider.fetchCampaignShape(externalId)
+      dailyLimit += shape.dailyLimit
+      for (const s of shape.senders) {
+        const key = s.trim().toLowerCase()
+        if (!seen.has(key)) { seen.add(key); senders.push(s) }
+      }
+    } catch (err) {
+      return unknown(`campaign ${externalId} unreadable: ${why(err)}`)
+    }
   }
+  return ok({ dailyLimit, senders })
 }
 
 export function rampFrom(campaign: CampaignShape): RampPosition {

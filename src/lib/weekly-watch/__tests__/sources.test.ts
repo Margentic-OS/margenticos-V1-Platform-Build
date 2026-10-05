@@ -260,7 +260,7 @@ describe('fetchCampaign and rampFrom', () => {
     const provider = fakeProvider({
       fetchCampaignShape: async () => { throw new Error('HTTP 404: campaign not found') },
     })
-    const r = await fetchCampaign(provider, 'abc')
+    const r = await fetchCampaign(provider, ['abc'])
     expect(r.status).toBe('unknown')
     if (r.status !== 'unknown') return
     expect(r.reason).toContain('404')
@@ -284,15 +284,32 @@ describe('fetchCampaign and rampFrom', () => {
 })
 
 describe('findLiveCampaign', () => {
-  it('is unknown when more than one active campaign exists, rather than picking one', async () => {
+  it('is unknown when active campaigns belong to two clients, rather than picking one', async () => {
     const db = fakeDb({
-      data: [{ external_id: 'a', name: 'A', status: 'active' }, { external_id: 'b', name: 'B', status: 'active' }],
+      data: [
+        { external_id: 'a', name: 'A', status: 'active', organisation_id: 'org-1' },
+        { external_id: 'b', name: 'B', status: 'active', organisation_id: 'org-2' },
+      ],
       error: null,
     })
     const r = await findLiveCampaign(db)
     expect(r.status).toBe('unknown')
     if (r.status !== 'unknown') return
     expect(r.reason).toContain('cannot choose')
+  })
+
+  it('PLANTED: two regional campaigns of one client are read together', async () => {
+    const db = fakeDb({
+      data: [
+        { external_id: 'us', name: 'US', status: 'active', organisation_id: 'org-1' },
+        { external_id: 'ukie', name: 'UK/IE', status: 'active', organisation_id: 'org-1' },
+      ],
+      error: null,
+    })
+    const r = await findLiveCampaign(db)
+    if (r.status !== 'ok') throw new Error(`expected ok, got ${r.reason}`)
+    expect(r.value.externalIds).toEqual(['us', 'ukie'])
+    expect(r.value.organisationId).toBe('org-1')
   })
 
   it('is unknown when the query errors', async () => {
@@ -365,5 +382,31 @@ describe('collectInventory scopes and gates the supply number', () => {
     await collectBurnPerWeek(db, new Date(), 'org-under-test')
     expect(calls.length).toBeGreaterThan(0)
     expect(applied(calls, 'eq')).toContainEqual(['organisation_id', 'org-under-test'])
+  })
+})
+
+describe('fetchCampaign across regional campaigns', () => {
+  const shapes: Record<string, { dailyLimit: number; senders: string[] }> = {
+    us:   { dailyLimit: 75, senders: ['a@one.example', 'b@one.example', 'c@two.example'] },
+    ukie: { dailyLimit: 15, senders: ['A@one.example', 'b@one.example', 'c@two.example'] },
+  }
+
+  it('PLANTED: daily limits are summed and shared mailboxes counted once', async () => {
+    const provider = fakeProvider({ fetchCampaignShape: async (id: string) => shapes[id] })
+    const r = await fetchCampaign(provider, ['us', 'ukie'])
+    if (r.status !== 'ok') throw new Error(`expected ok, got ${r.reason}`)
+    expect(r.value.dailyLimit).toBe(90)
+    expect(r.value.senders).toHaveLength(3)
+    // The ramp then reads the total load per mailbox: 90 over 3, not 75 over 3.
+    expect(rampFrom(r.value).perMailboxPerDay).toBe(30)
+  })
+
+  it('PLANTED: one unreadable campaign makes the reading unknown, never a smaller total', async () => {
+    const provider = fakeProvider({
+      fetchCampaignShape: async (id: string) => { if (id === 'ukie') throw new Error('HTTP 404'); return shapes[id] },
+    })
+    const r = await fetchCampaign(provider, ['us', 'ukie'])
+    expect(r.status).toBe('unknown')
+    if (r.status === 'unknown') expect(r.reason).toContain('ukie')
   })
 })
