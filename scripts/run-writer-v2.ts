@@ -9,6 +9,12 @@
 // --ids-from runs exactly the prospects of an earlier run (still pending ones only), so a
 // re-run after a playbook or guidance change compares like with like.
 //
+// --rerun-written runs prospects that ALREADY HAVE a stored writer v2 sequence, uploaded or not,
+// and compares each new result with the stored one (first-call pass, calls, cost, tier). Trial
+// only: refused with --persist, because an uploaded prospect's sequence is the record of what was
+// sent. Also lists every sentence that passed only because of the 2026-10-05 retry-reduction
+// rules, for a human to read. Writes comparison.md beside the reading file.
+//
 // A TRIAL BY DEFAULT: nothing is written to any prospect. --persist stores each sequence on
 // its prospect (only while it is still pending), which is what the research hook does in
 // production; it is refused with --playbook-file, because a sequence written from a file is
@@ -35,8 +41,11 @@ for (const line of fs.readFileSync(path.join(process.cwd(), '.env.local'), 'utf-
 }
 
 import Anthropic from '@anthropic-ai/sdk'
-import { createClient } from '@supabase/supabase-js'
-import { writeSequenceForProspect, WRITER_V2_MODEL } from '../src/agents/sequence-writer-agent'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { parseWriterOutput, writeSequenceForProspect, WRITER_V2_MODEL } from '../src/agents/sequence-writer-agent'
+import { asSenderClaimForTheFirm, citedFactIds, norm, splitSentences, transformOutput, type WriterOutput } from '../src/lib/writer-v2/checks'
+import { playbookFromDocumentContent, playbookScopeText } from '../src/lib/writer-v2/playbook'
+import { fetchApprovedMessagingDoc } from '../src/lib/composition/compose-sequence'
 import { composeSequence, type ComposedSequence } from '../src/lib/composition/compose-sequence'
 import { usdForTokens } from '../src/lib/agents/research/cost-constants'
 import { playbookProblems, type WriterPlaybook } from '../src/lib/writer-v2/playbook'
@@ -49,7 +58,7 @@ function arg(name: string): string | undefined {
 }
 
 interface Row { id: string; first_name: string | null; company_name: string | null }
-interface Outcome { row: Row; record: WriterV2Record | null; cost: number; composed: ComposedSequence | null; error: string | null }
+interface Outcome { row: Row; record: WriterV2Record | null; cost: number; composed: ComposedSequence | null; error: string | null; baseline?: WriterV2Record | null; passedOutput?: WriterOutput | null }
 
 async function main() {
   // --render-only <raw-results.json>: rebuild the reading file from a saved run, paying for
@@ -80,6 +89,8 @@ async function main() {
   const persist = process.argv.includes('--persist')
   const playbookFile = arg('playbook-file')
   if (persist && playbookFile) throw new Error('--persist with --playbook-file is refused: a sequence written from a file never ships')
+  const rerunWritten = process.argv.includes('--rerun-written')
+  if (persist && rerunWritten) throw new Error('--persist with --rerun-written is refused: a stored sequence may already have been sent')
   let playbookOverride: WriterPlaybook | undefined
   if (playbookFile) {
     playbookOverride = JSON.parse(fs.readFileSync(playbookFile, 'utf-8')) as WriterPlaybook
@@ -92,7 +103,17 @@ async function main() {
 
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } })
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 120_000, maxRetries: 1 })
+  // The raw answer of every call, so the passing output's declarations can be read afterwards
+  // (the stored record keeps the emails, not the claims).
+  const rawAnswers: string[] = []
+  const create = anthropic.messages.create.bind(anthropic.messages)
+  ;(anthropic.messages as unknown as { create: unknown }).create = async (...a: Parameters<typeof create>) => {
+    const res = await create(...a) as Anthropic.Message
+    rawAnswers.push(res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join(''))
+    return res
+  }
 
+  if (rerunWritten) return rerunWrittenTrial({ supabase, anthropic, rawAnswers, orgId, outDir, n, cap, playbookOverride })
   const { data: rows, error } = await supabase.from('prospects')
     .select('id, first_name, company_name, current_research_result_id')
     .eq('organisation_id', orgId).eq('outbound_upload_status', 'pending').not('current_research_result_id', 'is', null)
@@ -142,6 +163,97 @@ async function main() {
   }
   writeReadingFile(path.join(outDir, 'reading-file.md'), outcomes, { spent, cap, stoppedAt, eligible: eligible.length, playbookSource: playbookFile ? 'file' : 'document' })
   console.log(`spent $${spent.toFixed(3)} of $${cap}`)
+}
+
+// ─── --rerun-written: the same prospects again, compared with what is stored ──
+
+async function rerunWrittenTrial(a: { supabase: SupabaseClient; anthropic: Anthropic; rawAnswers: string[]; orgId: string; outDir: string; n: number; cap: number; playbookOverride?: WriterPlaybook }) {
+  const { supabase, anthropic, rawAnswers, orgId, outDir, n, cap, playbookOverride } = a
+  const { data: rows, error } = await supabase.from('prospects')
+    .select('id, first_name, last_name, company_name, writer_v2_sequence')
+    .eq('organisation_id', orgId).not('writer_v2_sequence', 'is', null)
+  if (error) throw new Error(error.message)
+  const all = ((rows ?? []) as Array<Row & { last_name: string | null; writer_v2_sequence: WriterV2Record }>).sort((x, y) => (x.id < y.id ? -1 : 1))
+  const picked = all.slice(0, n)
+  console.log(`stored sequences ${all.length}; rerunning the first ${picked.length} by id; cap $${cap}; trial, nothing stored on any prospect`)
+  const messaging = await fetchApprovedMessagingDoc(supabase as never, orgId, null)
+  const playbook = playbookOverride ?? playbookFromDocumentContent(messaging.content).playbook
+  if (!playbook) throw new Error('no playbook in the active messaging document')
+  const memory = emptyBatchMemory()
+  const outcomes: Outcome[] = []
+  let spent = 0
+  let dearestCall = 0.07
+  let stoppedAt: string | null = null
+  for (const row of picked) {
+    const worst = 4 * dearestCall
+    if (spent + worst > cap) { stoppedAt = `cap $${cap}: spent $${spent.toFixed(3)}, the next prospect could cost up to $${worst.toFixed(3)}`; console.log(`STOP: ${stoppedAt}`); break }
+    process.stdout.write(`${row.id.slice(0, 8)} ... `)
+    rawAnswers.length = 0
+    try {
+      const r = await writeSequenceForProspect({ supabase: supabase as never, anthropic, client_id: orgId, prospect_id: row.id, usagePath: 'cli', persist: false, playbookOverride, memory })
+      const cost = r.record.attempts.reduce((s, x) => s + usdForTokens(x.usage, WRITER_V2_MODEL), 0)
+      for (const x of r.record.attempts) dearestCall = Math.max(dearestCall, usdForTokens(x.usage, WRITER_V2_MODEL))
+      spent += cost
+      const last = r.record.tier !== 'template' ? parseWriterOutput(rawAnswers[rawAnswers.length - 1] ?? '') : null
+      outcomes.push({ row, record: r.record, cost, composed: null, error: null, baseline: row.writer_v2_sequence, passedOutput: last ? transformOutput(last) : null })
+      console.log(`${r.record.tier} calls ${r.record.attempts.length} $${cost.toFixed(3)} (was ${row.writer_v2_sequence.tier} calls ${row.writer_v2_sequence.attempts.length}) total $${spent.toFixed(3)}`)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      outcomes.push({ row, record: null, cost: 0, composed: null, error: message, baseline: row.writer_v2_sequence })
+      console.log(`ERROR ${message}`)
+    }
+    fs.mkdirSync(outDir, { recursive: true })
+    fs.writeFileSync(path.join(outDir, 'raw-results.json'), JSON.stringify({ outcomes, spent, stoppedAt }, null, 2))
+  }
+  writeComparison(path.join(outDir, 'comparison.md'), outcomes, all.map(r => r.writer_v2_sequence), playbook, { spent, cap, stoppedAt })
+  console.log(`spent $${spent.toFixed(3)} of $${cap}; wrote ${path.join(outDir, 'comparison.md')}`)
+}
+
+function stats(records: WriterV2Record[]) {
+  const n = records.length || 1
+  const calls = records.reduce((s, r) => s + r.attempts.length, 0)
+  const cost = records.reduce((s, r) => s + r.attempts.reduce((t, x) => t + usdForTokens(x.usage, WRITER_V2_MODEL), 0), 0)
+  const first = records.filter(r => r.tier !== 'template' && r.attempts.length === 1).length
+  const tiers = ['personalised', 'semi_personalised', 'template'].map(t => records.filter(r => r.tier === t).length).join(' / ')
+  return { count: records.length, first, firstShare: `${Math.round((100 * first) / n)}%`, calls: (calls / n).toFixed(2), cost: (cost / n).toFixed(4), tiers }
+}
+
+/** Every sentence of a passing output that the 2026-10-05 rules let through and the old ones did not. */
+function newlyAccepted(o: Outcome, playbook: WriterPlaybook): string[] {
+  const out = o.passedOutput
+  if (!out || !o.record) return []
+  const names = { firstName: o.row.first_name ?? '', lastName: null, role: null, companyName: o.row.company_name, shortName: null }
+  const scope = norm(playbookScopeText(playbook))
+  const hits: string[] = []
+  for (const c of out.prospect_claims ?? []) if (citedFactIds(c.fact_id).length > 1) hits.push(`[several facts ${c.fact_id}] E${c.email}: ${c.sentence}`)
+  for (const c of out.sender_claims ?? []) {
+    if (c.playbook_line && !scope.includes(norm(c.playbook_line).replace(/^"|"$/g, ''))) hits.push(`[scope by actions] E${c.email}: ${c.sentence}  (cited: ${c.playbook_line})`)
+  }
+  for (const e of out.emails) for (const s of splitSentences(e.body)) {
+    // Over-lists on purpose: the short name the writer used is not stored, so any sender sentence
+    // with a capitalised word after "for" or between "who" and "serves" is shown.
+    const shaped = /\b(?:we|us|our)\b/i.test(s) && /\bfor (?:the )?[A-Z0-9]|\bwho [A-Z0-9][^,.]{0,40} serves?\b/.test(s)
+    if (shaped || asSenderClaimForTheFirm(s, names) !== null) hits.push(`[firm as who it is for] E${e.email}: ${s}`)
+  }
+  return hits
+}
+
+function writeComparison(file: string, outcomes: Outcome[], batch: WriterV2Record[], playbook: WriterPlaybook, meta: { spent: number; cap: number; stoppedAt: string | null }) {
+  const ran = outcomes.filter(o => o.record)
+  const now = stats(ran.map(o => o.record!))
+  const before = stats(ran.map(o => o.baseline!).filter(Boolean))
+  const whole = stats(batch)
+  const L: string[] = ['# Writer v2 retry reduction: trial rerun', '']
+  L.push(`${ran.length} prospects rerun (${outcomes.length - ran.length} errors). Spent $${meta.spent.toFixed(3)} of $${meta.cap}.${meta.stoppedAt ? ` STOPPED EARLY: ${meta.stoppedAt}` : ''}`, '')
+  L.push('| | first-call pass | calls per sequence | cost per sequence | tiers (personalised / semi / template) |', '|---|---|---|---|---|')
+  L.push(`| this run, new rules | ${now.first} of ${now.count} (${now.firstShare}) | ${now.calls} | $${now.cost} | ${now.tiers} |`)
+  L.push(`| same prospects, stored | ${before.first} of ${before.count} (${before.firstShare}) | ${before.calls} | $${before.cost} | ${before.tiers} |`)
+  L.push(`| whole stored batch | ${whole.first} of ${whole.count} (${whole.firstShare}) | ${whole.calls} | $${whole.cost} | ${whole.tiers} |`, '')
+  L.push('## Failures in this run', '')
+  for (const o of ran) for (const x of o.record!.attempts.filter(x => x.failures.length)) L.push(`- ${o.row.id.slice(0, 8)} ${x.tier}: ${x.failures.join(' | ')}`)
+  L.push('', '## Sentences that passed only because of the new rules (read each one)', '')
+  for (const o of ran) for (const h of newlyAccepted(o, playbook)) L.push(`- ${o.row.id.slice(0, 8)} ${h}`)
+  fs.writeFileSync(file, L.join('\n'))
 }
 
 const TIER_LABEL: Record<string, string> = { personalised: 'personalised', semi_personalised: 'semi-personalised', template: 'template (last resort)' }
