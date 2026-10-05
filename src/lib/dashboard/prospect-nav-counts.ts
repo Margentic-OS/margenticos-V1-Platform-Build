@@ -18,6 +18,7 @@
 
 import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import { serviceReadSignal } from '@/lib/supabase/read-timeout'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 import { recordDashboardFailure } from './record-dashboard-failure'
 
 export interface ProspectNavCounts {
@@ -87,7 +88,7 @@ export async function getProspectNavCounts(
         source: `prospect-nav-counts:${label}`,
         route: '/dashboard',
         organisationId,
-        detail: result.error.message,
+        detail: describeQueryFailure(result),
       })
     }
   }

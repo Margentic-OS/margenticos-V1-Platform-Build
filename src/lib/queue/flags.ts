@@ -5,13 +5,38 @@
 // a deploy, and drifts silently from whatever the UI claims. Same discipline as
 // enrichment_live in src/lib/sourcing/enrichment-mode.ts.
 //
-// FAIL CLOSED TO THE INLINE PATH. Every failure mode here returns false, which means
-// "keep running the existing inline code". That is the safe direction: the inline path
-// is the one that has been running in production. A flag read that errors must never
-// silently switch execution onto the new machinery.
+// ─── A SWITCH THAT CANNOT BE READ IS NOT A SWITCH THAT IS OFF. Changed 2026-09-11. ───
+//
+// This module used to "fail closed to the inline path": every failure returned false. That
+// was written when the inline path was the proven one and the queue was new, and the reason
+// was sound: a flag read that errors must never silently switch execution ONTO new
+// machinery.
+//
+// It stopped being safe once the worker read the same switch to decide whether to run a job
+// type at all. For the worker, false does not mean "use the proven path", it means "skip this
+// job type this minute". So every failed read silently skipped a minute of work and logged a
+// warning nobody reads. Measured 2026-09-11: this read was cut by Supabase's gateway with a
+// 504 forty times in 24 hours, and none of those skips reached Sentry.
+//
+// So a failed read now REPORTS TO SENTRY AND THROWS. The original guarantee still holds,
+// because nothing switches onto new machinery when nothing proceeds at all, and the silent
+// skip is gone. Every caller already has somewhere a throw lands:
+//
+//   queue worker          records it as that job type's failure, still runs the other
+//                         types, and marks the run not ok, which reaches the heartbeat
+//   research and enrich   the operator gets a 500 naming the switch, instead of the request
+//   operator routes       quietly running down the inline path
+//   synthesis sweep       reports a failed run instead of a deliberate idle
+//   pipeline review       fails its read instead of showing a research path it does not know
+//
+// STILL false, and quiet: a row that says enabled = false. That is a genuine off.
+// STILL false, with a warning: no row at all. The read succeeded and found no instruction,
+// which is a configuration state rather than an outage. See the note in isQueueEnabled.
 
+import * as Sentry from '@sentry/nextjs'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 import type { JobType } from './types'
 
 /**
@@ -49,10 +74,46 @@ export const QUEUE_FLAG_KEYS: Record<JobType, string> = {
 }
 
 /**
+ * Thrown when a switch cannot be READ. That is a different fact from a switch that is off,
+ * and nothing in this module turns one into the other.
+ */
+export class QueueFlagUnreadableError extends Error {
+  readonly flagKey: string
+  readonly jobType: JobType
+
+  constructor(flagKey: string, jobType: JobType, cause: string) {
+    super(
+      `Queue switch ${flagKey} could not be read, so whether ${jobType} should run is unknown. ` +
+      `Nothing was decided and nothing ran on its behalf. Cause: ${cause}`,
+    )
+    this.name = 'QueueFlagUnreadableError'
+    this.flagKey = flagKey
+    this.jobType = jobType
+  }
+}
+
+// Reported HERE, once, rather than left to each caller. Of the five callers only two report
+// errors to Sentry themselves, so a throw that relied on the caller would still be silent on
+// the other three.
+function unreadable(flagKey: string, jobType: JobType, cause: string): QueueFlagUnreadableError {
+  const err = new QueueFlagUnreadableError(flagKey, jobType, cause)
+  logger.error('queue-flags: switch could not be read, refusing to decide', {
+    flag_key: flagKey,
+    job_type: jobType,
+    error: cause,
+  })
+  Sentry.captureException(err, {
+    tags: { component: 'queue-flags', flag_key: flagKey, job_type: jobType },
+  })
+  return err
+}
+
+/**
  * Should this job type go through the queue?
  *
- * false means run the existing inline path. That is the default, the seeded value, and
- * the answer to every error.
+ *   true    the row says enabled = true
+ *   false   the row says anything else, or there is no row
+ *   throws  QueueFlagUnreadableError when the row could not be read at all
  */
 export async function isQueueEnabled(
   supabase: SupabaseClient,
@@ -60,41 +121,38 @@ export async function isQueueEnabled(
 ): Promise<boolean> {
   const key = QUEUE_FLAG_KEYS[jobType]
 
+  let data: { enabled?: unknown } | null
   try {
-    const { data, error } = await supabase
+    const result = await supabase
       .from('system_flags')
       .select('enabled')
       .eq('key', key)
       .maybeSingle()
 
-    if (error) {
-      logger.warn('queue-flags: could not read flag, falling back to the inline path', {
-        flag_key: key,
-        job_type: jobType,
-        error: error.message,
-      })
-      return false
-    }
-
-    // A missing row is not an error. It means the flag was never seeded, and the
-    // correct reading of "no instruction" is "do what we did before".
-    if (!data) {
-      logger.warn('queue-flags: flag row missing, falling back to the inline path', {
-        flag_key: key,
-        job_type: jobType,
-      })
-      return false
-    }
-
-    return data.enabled === true
+    // The whole result, not just the error: this read failing as a 504 is the case that
+    // prompted the change, and the status is on the result rather than on the error.
+    if (result.error) throw unreadable(key, jobType, describeQueryFailure(result))
+    data = result.data
   } catch (err) {
-    logger.error('queue-flags: threw while reading flag, falling back to the inline path', {
+    if (err instanceof QueueFlagUnreadableError) throw err
+    throw unreadable(key, jobType, err instanceof Error ? err.message : String(err))
+  }
+
+  // A missing row is NOT a failed read. The read succeeded and found no instruction, which
+  // means the flag was never seeded, and "no instruction" reads as "not switched on". It is a
+  // configuration state rather than an outage, so it warns rather than throws. The
+  // QUEUE_FLAG_KEYS tests guard the one way it could appear by accident: a job type with a key
+  // that no migration seeds.
+  if (!data) {
+    logger.warn('queue-flags: flag row missing, treating the job type as switched off', {
       flag_key: key,
       job_type: jobType,
-      error: err instanceof Error ? err.message : String(err),
     })
     return false
   }
+
+  // Strict === true. A truthy string must not switch a money-spending path on.
+  return data.enabled === true
 }
 
 /**

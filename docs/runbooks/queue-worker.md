@@ -52,6 +52,27 @@ If a flag is true but no handler is deployed, the worker refuses to claim and re
 run as failed, which turns MON-016 red. That is intentional: otherwise work would pile up
 with nothing able to run it and no symptom anywhere.
 
+**One Sentry event per failure, grouped by where it happened. Added 2026-10-05 (F2a).** A run
+used to send one event for all its failures, so a gateway timeout, a circuit-breaker trip and a
+new fault shared one issue titled after whichever came last. Now each entry in the run's
+`failures` list is its own event, fingerprinted `['queue-worker', step, jobType]`. The steps are
+`reclaim`, `handler_missing`, `flag_unreadable`, `circuit_breaker`, `circuit_breaker_flag` and
+`job_type_pass`. A new kind of failure gets a new issue; a flood of gateway timeouts stays in
+`job_type_pass`. Look for the step in the issue's tags before reading the message.
+
+**A flag that cannot be READ is not a flag that is off.** Changed 2026-09-11. If the read of
+`system_flags` fails (a Supabase gateway 504 is the usual cause), `isQueueEnabled` reports to
+Sentry as `QueueFlagUnreadableError` and throws. The worker records it as that job type's
+failure for that minute, still runs the other job types, and marks the run failed, so MON-016
+shows it. The research and enrich buttons return an error naming the switch instead of quietly
+running inline.
+
+It used to return false, the same answer as a genuine off, so every failed read skipped a
+minute of work in silence. That happened 40 times in the 24 hours to 2026-09-11 16:00 UTC.
+
+Two things still read as off: a row with `enabled = false` (quietly), and no row at all
+(with a warning, because the read worked and there was no instruction).
+
 ---
 
 ## What to check when something looks wrong

@@ -30,6 +30,7 @@ import {
   type TargetingInputs,
 } from '@/lib/sourcing/targeting-inputs'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import { buildSpecRefusal } from '@/lib/sourcing/spec-refusal'
 
 // What happens to a client's search settings when their ICP, or one of the two inputs
 // outside it, changes. ADR-061.
@@ -264,6 +265,54 @@ export async function proposeIcpFilterSpec(
   supabase: SupabaseClient,
   documentId: string,
 ): Promise<ProposalOutcome> {
+  const outcome = await runProposal(supabase, documentId)
+  await recordProposalOutcomeOnDocument(documentId, outcome)
+  return outcome
+}
+
+/**
+ * Write the outcome onto the document, so the operator's ICP page says when the search settings
+ * do not reflect this version. Before this, a failed proposal reached Sentry and nowhere the
+ * operator looks: the ICP read as finished while the search kept its old settings (F2a, 5 Oct
+ * 2026). A later success clears the mark.
+ *
+ * A skipped outcome means the document was not the active ICP, so there is nothing to say about
+ * it and nothing is written. NEVER THROWS: the caller's answer is already decided.
+ */
+async function recordProposalOutcomeOnDocument(
+  documentId: string,
+  outcome: ProposalOutcome,
+): Promise<void> {
+  if (outcome.outcome === 'skipped') return
+  try {
+    const service = await createServiceRoleClient()
+    const refusal =
+      outcome.outcome === 'failed'
+        ? buildSpecRefusal('proposal_failed', `${outcome.step}: ${outcome.error}`)
+        : null
+    const { error } = await service
+      .from('strategy_documents')
+      .update({ icp_filter_spec_refusal: refusal })
+      .eq('id', documentId)
+    if (error) throw new Error(error.message)
+  } catch (err) {
+    logger.error('proposeIcpFilterSpec: could not record the outcome on the document', {
+      document_id: documentId,
+      outcome: outcome.outcome,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    Sentry.withScope(scope => {
+      scope.setTag('component', 'proposeIcpFilterSpec')
+      scope.setTag('step', 'record the outcome on the document')
+      Sentry.captureException(err instanceof Error ? err : new Error(String(err)))
+    })
+  }
+}
+
+async function runProposal(
+  supabase: SupabaseClient,
+  documentId: string,
+): Promise<ProposalOutcome> {
   const context: Record<string, unknown> = { document_id: documentId }
 
   try {
@@ -272,12 +321,15 @@ export async function proposeIcpFilterSpec(
       .from('strategy_documents')
       .select('id, document_type, status, content, organisation_id, icp_filter_spec, icp_filter_spec_proposed')
       .eq('id', documentId)
-      .single()
+      // maybeSingle, not single: a missing row is an empty answer, not an error, so the only
+      // error this read can return is a failure of the read itself.
+      .maybeSingle()
 
-    if (docError || !doc) {
-      logger.warn('proposeIcpFilterSpec: document not found', {
-        ...context, error: docError?.message ?? 'no row',
-      })
+    // A read that FAILED is not "not found". Reporting it as a skip, at warn, is how a transient
+    // gateway cut on this read used to leave a promoted ICP with no proposal and no trace (F2a).
+    if (docError) return fail('read the document', docError.message, context)
+    if (!doc) {
+      logger.warn('proposeIcpFilterSpec: document not found', { ...context, error: 'no row' })
       return { outcome: 'skipped', why: 'not_found' }
     }
     if (doc.document_type !== 'icp') return { outcome: 'skipped', why: 'not_icp' }

@@ -48,6 +48,7 @@
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
 import type { ServiceRoleClient } from '@/lib/supabase/service-role'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 import { suppressAddressAtProvider } from './provider-suppression'
 import { normaliseEmail } from './suppression-list'
 
@@ -253,18 +254,24 @@ export async function carryPendingSuppressions(
     backoffCount: 0,
   }
 
-  const { count: activeCount, error: countError } = await supabase
+  const {
+    count: activeCount,
+    error: countError,
+    status: countStatus,
+    statusText: countStatusText,
+  } = await supabase
     .from('suppressed_emails')
     .select('id', { count: 'exact', head: true })
     .is('revoked_at', null)
 
   if (countError) {
+    const cause = describeQueryFailure({ error: countError, status: countStatus, statusText: countStatusText })
     return {
       ...empty,
       incomplete: true,
       detail:
         `Could not carry suppressions: the active list could not be counted ` +
-        `(${countError.message}). No count here is a statement about the provider.`,
+        `(${cause}). No count here is a statement about the provider.`,
     }
   }
 

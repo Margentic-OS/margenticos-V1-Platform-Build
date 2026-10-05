@@ -28,7 +28,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { QUEUE_CONFIG, WORKER_BUDGET_SECONDS } from './config'
 import { planClaimsWithRotation, inFlightHeadroom } from './fairness'
-import { isQueueEnabled, setQueueFlag } from './flags'
+import { isQueueEnabled, QueueFlagUnreadableError, setQueueFlag } from './flags'
 import { getHandlerFactory, type JobBatchExecutor } from './handlers'
 import {
   claimJobs,
@@ -72,6 +72,30 @@ export interface JobTypeResult {
   errors: string[]
 }
 
+/**
+ * Where in a run a failure happened. The route captures each failure to Sentry under a fingerprint
+ * built from this and the job type. Before that, every failure in a run was one message in one
+ * issue, so a new kind of failure joined the noisiest existing issue and read as more of the same
+ * (F2a, MARGENTICOS-15).
+ */
+export type WorkerFailureStep =
+  | 'reclaim'
+  | 'handler_missing'
+  | 'flag_unreadable'
+  | 'circuit_breaker'
+  | 'circuit_breaker_flag'
+  | 'job_type_pass'
+
+export interface WorkerFailure {
+  step: WorkerFailureStep
+  /** null for a failure that belongs to no one job type. */
+  jobType: JobType | null
+  /** The failure's own message, which is what the job type's errors list carries. */
+  message: string
+  /** The line the run's top-level errors list carries for it. */
+  text: string
+}
+
 export interface WorkerRunResult {
   ok: boolean
   workerId: string
@@ -79,6 +103,8 @@ export interface WorkerRunResult {
   reclaimed: number
   reclaimTerminated: number
   byJobType: Record<JobType, JobTypeResult>
+  /** The failures themselves. One list: `errors` below is derived from it, never written apart. */
+  failures: WorkerFailure[]
   errors: string[]
 }
 
@@ -130,7 +156,7 @@ export async function runWorker({
 }: RunWorkerOptions): Promise<WorkerRunResult> {
   const startedAt = now()
   const elapsed = () => (now() - startedAt) / 1000
-  const errors: string[] = []
+  const failures: WorkerFailure[] = []
 
   // DERIVED FROM JOB_TYPES, NOT WRITTEN OUT. This was a hand-written literal of three
   // keys cast with `as Record<JobType, JobTypeResult>`, and the cast is what made it
@@ -159,7 +185,7 @@ export async function runWorker({
     reclaimTerminated = rows.filter(r => r.state === 'failed').length
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    errors.push(`reclaim failed: ${msg}`)
+    failures.push({ step: 'reclaim', jobType: null, message: msg, text: `reclaim failed: ${msg}` })
     logger.error('queue-worker: reclaim failed, continuing to claim', { error: msg })
   }
 
@@ -181,8 +207,7 @@ export async function runWorker({
           `${jobType} is enabled in system_flags but no handler is registered in ` +
           'src/lib/queue/handlers.ts, so its jobs cannot be executed by this deployment. ' +
           'Either deploy the handler or turn the flag off.'
-        result.errors.push(msg)
-        errors.push(msg)
+        failures.push({ step: 'handler_missing', jobType, message: msg, text: msg })
         logger.error('queue-worker: job type enabled with no handler', { job_type: jobType })
         continue
       }
@@ -260,8 +285,7 @@ export async function runWorker({
             'quota. Retrying every queued job against a dry account would burn attempts for ' +
             'nothing. Top the account up and set the flag back to true.'
           result.circuitBreakerTripped = true
-          result.errors.push(msg)
-          errors.push(msg)
+          failures.push({ step: 'circuit_breaker', jobType, message: msg, text: msg })
           logger.error('queue-worker: circuit breaker tripped, job type disabled', {
             job_type: jobType,
             exhaustion_hits: exhaustionHits,
@@ -275,8 +299,7 @@ export async function runWorker({
             const flagMsg =
               `${jobType} circuit breaker FAILED to disable the job type: ` +
               (err instanceof Error ? err.message : String(err))
-            result.errors.push(flagMsg)
-            errors.push(flagMsg)
+            failures.push({ step: 'circuit_breaker_flag', jobType, message: flagMsg, text: flagMsg })
             logger.error('queue-worker: circuit breaker could not turn the flag off', {
               job_type: jobType,
               error: flagMsg,
@@ -288,8 +311,14 @@ export async function runWorker({
     } catch (err) {
       // One job type failing must not stop the others.
       const msg = err instanceof Error ? err.message : String(err)
-      result.errors.push(msg)
-      errors.push(`${jobType}: ${msg}`)
+      // An unreadable switch gets its own fingerprint: it is a different fault from a job that
+      // threw, and it must not be filed under the same issue as one.
+      failures.push({
+        step: err instanceof QueueFlagUnreadableError ? 'flag_unreadable' : 'job_type_pass',
+        jobType,
+        message: msg,
+        text: `${jobType}: ${msg}`,
+      })
       logger.error('queue-worker: job type pass threw', { job_type: jobType, error: msg })
     }
   }
@@ -310,7 +339,14 @@ export async function runWorker({
   // check-in, and the HTTP response. MON-002 derives its state from staleness alone and
   // never reads ok, so a job that runs and fails every time reads OK there. The queue
   // monitors below do not inherit that.
-  const ok = errors.length === 0
+  const ok = failures.length === 0
+
+  // Each job type's errors list is a view of the failures recorded against it, derived here once.
+  for (const jobType of JOB_TYPES) {
+    byJobType[jobType].errors = failures
+      .filter(failure => failure.jobType === jobType)
+      .map(failure => failure.message)
+  }
 
   return {
     ok,
@@ -319,6 +355,7 @@ export async function runWorker({
     reclaimed,
     reclaimTerminated,
     byJobType,
-    errors,
+    failures,
+    errors: failures.map(failure => failure.text),
   }
 }

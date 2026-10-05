@@ -53,6 +53,7 @@
 
 import { logger } from '@/lib/logger'
 import type { ServiceRoleClient } from '@/lib/supabase/service-role'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 import {
   resolveSuppressContactHandler,
   isStillSending,
@@ -162,7 +163,7 @@ async function readCarryState(
 
   if (uncarried.error) {
     logger.error('suppression reconcile: could not count uncarried suppressions', {
-      error: uncarried.error.message,
+      error: describeQueryFailure(uncarried),
     })
     return null
   }
@@ -175,7 +176,7 @@ async function readCarryState(
 
   if (failed.error) {
     logger.error('suppression reconcile: could not count failed carries', {
-      error: failed.error.message,
+      error: describeQueryFailure(failed),
     })
     return null
   }

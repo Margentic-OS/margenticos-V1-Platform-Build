@@ -13,8 +13,12 @@ import { perJobExecutor, type JobBatchExecutor } from '../handlers'
 import type { JobRow, JobType } from '../types'
 
 /** A fake whose flags and rotation cursor behave like the real tables. */
-function workerFake(rows: JobRow[] = [], enabled: Record<string, boolean> = {}) {
-  const fake = createFakeQueue(rows)
+function workerFake(
+  rows: JobRow[] = [],
+  enabled: Record<string, boolean> = {},
+  options?: Parameters<typeof createFakeQueue>[1],
+) {
+  const fake = createFakeQueue(rows, options)
   for (const [k, v] of Object.entries(enabled)) fake.flags.set(k, v)
 
   const cursors = new Map<string, string | null>()
@@ -97,7 +101,32 @@ describe('runWorker — the flag and the handler are two separate gates', () => 
     expect(run.ok).toBe(true)
     expect(run.byJobType.research.done).toBe(1)
     expect(fake.rows[0].state).toBe('done')
+    // CONTROL for the no-claim assertion below: the same filter does see a claim here.
+    expect(fake.rpcCalls.filter(c => /^claim/.test(c.fn)).length).toBeGreaterThan(0)
       })
+})
+
+describe('runWorker — a switch that cannot be read', () => {
+  it('raises and does not proceed: nothing is claimed, and the run is not ok', async () => {
+    // The flag read failing used to return false, the same answer as a genuine off, so this
+    // run reported ok with nothing done and nothing said. Measured 2026-09-11: forty of these
+    // in one day. It now fails the run for that job type and names the switch.
+    const resolveExecutor = withHandler(async () => 'researched')
+    const fake = workerFake(
+      [makeJob({ job_type: 'research', organisation_id: 'org-a' })],
+      { queue_research: true },
+      { failRpc: { 'select:system_flags': 'Gateway Timeout' } },
+    )
+
+    const run = await runWorker({ supabase: fake.client, workerId: 'w1', resolveExecutor })
+
+    expect(run.ok).toBe(false)
+    expect(run.byJobType.research.claimed).toBe(0)
+    expect(fake.rows[0].state).toBe('queued')
+    // ^claim, not claim: reclaim_expired_jobs runs first on every pass and is not a claim.
+    expect(fake.rpcCalls.filter(c => /^claim/.test(c.fn))).toEqual([])
+    expect(run.errors.join(' | ')).toMatch(/research: Queue switch queue_research could not be read/)
+  })
 })
 
 describe('runWorker — the deadline budget', () => {
