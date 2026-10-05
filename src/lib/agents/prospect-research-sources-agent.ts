@@ -44,6 +44,7 @@ import { buildSynthesisRequest } from './research/synthesize'
 import { buildSourceTracking, loadStoredFindings, runProspectResearchAgentV2 } from './prospect-research-agent-v2'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { resolveVariantId } from './research/produce-opening'
+import { stripNulls } from './research/strip-nulls'
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -272,7 +273,9 @@ export async function runProspectResearchSources({
 
     const { data: entry, error: entryError } = await supabase
       .from('synthesis_batch_entries')
-      .insert({
+      // stripNulls: scraped text can carry U+0000, which jsonb rejects and fails the whole
+      // insert AFTER the sources are paid for. See research/strip-nulls.ts.
+      .insert(stripNulls({
         organisation_id:       client_id,
         prospect_id:           ctx.id,
         state:                 'pending_submission',
@@ -286,7 +289,7 @@ export async function runProspectResearchSources({
         messaging_doc_version: (docRow?.version as string | null) ?? 'unknown',
         messaging_content:     messaging.content,
         phase1_run_id:         agentRun.run_id === 'unknown' ? null : agentRun.run_id,
-      })
+      }))
       .select('id')
       .single()
 
