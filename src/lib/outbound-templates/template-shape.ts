@@ -32,8 +32,13 @@ import { createHash } from 'crypto'
 export const SLOTS = ['does', 'for_whom', 'peer_group', 'company'] as const
 export type Slot = (typeof SLOTS)[number]
 
-/** The slots a FOLLOW-UP paragraph may hold. Each such paragraph also gives a slot_free form. */
-export const FOLLOWUP_SLOTS: readonly Slot[] = ['company', 'for_whom']
+/**
+ * The slots a FOLLOW-UP paragraph may hold. {company} and {for_whom} need a slot_free form;
+ * {peer_group} does not, because its slot-free form is the line with the brief's default
+ * label, as in Email 1. {peer_group} joined on 2026-10-03: a follow-up's source is named
+ * ("When we chat to {peer_group}, ..."), never faceless ("Some firms say").
+ */
+export const FOLLOWUP_SLOTS: readonly Slot[] = ['company', 'for_whom', 'peer_group']
 
 export type SlotFills = Partial<Record<Slot, string>>
 
@@ -125,6 +130,15 @@ export interface Email1Lines {
   offer: TemplateLine
   /** One interest question, answerable in a word. Never a meeting request. */
   question: TemplateLine
+  /**
+   * THE LEAD-IN TO THE OFFER (operator, 2026-10-03): a conditional clause that names the
+   * reader's firm and asks, never asserts: "If {company} is seeing this too,". Code joins it
+   * in front of the offer sentence ("..., we find ..."), so the offer line itself is
+   * unchanged and keeps its own slots. Its slot_free form ("If you're seeing this too,") is
+   * what a prospect with no usable name receives. Absent on documents written before it
+   * existed: the offer then stands alone, as it always did.
+   */
+  lead_in?: TemplateLine
   /**
    * The ONE problem this variant's offer line answers, in 10 words or fewer, or null for
    * the document's single NEUTRAL offer line, which names no specific problem. Read by the
@@ -238,6 +252,30 @@ export function renderLine(
   return { text: renderSlotFree(line, peerGroupDefault, opts), slotted: false }
 }
 
+/**
+ * The offer paragraph: the lead-in, when there is one, joined in front of the offer
+ * sentence. The offer opens "We ..." (offer_shape), which becomes "we" after the clause.
+ */
+export function joinLeadIn(leadIn: string | null, offer: string): string {
+  if (!leadIn || !leadIn.trim()) return offer
+  const continued = offer.trim().replace(/^We\b/, 'we')
+  return `${leadIn.trim()} ${continued}`
+}
+
+/**
+ * The offer paragraph with the reader's firm named in the lead-in, or null when the
+ * paragraph cannot be named: no lead-in, no name, or a paragraph that is not the slot-free
+ * one this line renders. Used by composition after an Email 1 is final, on every tier.
+ */
+export function namedLeadInParagraph(paragraph: string, leadIn: TemplateLine | null | undefined, companyName: string | null): string | null {
+  if (!leadIn || !companyName?.trim()) return null
+  const slotFree = leadIn.slot_free?.trim()
+  if (!slotFree || !paragraph.startsWith(`${slotFree} `)) return null
+  const named = fillSlots(leadIn.text, { company: companyName })
+  if (named === null) return null
+  return `${named.trim()}${paragraph.slice(slotFree.length)}`
+}
+
 function signoffLines(signoff: SenderSignoff): string {
   return `${signoff.firstName}\n${signoff.companyName}`
 }
@@ -262,7 +300,7 @@ export function renderEmail1SlotFree(
     body: joinParagraphs([
       '{{first_name}}',
       renderSlotFree(pick(email1.pain, wording.pain), peerGroupDefault),
-      renderSlotFree(pick(email1.offer, wording.offer), peerGroupDefault),
+      joinLeadIn(email1.lead_in ? renderSlotFree(email1.lead_in, peerGroupDefault) : null, renderSlotFree(pick(email1.offer, wording.offer), peerGroupDefault)),
       renderSlotFree(pick(email1.question, wording.question), peerGroupDefault),
       signoffLines(signoff),
     ]),
@@ -323,7 +361,11 @@ export function renderFactEmail1(input: {
 
   return {
     subject: subjectFits ? subject.text : renderSlotFree(subjectLine, peerGroupDefault, { capitalise: false }),
-    body: joinParagraphs(['{{first_name}}', opener, pain.text, offer.text, question.text, signoffLines(signoff)]),
+    body: joinParagraphs([
+      '{{first_name}}', opener, pain.text,
+      joinLeadIn(email1.lead_in ? renderLine(email1.lead_in, fills, peerGroupDefault).text : null, offer.text),
+      question.text, signoffLines(signoff),
+    ]),
     opener: opener.trim(),
     frame_index: frameIndex,
     subject_slotted: subjectFits && subject.slotted,

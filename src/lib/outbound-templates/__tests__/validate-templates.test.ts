@@ -83,7 +83,8 @@ describe('validateTemplateDocument', () => {
     ['slot_undeclared', d => { d.variants.A.email1.subject.slots = [] }],
     ['slot_unknown', d => { d.variants.A.email1.question.text = 'Is {their_market} a problem for you right now?' }],
     ['does_outside_opener', d => { d.variants.A.email1.offer.text = 'We translate pages when {does}.'; d.variants.A.email1.offer.slots = ['does'] }],
-    ['followup_slot', d => { d.variants.A.followups[0].paragraphs[0].text = '{peer_group} often tell us a new market takes longer than planned.'; d.variants.A.followups[0].paragraphs[0].slots = ['peer_group'] }],
+    // {peer_group} may stand in a follow-up since 2026-10-03 (a named source); {does} never may.
+    ['followup_slot', d => { d.variants.A.followups[0].paragraphs[0].text = 'When we chat to exporters, {does} can start slower than hoped.'; d.variants.A.followups[0].paragraphs[0].slots = ['does'] }],
     ['slot_free_missing', d => { d.variants.A.email1.offer.slot_free = null }],
     ['slot_free_has_slot', d => { d.variants.A.email1.subject.slot_free = '{for_whom} again' }],
     ['from_missing', d => { d.variants.A.email1.question.from = [] }],
@@ -95,7 +96,10 @@ describe('validateTemplateDocument', () => {
     ['angle_reach', d => { d.variants.A.email1.angle = 'PA3'; d.variants.A.email1.pain.from = ['PA3'] }],
     ['angle_citation', d => { d.variants.A.email1.pain.from = ['PA2'] }],
     ['proof_as_pain', d => { d.variants.A.email1.pain.from = ['PA1', 'PR1'] }],
-    ['peer_group_subject', d => { d.variants.A.email1.pain.text = 'Firms often tell us buyers abroad leave the site. They cannot read the pages, so sales stall.'; d.variants.A.email1.pain.slots = [] }],
+    // The first sentence names who told us, by {peer_group} (2026-10-03; was peer_group_subject,
+    // "opens on {peer_group}"). No slot at all, and the slot only in the second sentence.
+    ['peer_group_source', d => { d.variants.A.email1.pain.text = 'Exporters often tell us buyers abroad leave the site. So sales can stall.'; d.variants.A.email1.pain.slots = [] }],
+    ['peer_group_source', d => { d.variants.A.email1.pain.alt!.text = "We hear that buyers leave pages they can't read. So deals with {peer_group} can be lost." }],
     ['pain_number', d => { d.variants.A.email1.pain.text = '{peer_group} often tell us two buyers abroad leave the site. They cannot read the pages.' }],
     ['pain_duration', d => { d.variants.A.email1.pain.text = '{peer_group} often tell us buyers abroad leave within a week. They cannot read the pages.' }],
     ['pain_absolute', d => { d.variants.A.email1.pain.text = '{peer_group} often tell us buyers abroad always leave. They cannot read the pages.' }],
@@ -123,9 +127,11 @@ describe('validateTemplateDocument', () => {
     // all of them. O2 answers the neutral variant's own pain and no other lead pain.
     ['neutral_offer_outcome', d => { d.variants.B.email1.offer.from = ['D1', 'O2'] }],
     ['neutral_offer_outcome', d => { d.variants.B.email1.offer.alt!.from = ['D1', 'O1', 'O2'] }],
-    // Graded with the fill in, at generation, for the plain cells: this sentence passes the
-    // masked grade and tips the filled one over with the longest peer label.
-    ['reading_grade_filled', d => { d.brief.peer_groups[1].label = 'international furniture manufacturers' }],
+    // reading_grade_filled is NOT planted here since 2026-10-03: the peer label is masked in
+    // it (the reader's own trade), so on generation it differs from the masked grade only by
+    // the invented customer group, and no fault in the fixture's lines tips one and not the
+    // other. It is proven to run where it bites, at composition, with a real customer group:
+    // "the filled grade still reads what the client's lines become" in firm-fact-email1.test.ts.
     ['frame_dropped_subject', d => { d.opener_frames[1] = 'Read that {does}.' }],
     ['question_points_back', d => { d.variants.A.email1.question.text = 'Would that be useful for you right now?' }],
     // ── Operator rules of 2026-10-01 ──
@@ -298,14 +304,14 @@ describe('validateTemplateDocument', () => {
     })
   }
 
-  it('the filled grade is reported against a PLAIN cell, never the cell invented to stress length', () => {
-    // A peer label of long words: what the client wrote is easy, and what the reader gets
-    // with that label in the pain line is not.
+  it('PLANTED: a peer label of long words no longer fails the filled grade: it is the name of the reader\'s own trade (2026-10-03)', () => {
+    // Until 2026-10-03 this label failed the filled grade in the pain line. Every pain line
+    // names the reader's group now, so grading the label in shut out every long trade name.
     const d = baseDoc()
     d.brief.peer_groups[1].label = 'international furniture manufacturers'
-    const hits = run(d).filter(v => v.rule === 'reading_grade_filled')
-    expect(hits.length).toBeGreaterThan(0)
-    expect(hits.every(v => /fact email1 \[(short|broad) /.test(v.where))).toBe(true)
+    expect(run(d).filter(v => v.rule === 'reading_grade_filled')).toEqual([])
+    // Its length is still held: the label is in every length check (control).
+    expect(run(d).some(v => v.where.includes('international furniture manufacturers'))).toBe(false)
   })
 
   it('PLANTED: the neutral offer may cite the outcome that answers every lead angle, and the control says which', () => {
@@ -547,7 +553,12 @@ describe('a subject keeps the case it was written in, in every rendering', () =>
     expect(fact({ does: 'you run dental clinics' })).toBe('exporters and new markets')
   })
   it('a body line opening on the same slot is still capitalised (control)', () => {
-    expect(renderEmail1SlotFree(email1(), 'exporters', INVENTED_SIGNOFF).body).toContain('\n\nExporters often tell us')
+    const e1 = email1()
+    e1.pain.text = '{peer_group} often tell us a new market is slow to pick up. So growth plans can slip.'
+    expect(renderEmail1SlotFree(e1, 'exporters', INVENTED_SIGNOFF).body).toContain('\n\nExporters often tell us')
+  })
+  it('the slot mid-sentence keeps its own case, as the pain line now names its source (2026-10-03)', () => {
+    expect(renderEmail1SlotFree(email1(), 'exporters', INVENTED_SIGNOFF).body).toContain('\n\nWhen we chat to exporters, many of them say')
   })
 })
 
@@ -587,8 +598,10 @@ describe('a variant that cannot be rendered is reported, never thrown', () => {
     expect(run(d).map(v => v.rule)).toContain('slot_free_missing')
   })
   it('a follow-up paragraph holding a slot it may not hold', () => {
+    // {does} is the opener's alone. ({peer_group} was the plant here until 2026-10-03, when it
+    // joined the slots a follow-up may hold.)
     const d = baseDoc()
-    d.variants.A.followups[0].paragraphs[0] = { text: '{peer_group} often tell us a new market is slow.', slots: ['peer_group'], slot_free: null, from: ['PA2'], kind: 'pain' }
+    d.variants.A.followups[0].paragraphs[0] = { text: 'When we chat to exporters, {does} is often slow.', slots: ['does'], slot_free: null, from: ['PA2'], kind: 'pain' }
     expect(() => run(d)).not.toThrow()
     expect(run(d).map(v => v.rule)).toContain('followup_slot')
   })
@@ -832,11 +845,12 @@ describe('the fifth reading: both documents pass as they stand (the controls com
   it('the shared document has zero violations (control)', () => {
     expect(run(baseDoc())).toEqual([])
   })
-  it('the peer document has zero violations, kind, after_opener label, site-free frame and all (control)', () => {
+  it('the peer document has zero violations, kind, site-free frame and all, and no after_opener label (control)', () => {
     const d = peerDoc()
-    // What makes it the peer document: without these three the tests below test nothing.
+    // What makes it the peer document: without these the tests below test nothing. The
+    // after_opener label is withdrawn (2026-10-03): the group's own label is named.
     expect(d.brief.peer_groups.filter(pg => pg.kind).map(pg => [pg.id, pg.kind])).toEqual([['PG1', 'a software company']])
-    expect(d.brief.peer_group_default.after_opener).toBe('Firms like yours')
+    expect(d.brief.peer_group_default.after_opener).toBeUndefined()
     expect(d.opener_frames.filter(frame => !FRAME_NAMES_THE_SITE.test(frame))).toEqual(['Can see {does}.'])
     expect(run(d)).toEqual([])
   })
@@ -851,16 +865,17 @@ describe('consecutive_word: no word in two sentences in a row, as the validator 
       // the two, and the repair is told about both.
       expect(found.map(v => [v.variant, v.where, repeatedWord(v)])).toEqual([['A', 'email1', 'buyers'], ['A', 'email1', 'buyers']])
       expect(found[0].detail).toContain('"buyers" is said in two sentences in a row')
-      expect(found[0].detail).toContain(`"We translate your pages and a native speaker checks each one, so your buyers can read your site." then "${QUESTION}"`)
-      expect(found[1].detail).toContain(`"We put your pages into the language your buyers read, so your site sells abroad." then "${QUESTION}"`)
+      // The offer paragraph as it is sent: the lead-in joined in front of it (2026-10-03).
+      expect(found[0].detail).toContain(`"If you're seeing this too, we translate your pages and a native speaker checks each one, so your buyers can read your site." then "${QUESTION}"`)
+      expect(found[1].detail).toContain(`"If you're seeing this too, we put your pages into the language your buyers read, so your site sells abroad." then "${QUESTION}"`)
     })
 
     it('the FIRST and THIRD sentences may share a word: only sentences in a row count (control)', () => {
       // The fixture as it stands. The pain opens on "buyers", the consequence sits between,
       // and the offer says "buyers" again.
       const [, pain, offer] = renderEmail1SlotFree(inventedVariants().A.email1, 'exporters', INVENTED_SIGNOFF).body.split('\n\n')
-      expect(pain).toBe('Exporters often tell us buyers abroad leave too soon. As a result, sales can stall.')
-      expect(offer).toBe('We translate your pages and a native speaker checks each one, so your buyers can read your site.')
+      expect(pain).toBe('When we chat to exporters, a lot of them say buyers abroad leave too soon. So sales can stall.')
+      expect(offer).toBe("If you're seeing this too, we translate your pages and a native speaker checks each one, so your buyers can read your site.")
       expect(run(baseDoc()).filter(v => v.rule === 'consecutive_word')).toEqual([])
     })
 
@@ -1179,23 +1194,24 @@ describe('the peer rung, as the validator holds it (fifth reading, note 1: build
   })
 
   describe('the peer cell: the exact Email 1 a prospect of that peer group receives', () => {
-    it('PLANTED: with no after_opener label, the opener and the label under it say the same word, and it is the BRIEF that is refused', () => {
-      // Until 2026-10-02 this was a consecutive_word finding under every variant, at the peer
-      // cell, and the repair call was asked to fix a label it cannot change. It is one
-      // finding now, at the brief. The planted tests for it are at the end of this file.
+    it('the group\'s own label under its own kind is no fault of the brief: peer_opener_repeat is withdrawn (2026-10-03)', () => {
+      // Until 2026-10-03 "Can see you run a software company." over a pain line opening on
+      // "Software makers" was refused at the brief, and the brief had to give an after_opener
+      // label ("Firms like yours") to stand there. The operator asked for the reader's own
+      // group by name, so the label stays and nothing is refused here. Composition still
+      // refuses a word the opener and the sentence under it really share, for that rung.
       const d = peerDoc()
-      delete d.brief.peer_group_default.after_opener
+      expect(d.brief.peer_group_default.after_opener).toBeUndefined()
       const found = run(d)
+      expect(found.filter(v => v.rule === 'peer_opener_repeat')).toEqual([])
+      expect(found.filter(v => v.where.startsWith('brief.'))).toEqual([])
       expect(found.filter(v => v.rule === 'consecutive_word')).toEqual([])
-      expect(found.map(v => [v.variant, v.where, v.rule])).toEqual([['*', 'brief.peer_groups', 'peer_opener_repeat']])
-      // It says what to change, and it is the brief, not the copy.
-      expect(found[0].detail).toContain('give the brief a peer_group_default.after_opener label')
     })
 
-    it('with the after_opener label the pain line opens on that instead, and nothing is refused (control)', () => {
+    it('an after_opener label an older brief still carries changes nothing in the peer cell: it is never placed (control)', () => {
       const d = peerDoc()
-      expect(d.brief.peer_group_default.after_opener).toBe('Firms like yours')
-      expect(run(d).filter(v => v.rule === 'consecutive_word')).toEqual([])
+      d.brief.peer_group_default.after_opener = 'Firms like yours'
+      expect(run(d)).toEqual([])
     })
 
     it('PLANTED: a kind of five long words is refused in the peer cell for how the opener reads', () => {
@@ -1227,19 +1243,22 @@ describe('the peer rung, as the validator holds it (fifth reading, note 1: build
     })
   })
 
-  describe('the after_opener label is graded like any peer label', () => {
+  describe('the after_opener label is no longer graded: it is never placed (2026-10-03)', () => {
     const LONG = 'International furniture manufacturers'
 
-    it('PLANTED: an after_opener label of long words fires the filled grade, in a cell that names it', () => {
-      const found = hitsAfter('reading_grade_filled', d => { d.brief.peer_group_default.after_opener = LONG }, peerDoc)
-      expect(found.length).toBeGreaterThan(0)
-      // Every hit is this label's: the two peer groups' own labels still pass.
-      expect(found.every(v => v.where.includes(` / ${LONG} / `))).toBe(true)
-      // And on the plain cells, graded with the fill in, as the test far above holds for a peer label.
-      expect(found.every(v => /^fact email1 \[(short|broad) \/ frame \d \/ /.test(v.where))).toBe(true)
+    it('an after_opener label of long words fires nothing: no cell is rendered with it', () => {
+      // Until 2026-10-03 this label stood in the pain line under an opener that named the
+      // kind, and was graded there. Nothing places it now.
+      expect(hitsAfter('reading_grade_filled', d => { d.brief.peer_group_default.after_opener = LONG }, peerDoc)).toEqual([])
+      expect(run(peerDoc()).some(v => v.where.includes(LONG))).toBe(false)
     })
 
-    it('the fixture\'s short label passes the same grade (control)', () => {
+    it('PLANTED: the same long words as a peer group\'s OWN label do not fire the filled grade either: the label is masked in it (2026-10-03)', () => {
+      const found = hitsAfter('reading_grade_filled', d => { d.brief.peer_groups[1].label = LONG.toLowerCase() }, peerDoc)
+      expect(found).toEqual([])
+    })
+
+    it('the fixture\'s short labels pass the same grade (control)', () => {
       expect(run(peerDoc()).filter(v => v.rule === 'reading_grade_filled')).toEqual([])
     })
   })
@@ -1306,13 +1325,14 @@ describe('the repetition rules read the firm-fact Email 1 a prospect is sent, no
   })
 
   describe('consecutive_word: a wording that exists only with the slot filled', () => {
-    // Under "As a result, sales can stall." The slot_free form says nothing about sales.
+    // Under "So sales can stall." The slot_free form says nothing about sales.
     const SLOTTED = 'We translate your pages and a native speaker checks each one, so sales to {for_whom} abroad can grow.'
 
     it('PLANTED: a word repeated only in the SLOTTED offer is refused at the fact email, with the line quoted as written', () => {
       const found = hitsAfter('consecutive_word', d => { d.variants.A.email1.offer.text = SLOTTED })
       expect(consecutive(found)).toEqual([['A', 'fact email1', 'sales']])
-      expect(found[0].detail).toContain(`"As a result, sales can stall." then "${SLOTTED}"`)
+      // Quoted as written, with the lead-in's slot-free form joined in front (2026-10-03).
+      expect(found[0].detail).toContain(`"So sales can stall." then "If you're seeing this too, ${SLOTTED.replace(/^We/, 'we')}"`)
     })
 
     it('the same word in the slot_free form is refused at email1, as it always was (control)', () => {
@@ -1368,8 +1388,8 @@ describe('the repetition rules read the firm-fact Email 1 a prospect is sent, no
   })
 })
 
-describe('{peer_group} opens the Email 1 pain line and stands nowhere else (review of 2026-10-02)', () => {
-  it('PLANTED: in a subject it is refused: composition puts the after-opener label there, capital and all', () => {
+describe('{peer_group} names the source of a pain, in Email 1 and in follow-ups, and stands nowhere else (2026-10-02, widened 2026-10-03)', () => {
+  it('PLANTED: in a subject it is refused: a group label in a subject reads as a heading', () => {
     const found = hitsAfter('peer_group_outside_pain', d => {
       d.variants.B.email1.subject = { text: 'new markets for {peer_group}', slots: ['peer_group'], slot_free: null, from: ['PA2'] }
     })
@@ -1384,12 +1404,35 @@ describe('{peer_group} opens the Email 1 pain line and stands nowhere else (revi
       d.variants.B.email1.offer.slots = ['peer_group', 'for_whom']
     }).map(v => v.where)).toEqual(['email1.offer'])
   })
-  it('the pain line opens on it, and the fixture uses it nowhere else (control)', () => {
+  it('the pain line\'s first sentence holds it, and the fixture uses it in no subject, offer or question (control)', () => {
     expect(run(baseDoc()).filter(v => v.rule === 'peer_group_outside_pain')).toEqual([])
-    expect(inventedVariants().A.email1.pain.text.startsWith('{peer_group}')).toBe(true)
+    // Mid-sentence since 2026-10-03: the line no longer has to OPEN on it.
+    expect(inventedVariants().A.email1.pain.text.startsWith('When we chat to {peer_group},')).toBe(true)
   })
   it('the generator is told the same', () => {
-    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).toContain('It starts the Email 1 pain line and is used nowhere else')
+    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).toContain('It is used in the Email 1 pain line and in follow-up pain paragraphs, never in a subject, an offer or a question.')
+    // The withdrawn instruction is gone (control on the old wording).
+    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).not.toContain('It starts the Email 1 pain line and is used nowhere else')
+  })
+  it('PLANTED: in a follow-up paragraph it is allowed, needs no slot_free form, and renders with the label', () => {
+    // The fixture's Email 2 names its source with {peer_group}, slot_free null, and passes.
+    const d = baseDoc()
+    const p1 = d.variants.A.followups[0].paragraphs[0]
+    expect(p1.text).toContain('{peer_group}')
+    expect(p1.slot_free).toBeNull()
+    const rules = run(d).map(v => v.rule)
+    for (const rule of ['followup_slot', 'slot_free_missing', 'peer_group_outside_pain']) expect(rules).not.toContain(rule)
+    // Slot-free, the default label stands there; filled, the reader's own group does.
+    expect(renderFollowupSlotFree(d.variants.A.followups[0], 'exporters', INVENTED_SIGNOFF)).toContain('In our chats with exporters, a lot of them say')
+    const named = renderFollowup(d.variants.A.followups[0], { peer_group: 'software makers' }, 'exporters', INVENTED_SIGNOFF)
+    expect(named.body).toContain('In our chats with software makers, a lot of them say')
+    expect(named.slotted[0]).toBe(true)
+    // A follow-up still holds one slot kind at most: the group and the firm together is refused.
+    expect(rulesAfter(dd => {
+      dd.variants.A.followups[0].paragraphs[0].text = 'When we chat to {peer_group}, a lot of them tell {company} a new market starts slowly.'
+      dd.variants.A.followups[0].paragraphs[0].slots = ['peer_group', 'company']
+      dd.variants.A.followups[0].paragraphs[0].slot_free = 'When we chat to exporters, a lot of them tell you a new market starts slowly.'
+    })).toContain('followup_slot_mix')
   })
 })
 
@@ -1411,43 +1454,43 @@ describe('findCouldOfAThing: wherever the question starts (review of 2026-10-02)
 })
 
 describe('a fault only the brief can fix is reported AS the brief\'s, and never under a variant (review of 2026-10-02)', () => {
-  const noAfterOpener = (d: Doc) => { delete d.brief.peer_group_default.after_opener }
-
-  it('PLANTED: with no after_opener label the opener and the label under it share a word, and that is a fault of the brief', () => {
-    const found = hitsAfter('peer_opener_repeat', noAfterOpener, peerDoc)
-    expect(found.map(v => [v.variant, v.where])).toEqual([['*', 'brief.peer_groups']])
-    expect(found[0].detail).toContain('PG1')
-    expect(found[0].detail).toContain('"software"')
-    expect(found[0].detail).toContain('"you run a software company"')
-    expect(found[0].detail).toContain('"software makers"')
-    expect(found[0].detail).toContain('peer_group_default.after_opener')
+  it('the opener and the group\'s own label sharing a word is no longer a fault of the brief (2026-10-03)', () => {
+    // Until 2026-10-03 "you run a software company" over "Software makers ..." was reported
+    // here as peer_opener_repeat, with "give the brief an after_opener label" as the remedy.
+    // The label is withdrawn and the reader's own group is named.
+    expect(hitsAfter('peer_opener_repeat', d => { delete d.brief.peer_group_default.after_opener }, peerDoc)).toEqual([])
+    expect(run(peerDoc()).filter(v => v.where.startsWith('brief.'))).toEqual([])
   })
 
-  it('PLANTED: it needs no variant to be seen, so it can stop a run before anything is written', () => {
+  it('PLANTED: a brief fault needs no variant to be seen, so it can stop a run before anything is written', () => {
+    // The brief fault that remains: a kind on an industry no stored record can resolve to.
     const d = peerDoc()
-    noAfterOpener(d)
+    d.brief.peer_groups[0].industry = 'Software And Apps'
     d.variants = {}
-    expect(run(d).filter(v => v.where.startsWith('brief.')).map(v => v.rule)).toEqual(['peer_opener_repeat'])
+    expect(run(d).filter(v => v.where.startsWith('brief.')).map(v => v.rule)).toEqual(['peer_kind_industry'])
   })
 
-  it('PLANTED: the copy is not blamed for it: no variant carries a finding about the label', () => {
+  it('PLANTED: the copy is not blamed for it: no variant carries a finding about the brief', () => {
     const d = peerDoc()
-    noAfterOpener(d)
+    d.brief.peer_groups[0].industry = 'Software And Apps'
     expect(run(d).filter(v => v.variant !== '*')).toEqual([])
   })
 
-  it('with the after_opener label there is no fault of the brief (control)', () => {
+  it('the peer brief as it stands has no fault of the brief (control)', () => {
     expect(run(peerDoc()).filter(v => v.where.startsWith('brief.'))).toEqual([])
   })
 
   it('PLANTED: a pain line whose OWN words repeat the kind is the copy\'s fault, at the peer cell, and says to reword the line', () => {
+    // On a label that shares no word with the kind, so the writer's own "software" is the
+    // only repeat. (With the fixture's "software makers" the same line reports NOTHING: the
+    // peer cell sets aside a word the label holds. See the report of 2026-10-03.)
     const found = hitsAfter('consecutive_word', d => {
-      d.variants.A.email1.pain.text = '{peer_group} often tell us their software is hard to sell abroad. As a result, sales can stall.'
+      d.brief.peer_groups[0].label = 'app makers'
+      d.variants.A.email1.pain.text = 'When we chat to {peer_group}, a lot of them say their software is hard to sell abroad. So sales can stall.'
     }, peerDoc)
     expect(found.map(v => [v.variant, v.where, repeatedWord(v)])).toEqual([['A', 'fact email1 [peer PG1]', 'software']])
-    expect(found[0].detail).toContain('"Can see you run a software company." then "Firms like yours often tell us their software is hard to sell abroad."')
+    expect(found[0].detail).toContain('"Can see you run a software company." then "When we chat to app makers, a lot of them say their software is hard to sell abroad."')
     expect(found[0].detail).toContain('reword the line')
-    expect(found[0].detail).not.toContain('after_opener')
   })
 })
 
@@ -1480,9 +1523,10 @@ describe('a frame and the peer label under it share a word: the FRAME is reworde
     expect(consecutive(found)).toEqual([['*', 'opener_frames[0]', 'website']])
   })
 
-  it('PLANTED: the after_opener label is held to the frames too: it opens the line under a frame whenever the clause echoes the label', () => {
-    const found = hitsAfter('consecutive_word', d => { d.brief.peer_group_default.after_opener = 'Firms with a site like yours' }, peerDoc)
-    expect(consecutive(found)).toEqual([['*', 'opener_frames[0]', 'site']])
+  it('an after_opener label is no longer held to the frames: it is never placed (2026-10-03)', () => {
+    expect(hitsAfter('consecutive_word', d => { d.brief.peer_group_default.after_opener = 'Firms with a site like yours' }, peerDoc)).toEqual([])
+    // The same word in a peer group's own label, which IS placed, is held to the frame (control).
+    expect(consecutive(hitsAfter('consecutive_word', d => { d.brief.peer_groups[0].label = 'site builders' }, peerDoc))).toEqual([['*', 'opener_frames[0]', 'site']])
   })
 
   it('PLANTED: a peer group\'s own label is held to the frames too', () => {
@@ -1508,26 +1552,26 @@ describe('a frame and the peer label under it share a word: the FRAME is reworde
 describe('the peer cell is read whole: the label code places, against the writer\'s next sentence (second round, 2026-10-02)', () => {
   const consecutive = (found: TemplateViolation[]) => found.filter(v => v.rule === 'consecutive_word').map(v => [v.variant, v.where, repeatedWord(v)])
 
-  it('PLANTED: "Growing firms like yours ..." then "So growth plans can slip." is refused, under the variant, at the peer cell', () => {
+  it('PLANTED: "growing app makers ..." then "So growth plans can slip." is refused, under the variant, at the peer cell', () => {
     // The email a software prospect of variant B is sent: "Can see you run a software
-    // company. Growing firms like yours often tell us a new market is slow to pick up. So
-    // growth plans can slip." Until this round only the opener's own pair was read here, and
-    // the general check fills the line with the default label, which says nothing of growth.
-    const found = hitsAfter('consecutive_word', d => { d.brief.peer_group_default.after_opener = 'Growing firms like yours' }, peerDoc)
+    // company. When we chat to growing app makers, many of them say a new market is slow to
+    // pick up. So growth plans can slip." Since 2026-10-03 the label placed there is the
+    // group's own (it was the after_opener label, "Growing firms like yours", until then).
+    const found = hitsAfter('consecutive_word', d => { d.brief.peer_groups[0].label = 'growing app makers' }, peerDoc)
     expect(found.length).toBeGreaterThan(0)
     expect(new Set(consecutive(found).map(f => JSON.stringify(f)))).toEqual(new Set([JSON.stringify(['B', 'fact email1 [peer PG1]', 'growth'])]))
-    expect(found.some(v => v.detail.includes('"Growing firms like yours often tell us a new market is slow to pick up." then "So growth plans can slip."'))).toBe(true)
+    expect(found.some(v => v.detail.includes('"When we chat to growing app makers, many of them say a new market is slow to pick up." then "So growth plans can slip."'))).toBe(true)
     // The label is the brief's; the writer is told to reword its own sentence.
     expect(found[0].detail).toContain('the peer label')
   })
 
-  it('the fixture\'s after_opener label, "Firms like yours", repeats nothing in the peer cell (control)', () => {
+  it('the fixture\'s own label, "software makers", repeats nothing of the writer\'s next sentence in the peer cell (control)', () => {
     expect(run(peerDoc()).filter(v => v.rule === 'consecutive_word')).toEqual([])
   })
 
   it('PLANTED: a repeat in the writer\'s own words is reported once, where it already was, and not again at the peer cell', () => {
     const found = hitsAfter('consecutive_word', d => {
-      d.variants.B.email1.pain.text = '{peer_group} often tell us growth is slow to pick up. So growth plans can slip.'
+      d.variants.B.email1.pain.text = 'When we chat to {peer_group}, many of them say growth is slow to pick up. So growth plans can slip.'
     }, peerDoc)
     expect(consecutive(found)).toEqual([['B', 'email1', 'growth']])
   })
@@ -1541,5 +1585,290 @@ describe('the writer is told the frame\'s words count against the pain line unde
     expect(counted).toEqual(['site', 'website', 'page', 'homepage', 'shows'])
     expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).toContain(
       `For some prospects the pain line sits directly under an opener frame, so its first sentence uses none of the frame's words (${counted.join(', ')}), nor another form of one ("pages", "show").`)
+  })
+})
+
+// ─── Operator decisions of 2026-10-03 ────────────────────────────────────────
+//
+// A named, conversational source ("When we chat to {peer_group}, a lot of them tell us ..."),
+// never a faceless one; the lead-in to the offer ("If {company} is seeing this too,"); and a
+// client's own colloquialisms let through the idiom list. Each rule planted beside a control,
+// on the invented client only.
+
+import { IDIOMS, OFFER_LEAD_IN_MAX_WORDS, SOURCE_CLAUSE, findFacelessSource, idiomsFor, leadInFaults } from '../validate-templates'
+import { joinLeadIn, namedLeadInParagraph } from '../template-shape'
+
+describe('the lead-in to the offer (2026-10-03)', () => {
+  const leadIn = (d: Doc) => d.variants.A.email1.lead_in!
+  const shapeFaults = (mutate: (d: Doc) => void) => hitsAfter('lead_in_shape', mutate).map(v => [v.variant, v.where, v.detail])
+
+  it('both fixture lead-ins pass every lead-in rule (control)', () => {
+    const d = baseDoc()
+    expect(leadInFaults(d.variants.A.email1.lead_in!)).toEqual([])
+    expect(leadInFaults(d.variants.B.email1.lead_in!)).toEqual([])
+    expect(run(d).filter(v => v.rule.startsWith('lead_in') || v.rule === 'company_outside_followups')).toEqual([])
+  })
+
+  it('PLANTED: an Email 1 with no lead-in is refused at email1.lead_in, and the other variant is not', () => {
+    const found = hitsAfter('lead_in_missing', d => { delete d.variants.A.email1.lead_in })
+    expect(found.map(v => [v.variant, v.where])).toEqual([['A', 'email1.lead_in']])
+    expect(found[0].detail).toContain('"If {company} is seeing this too,"')
+  })
+
+  it.each<[string, (d: Doc) => void, string]>([
+    ['does not open "If"', d => { leadIn(d).text = 'When {company} is seeing this too,' }, 'the lead-in opens "If": "When {company} is seeing this too,"'],
+    ['does not name the firm', d => { leadIn(d).text = 'If your firm is seeing this too,'; leadIn(d).slots = [] }, 'the lead-in names the reader\'s firm with {company}: "If your firm is seeing this too,"'],
+    ['does not end on a comma', d => { leadIn(d).text = 'If {company} is seeing this too' }, 'the lead-in ends on a comma, so the offer runs on from it: "If {company} is seeing this too"'],
+    ['is a sentence, not a clause', d => { leadIn(d).text = 'If {company} sees it. And if so,' }, 'the lead-in is a clause, not a sentence: "If {company} sees it. And if so,"'],
+    ['runs over the word cap', d => { leadIn(d).text = 'If {company} is seeing this very same thing right now,' }, 'the lead-in is 10 words, over 8: "If {company} is seeing this very same thing right now,"'],
+    // "If your" is not "If you": the slot-free form speaks TO the reader.
+    ['has a slot_free form that does not open "If you"', d => { leadIn(d).slot_free = 'If your firm is seeing this too,' }, 'the slot_free lead-in opens "If you": "If your firm is seeing this too,"'],
+    ['has a slot_free form that does not end on a comma', d => { leadIn(d).slot_free = "If you're seeing this too" }, 'the slot_free lead-in ends on a comma: "If you\'re seeing this too"'],
+    ['has a slot_free form that holds a slot', d => { leadIn(d).slot_free = 'If you or {company} see this too,' }, 'the slot_free lead-in holds no slot: "If you or {company} see this too,"'],
+  ])('PLANTED: a lead-in that %s is refused for that, at email1.lead_in', (_name, mutate, detail) => {
+    expect(shapeFaults(mutate)).toContainEqual(['A', 'email1.lead_in', detail])
+  })
+
+  it('a lead-in of exactly the word cap passes, {company} counted as one word (control)', () => {
+    expect(OFFER_LEAD_IN_MAX_WORDS).toBe(8)
+    expect(shapeFaults(d => { leadIn(d).text = 'If {company} is seeing the same thing too,' })).toEqual([])
+  })
+
+  it('PLANTED: a lead-in holding any slot but {company} is refused as lead_in_slot', () => {
+    for (const [text, slot] of [['If {for_whom} see this too,', 'for_whom'], ['If {peer_group} see this too,', 'peer_group']] as const) {
+      const found = hitsAfter('lead_in_slot', d => { leadIn(d).text = text; leadIn(d).slots = [slot] })
+      expect(found.map(v => [v.variant, v.where]), text).toEqual([['A', 'email1.lead_in']])
+    }
+  })
+
+  it('{company} in the lead-in is allowed: company_outside_followups does not fire there, and still fires in the question (control)', () => {
+    expect(hitsAfter('company_outside_followups', () => {})).toEqual([])
+    expect(hitsAfter('company_outside_followups', d => {
+      d.variants.A.email1.question.text = 'Is losing buyers abroad a problem for {company} right now?'
+      d.variants.A.email1.question.slots = ['company']
+    }).map(v => v.where)).toEqual(['email1.question'])
+  })
+
+  it('PLANTED: the offer paragraph\'s sentence cap grows by the lead-in\'s words, and no further', () => {
+    // 22 words of offer: the offer cap. Under the five-word lead-in the sentence is 27, which
+    // is under 22 + 5. One more word of offer is over.
+    const AT_CAP = 'We translate your pages and a native speaker checks each one, so your buyers in other countries can read your site today.'
+    const OVER = 'We translate your pages and a native speaker checks each one, so your buyers in other countries can read your whole site today.'
+    expect(AT_CAP.split(/\s+/)).toHaveLength(OFFER_MAX_SENTENCE_WORDS)
+    const slotFreeLength = (offer: string) => hitsAfter('sentence_length', d => { d.variants.A.email1.offer.slot_free = offer }).filter(v => v.where.includes('slot-free'))
+    expect(slotFreeLength(AT_CAP)).toEqual([])
+    const over = slotFreeLength(OVER)
+    expect(over.length).toBeGreaterThan(0)
+    expect(over[0].detail).toContain(`28 words: "If you're seeing this too, ${OVER.replace(/^We/, 'we')}"`)
+  })
+})
+
+describe('joinLeadIn and namedLeadInParagraph (template-shape, 2026-10-03)', () => {
+  const LEAD_IN: TemplateLine = { text: 'If {company} is seeing this too,', slots: ['company'], slot_free: "If you're seeing this too,", from: ['PA1'] }
+  const OFFER = 'We translate your pages, so your buyers can read your site.'
+  const JOINED = `If you're seeing this too, we translate your pages, so your buyers can read your site.`
+
+  it('PLANTED: joinLeadIn puts the clause in front of the offer and lowers its opening "We"', () => {
+    expect(joinLeadIn("If you're seeing this too,", OFFER)).toBe(JOINED)
+    expect(joinLeadIn("  If you're seeing this too,  ", `  ${OFFER}`)).toBe(JOINED)
+  })
+  it('with no lead-in the offer stands alone, as it always did (control)', () => {
+    expect(joinLeadIn(null, OFFER)).toBe(OFFER)
+    expect(joinLeadIn('   ', OFFER)).toBe(OFFER)
+  })
+  it('only the word "We" is lowered: "Weekly" and a name stay as written (control)', () => {
+    expect(joinLeadIn('If you see this too,', 'Weekly checks keep your pages right.')).toBe('If you see this too, Weekly checks keep your pages right.')
+  })
+
+  it('PLANTED: namedLeadInParagraph swaps the slot-free clause for the named one and keeps the rest byte for byte', () => {
+    expect(namedLeadInParagraph(JOINED, LEAD_IN, 'Kessel')).toBe('If Kessel is seeing this too, we translate your pages, so your buyers can read your site.')
+  })
+  it.each<[string, string, TemplateLine | null, string | null]>([
+    ['there is no lead-in', JOINED, null, 'Kessel'],
+    ['there is no name', JOINED, LEAD_IN, null],
+    ['the name is only spaces', JOINED, LEAD_IN, '   '],
+    ['the lead-in has no slot_free form', JOINED, { ...LEAD_IN, slot_free: null }, 'Kessel'],
+    ['the paragraph does not open on the slot-free clause', OFFER, LEAD_IN, 'Kessel'],
+    // The clause must be followed by the offer: a paragraph that IS the clause is not one.
+    ['the paragraph is the clause alone', "If you're seeing this too,", LEAD_IN, 'Kessel'],
+    ['the lead-in holds a slot the name cannot fill', JOINED, { ...LEAD_IN, text: 'If {for_whom} see this too,' }, 'Kessel'],
+  ])('returns null, so composition ships the slot-free clause, when %s', (_name, paragraph, line, name) => {
+    expect(namedLeadInParagraph(paragraph, line, name)).toBeNull()
+  })
+
+  it('PLANTED: both renderers join the lead-in in front of the offer, slot-free', () => {
+    const e1 = inventedVariants().A.email1
+    expect(renderEmail1SlotFree(e1, 'exporters', INVENTED_SIGNOFF).body.split('\n\n')[2]).toBe(`If you're seeing this too, we translate your pages and a native speaker checks each one, so your buyers can read your site.`)
+    const fact = renderFactEmail1({ email1: e1, openerFrames: INVENTED_OPENER_FRAMES, frameIndex: 0, fills: { does: 'you run dental clinics', for_whom: 'bakeries' }, peerGroupDefault: 'exporters', signoff: INVENTED_SIGNOFF })!
+    expect(fact.body.split('\n\n')[3]).toBe(`If you're seeing this too, we translate your pages and a native speaker checks each one, so bakeries abroad can read your site.`)
+    // With no lead-in (a document written before it existed) the offer stands alone (control).
+    delete e1.lead_in
+    expect(renderEmail1SlotFree(e1, 'exporters', INVENTED_SIGNOFF).body.split('\n\n')[2]).toBe('We translate your pages and a native speaker checks each one, so your buyers can read your site.')
+  })
+})
+
+describe('faceless_source: a pattern is attributed to someone named (2026-10-03)', () => {
+  it.each([
+    ['Many firms tell us buyers abroad leave too soon.', 'Many firms'],
+    ['Some companies say a new market is slow.', 'Some companies'],
+    ['Most founders tell us growth can stall.', 'Most founders'],
+    ['A lot of businesses say buyers abroad leave.', 'A lot of businesses'],
+    ['Lots of teams find a new market slow.', 'Lots of teams'],
+    ['Firms like yours often say growth can stall.', 'Firms like yours'],
+    ['Companies like you often tell us so.', 'Companies like you'],
+    // After a full stop, and after a comma, as well as at the start.
+    ['Buyers leave. Plenty of owners say so.', 'Plenty of owners'],
+    ['Over time, several agencies tell us the same.', 'several agencies'],
+  ])('PLANTED: findFacelessSource("%s") finds "%s"', (text, found) => {
+    expect(findFacelessSource(text)).toBe(found)
+  })
+  it.each([
+    'When we chat to exporters, many of them say buyers abroad leave too soon.',
+    'Talking to exporters, a lot of them tell us a new market is slow.',
+    'Many of them say growth can stall.',
+    'A lot of them tell us the same.',
+    // A named group is a source, whatever word counts it.
+    'Many exporters tell us a new market is slow.',
+  ])('"%s" names its source (control)', text => {
+    expect(findFacelessSource(text)).toBeNull()
+  })
+
+  it.each<[string, (d: Doc) => void, string]>([
+    ['the Email 1 pain', d => { d.variants.A.email1.pain.text = 'When we chat to {peer_group}, we hear it. Many firms say buyers abroad leave too soon.' }, 'email1.pain'],
+    ['the second wording of a pain', d => { d.variants.A.email1.pain.alt!.text = "Talking to {peer_group}, we hear it too. Some firms say buyers leave pages they can't read." }, 'email1.pain.alt'],
+    ['a follow-up pain', d => { setPlain(d.variants.A.followups[0].paragraphs[0], 'Firms like yours often say a new market starts slower than hoped.') }, 'email2.p1'],
+    ['only the slot_free form of a follow-up', d => { d.variants.A.followups[0].paragraphs[2].slot_free = 'Most businesses say that. Does that match what you see?' }, 'email2.p3'],
+    ['the question', d => { d.variants.A.email1.question.text = 'A lot of companies lose orders abroad; is that a problem right now?' }, 'email1.question'],
+  ])('PLANTED: a faceless source in %s is refused there', (_name, mutate, where) => {
+    expect(hitsAfter('faceless_source', mutate).map(v => [v.variant, v.where])).toContainEqual(['A', where])
+  })
+  it('the fixture names every source (control)', () => {
+    expect(hitsAfter('faceless_source', () => {})).toEqual([])
+  })
+  it('the generator is told the same', () => {
+    expect(OUTBOUND_TEMPLATE_SYSTEM_PROMPT).toContain('NEVER A FACELESS SOURCE: never "Many firms", "Some firms", "Most firms", "A lot of firms" or "Firms like yours". Code refuses them.')
+  })
+})
+
+describe('peer_group_source: the first sentence of the pain names who told us (2026-10-03)', () => {
+  it('the slot mid-sentence passes, and so does a line that still opens on it (controls)', () => {
+    expect(hitsAfter('peer_group_source', () => {})).toEqual([])
+    expect(hitsAfter('peer_group_source', d => { d.variants.A.email1.pain.text = '{peer_group} often tell us buyers abroad leave too soon. So sales can stall.' })).toEqual([])
+  })
+  it('PLANTED: the slot only in the SECOND sentence is refused, at that wording', () => {
+    const found = hitsAfter('peer_group_source', d => { d.variants.B.email1.pain.text = 'A new market is often slow to pick up, we hear. So {peer_group} see growth plans slip.' })
+    expect(found.map(v => [v.variant, v.where])).toEqual([['B', 'email1.pain']])
+  })
+})
+
+describe('SOURCE_CLAUSE: who told us does not use up the sentence\'s words (2026-10-03)', () => {
+  // A follow-up pain sentence of 22 words: seven of source clause and 15 said, the cap.
+  const CLAUSED = 'When we chat to exporters about growth, a lot of them say a new market can start slower than they had hoped.'
+  // The same 22 words with "As" for "When": not a source clause, so every word counts.
+  const PLAIN = 'As we chat to exporters about growth, a lot of them say a new market can start slower than they had hoped.'
+  const lengthHits = (text: string) => hitsAfter('sentence_length', d => { setPlain(d.variants.A.followups[0].paragraphs[0], text) }).filter(v => v.where.startsWith('email2'))
+
+  it('the two sentences are the same length, and the clause is seven words', () => {
+    expect(CLAUSED.split(/\s+/)).toHaveLength(22)
+    expect(PLAIN.split(/\s+/)).toHaveLength(22)
+    expect(CLAUSED.match(SOURCE_CLAUSE)?.[0].trim().split(/\s+/)).toHaveLength(7)
+  })
+  it('PLANTED: the sentence opening on a source clause passes the 15-word cap', () => {
+    expect(lengthHits(CLAUSED)).toEqual([])
+  })
+  it('PLANTED: the same words without the source clause are over it', () => {
+    expect(lengthHits(PLAIN).map(v => v.detail)).toContainEqual(`22 words: "${PLAIN}"`)
+  })
+  it.each([
+    'When we chat to {peer_group}, ',
+    'Whenever we speak with exporters, ',
+    'Each time we meet with exporters, ',
+    'Talking to exporters, ',
+    'Chatting with exporters, ',
+  ])('SOURCE_CLAUSE reads "%s" as a source clause', clause => {
+    expect(`${clause}a lot of them say so.`.match(SOURCE_CLAUSE)?.[0]).toBe(clause)
+  })
+  it.each([
+    'As we chat to exporters, a lot of them say so.',
+    'When we chat to exporters a lot of them say so.',
+    'Buyers leave when we chat to exporters, they say.',
+  ])('"%s" opens on no source clause (control)', sentence => {
+    expect(sentence.match(SOURCE_CLAUSE)).toBeNull()
+  })
+})
+
+describe('idiomsFor: a client\'s own colloquialism is their voice, for that client only (2026-10-03)', () => {
+  const PHRASE = 'down the road'
+  const withPhrase = (d: Doc) => { d.variants.A.followups[2].paragraphs[1].text = 'If buyers abroad matter down the road, reply and we can pick this up.' }
+
+  it('the phrase is on the idiom list (the premise)', () => {
+    expect(IDIOMS).toContain(PHRASE)
+    expect(idiomsFor(inventedBrief())).toContain(PHRASE)
+    expect(idiomsFor(null)).toBe(IDIOMS)
+  })
+  it('PLANTED: for a client whose brief lists it, idiomsFor drops it, whatever case it was listed in, and nothing else', () => {
+    const brief = inventedBrief()
+    brief.colloquialisms = ['  Down The Road ']
+    const allowed = idiomsFor(brief)
+    expect(allowed).not.toContain(PHRASE)
+    expect(allowed).toHaveLength(IDIOMS.length - 1)
+  })
+  it('PLANTED: the same sentence passes for that client and is refused for another', () => {
+    expect(hitsAfter('idiom', d => { d.brief.colloquialisms = [PHRASE]; withPhrase(d) })).toEqual([])
+    expect(hitsAfter('idiom', withPhrase).map(v => v.detail)).toContain(`"${PHRASE}": say it literally`)
+  })
+  it('a colloquialism that is not on the list changes nothing: another idiom is still refused (control)', () => {
+    expect(hitsAfter('idiom', d => { d.brief.colloquialisms = ['no worries']; withPhrase(d) }).length).toBeGreaterThan(0)
+  })
+})
+
+
+import { sourceOpeningForm } from '../validate-templates'
+
+describe('the source line opens in a different form in each email of a sequence (reading file 7, fix 4)', () => {
+  it('reads the form, not the verb', () => {
+    expect(sourceOpeningForm('When we chat to exporters, many say so.')).toBe(sourceOpeningForm('When we speak with exporters, many say so.'))
+    expect(sourceOpeningForm('Talking to exporters, we hear it.')).toBe('ing')
+    expect(sourceOpeningForm('In our chats with exporters, many say so.')).toBe('our')
+    expect(sourceOpeningForm('From what exporters tell us, it is slow.')).toBe('what')
+  })
+  it('the invented client passes with four distinct forms across the sequence (control)', () => {
+    expect(run(baseDoc()).map(v => v.rule)).not.toContain('source_opening_repeated')
+  })
+  it('PLANTED: an Email 2 that opens in the same form as an Email 1 wording, with only the verb changed, is refused', () => {
+    expect(rulesAfter(d => {
+      d.variants.A.followups[0].paragraphs[0].text = 'When we speak to {peer_group}, a lot of them say a new market starts slower than hoped.'
+    })).toContain('source_opening_repeated')
+  })
+  it('PLANTED: Email 2 and Email 3 in the same form are refused', () => {
+    expect(rulesAfter(d => {
+      d.variants.A.followups[1].paragraphs[0].text = 'In our talks with {peer_group}, free tools came first and buyers noticed the errors.'
+    })).toContain('source_opening_repeated')
+  })
+})
+
+describe('every angle a sequence could use is supported by the client\'s own documents (reading file 7, fix 2)', () => {
+  const unsupportedFor = (mutate: (doc: Doc) => void) => {
+    const doc = baseDoc()
+    mutate(doc)
+    return run(doc).filter(v => v.rule === 'angle_unsupported')
+  }
+  it('the invented client, with both passages cited for every usable angle, has no such fault (control)', () => {
+    expect(unsupportedFor(() => {})).toEqual([])
+  })
+  it('PLANTED: an angle with no consequence passage is a brief fault, before anything is written', () => {
+    const found = unsupportedFor(d => { delete d.brief.pain_angles[0].consequence_support })
+    expect(found).toHaveLength(1)
+    expect(found[0].where).toBe('brief.pain_angles.PA1')
+    expect(found[0].variant).toBe('*')
+  })
+  it('PLANTED: a link the documents do not make (null) is never written about', () => {
+    expect(unsupportedFor(d => { d.brief.pain_angles[1].link_support = null })[0].detail).toContain('do not support how the offer answers it')
+  })
+  it('PLANTED: a passage that names no client document is refused', () => {
+    expect(unsupportedFor(d => { d.brief.pain_angles[2].consequence_support = { source: 'operator notes, reading file 4', quote: 'growth can stall and it gets harder' } })).toHaveLength(1)
+  })
+  it('an angle no sequence can use (a declared conflict) needs no passage (control)', () => {
+    expect(unsupportedFor(d => { delete d.brief.pain_angles[3].consequence_support; delete d.brief.pain_angles[3].link_support })).toEqual([])
   })
 })

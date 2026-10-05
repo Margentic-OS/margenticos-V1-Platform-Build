@@ -66,14 +66,15 @@ import { findAmbiguousReferents } from '@/lib/style/ambiguous-referent'
 import { findStiffForms } from '@/lib/style/stiff-forms'
 import { findConsecutiveRepeats, findRepeatedPhrases, wordsInCommon } from '@/lib/style/repetition'
 import {
+  angleSupportFaults,
   briefItemIndex,
   conflictedAngleIds,
   forbiddenPhrases,
   isLeadDifferentiator,
   mostBuyersAngles,
   neutralOutcomeIds,
-  peerLabelUnderOpener,
   proofIds,
+  usableAngles,
   type OutboundBrief,
 } from '@/lib/outbound-brief/brief'
 import { unreachablePeerKinds } from '@/lib/sourcing/peer-kind'
@@ -502,6 +503,67 @@ export function openerClauseGrade(opener: string): number | null {
 // deterministic half lives in the client's brief, under avoid_wording, and the judgement
 // ("is this claim a manual task, given this sender's scope?") is the scope judge's.
 
+/** The most words the offer's lead-in may hold, {company} counted as one. */
+export const OFFER_LEAD_IN_MAX_WORDS = 8
+
+/**
+ * THE LEAD-IN'S SHAPE: a conditional clause, opening "If", naming the reader's firm by
+ * {company}, ending on a comma so the offer runs on from it; and a slot-free form for a
+ * prospect with no usable name that opens "If you" (2026-10-03). It asks; it never says
+ * what the firm has or does.
+ */
+export function leadInFaults(line: TemplateWording): string[] {
+  const faults: string[] = []
+  const text = (line.text ?? '').trim()
+  if (!/^If\b/.test(text)) faults.push(`the lead-in opens "If": "${text}"`)
+  if (!slotsIn(text).includes('company')) faults.push(`the lead-in names the reader's firm with {company}: "${text}"`)
+  if (!text.endsWith(',')) faults.push(`the lead-in ends on a comma, so the offer runs on from it: "${text}"`)
+  if (/[.?!]/.test(text)) faults.push(`the lead-in is a clause, not a sentence: "${text}"`)
+  if (countWords(text) > OFFER_LEAD_IN_MAX_WORDS) faults.push(`the lead-in is ${countWords(text)} words, over ${OFFER_LEAD_IN_MAX_WORDS}: "${text}"`)
+  const free = (line.slot_free ?? '').trim()
+  if (!/^If you\b/.test(free)) faults.push(`the slot_free lead-in opens "If you": "${free}"`)
+  if (!free.endsWith(',')) faults.push(`the slot_free lead-in ends on a comma: "${free}"`)
+  if (/[{}]/.test(free)) faults.push(`the slot_free lead-in holds no slot: "${free}"`)
+  return faults
+}
+
+/**
+ * A FACELESS SOURCE (operator, 2026-10-03): a pattern attributed to nobody in particular,
+ * "Many firms say", "Some firms spend", "Firms like yours". The copy names its source,
+ * with {peer_group}, conversationally. Refused in every authored line, for every client.
+ */
+const FACELESS_SOURCE = /\b(?:many|some|most|a lot of|lots of|plenty of|several|a few|other|all)\s+(?:firms|companies|businesses|founders|owners|teams|leaders|organisations|organizations|agencies|practices)\b|\b(?:firms|companies|businesses|teams|people|founders) like (?:yours|you)\b/i
+/** The clause that names who told us, when a sentence opens on one: "When we chat to {peer_group}," */
+export const SOURCE_CLAUSE = /^(?:(?:when|whenever|each time|every time)\s+we\s+(?:chat|talk|speak|meet)\s+(?:to|with)|(?:talking|speaking|chatting)\s+(?:to|with)|(?:in|from|across)\s+our\s+(?:chats|talks|conversations)\s+with|from\s+what)\s+[^,.?!]{1,60},\s*/i
+
+/**
+ * THE FORM A SOURCE LINE OPENS IN (reading file 7, 2026-10-03): "vary the source-line opening
+ * across emails within a sequence". Swapping one verb ("When we chat to" for "When we speak
+ * to") is the same opening, so the FORM is compared, not the words:
+ *
+ *   when    "When we chat to {peer_group}, ..."     (when, whenever, each time, every time)
+ *   ing     "Talking to {peer_group}, ..."
+ *   our     "In our chats with {peer_group}, ..."   (in, from, across)
+ *   what    "From what {peer_group} tell us, ..."
+ *
+ * A sentence in none of them is its own form, keyed by its first three words.
+ */
+export const SOURCE_OPENING_FORMS: ReadonlyArray<{ form: string; example: string; pattern: RegExp }> = [
+  { form: 'when', example: 'When we chat to {peer_group}, a lot of them tell us ...', pattern: /^(?:when|whenever|each time|every time)\s+we\s+(?:chat|talk|speak|meet)\b/i },
+  { form: 'ing', example: 'Talking to {peer_group}, we often hear that ...', pattern: /^(?:talking|speaking|chatting)\s+(?:to|with)\b/i },
+  { form: 'our', example: 'In our chats with {peer_group}, many say ...', pattern: /^(?:in|from|across)\s+our\s+(?:chats|talks|conversations)\s+with\b/i },
+  { form: 'what', example: 'From what {peer_group} tell us, ...', pattern: /^from\s+what\b/i },
+]
+export function sourceOpeningForm(sentence: string): string {
+  const s = sentence.trim()
+  const hit = SOURCE_OPENING_FORMS.find(f => f.pattern.test(s))
+  return hit ? hit.form : s.toLowerCase().split(/\s+/).slice(0, 3).join(' ')
+}
+export function findFacelessSource(text: string): string | null {
+  const m = text.match(FACELESS_SOURCE)
+  return m ? m[0].trim() : null
+}
+
 /** RULE 8. The lines of Email 1 that must hold two wordings. The subject may hold one. */
 const TWO_WORDING_LINES = ['pain', 'offer', 'question'] as const
 
@@ -589,6 +651,16 @@ const FOLLOWUP_STRUCTURES: Record<2 | 3 | 4, readonly (readonly ParagraphKind[])
  * The semantic check ("does this line contain any idiom") is the reviewer's, deferred; this
  * list is the floor under it, not a replacement for it.
  */
+/**
+ * The idioms refused for ONE client: the list below, less the plain colloquialisms that
+ * client's tone of voice uses (brief.colloquialisms, 2026-10-03). A client's own everyday
+ * phrase is their voice; an obscure figure of speech is still refused for everyone.
+ */
+export function idiomsFor(brief: Pick<OutboundBrief, 'colloquialisms'> | null | undefined): readonly string[] {
+  const allowed = new Set((brief?.colloquialisms ?? []).map(phrase => phrase.trim().toLowerCase()))
+  return allowed.size === 0 ? IDIOMS : IDIOMS.filter(idiom => !allowed.has(idiom))
+}
+
 export const IDIOMS: readonly string[] = [
   'ring true', 'rings true', 'dries up', 'dried up', 'dry up', 'quiet patch', 'door is open', 'my door',
   'down the road', 'closing the loop', 'close the loop', 'in the loop', 'on your plate', 'in the room',
@@ -739,7 +811,7 @@ function checkRenderedEmail(input: {
     // drought" each passed extraction, were paid for, and were sent back to the template
     // here for an idiom nobody wrote. Found by review on 2026-10-01.
     const lowerProse = normalise(proseOf(maskedBody, signoff)).toLowerCase()
-    for (const idiom of IDIOMS) {
+    for (const idiom of idiomsFor(brief)) {
       if (new RegExp(`(?<![a-z])${idiom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z])`).test(lowerProse)) {
         push('idiom', `"${idiom}": say it literally`)
       }
@@ -774,22 +846,32 @@ function checkRenderedEmail(input: {
     if (new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`).test(lower)) push('forbidden_phrase', `"${phrase}" (${id})`)
   }
 
+  // THE LEAD-IN (2026-10-03) is joined in front of the offer sentence, so the offer
+  // paragraph's caps are the offer's own plus the lead-in's words: "If Northtown Cold Room
+  // Engineering is seeing this too," must not cost the offer the words it was written with.
+  const leadInWords = (index: number) => {
+    if (index !== input.offerParagraph) return 0
+    const clause = paragraphs[index]?.match(/^If [^,.?!]{1,90},/)?.[0]
+    return clause ? countWords(clause) : 0
+  }
   for (const [paragraphIndex, sentence] of paragraphs.flatMap((para, i) => splitSentences(para.replace(/\n+/g, ' ')).map(sent => [i, sent] as const))) {
     const list = findThreePartList(sentence)
     if (list) push('three_part_list', `"${list}"`)
-    const words = countWords(sentence)
-    const cap = paragraphIndex === input.offerParagraph ? OFFER_MAX_SENTENCE_WORDS : TEMPLATE_MAX_SENTENCE_WORDS
+    // A NAMED SOURCE (2026-10-03) opens on who told us ("When we chat to HR consultants,"),
+    // and that clause does not use up the sentence's words: the cap is for what is said.
+    const words = countWords(sentence.replace(SOURCE_CLAUSE, ''))
+    const cap = (paragraphIndex === input.offerParagraph ? OFFER_MAX_SENTENCE_WORDS : TEMPLATE_MAX_SENTENCE_WORDS) + leadInWords(paragraphIndex)
     if (words > cap) {
       push('sentence_length', `${words} words: "${sentence}"`)
     }
   }
-  for (const para of paragraphs) {
+  for (const [index, para] of paragraphs.entries()) {
     const sentences = splitSentences(para).length
     const words = countWords(para)
     if (sentences > TEMPLATE_MAX_PARAGRAPH_SENTENCES) {
       push('paragraph_sentences', `${sentences} sentences: "${para}"`)
     }
-    if (words > TEMPLATE_MAX_PARAGRAPH_WORDS) push('paragraph_words', `${words} words: "${para}"`)
+    if (words > TEMPLATE_MAX_PARAGRAPH_WORDS + leadInWords(index)) push('paragraph_words', `${words} words: "${para}"`)
     if (/^I\b/.test(para)) push('i_opener', `paragraph opens with "I": "${para}"`)
     // Rule 3: the question or call ask is ALWAYS its own paragraph.
     if (para.includes('?') && sentences > 1) {
@@ -806,12 +888,17 @@ function checkRenderedEmail(input: {
   if (input.gradeFilled) {
     // THE OPENER CLAUSE IS NOT IN THIS NUMBER (note 6 on the fourth reading). It is the
     // prospect's own wording about their own trade, and it has a cap of its own just below.
-    // What is graded here is everything the client wrote, with the peer label and the
-    // reader's customer group as they will be read.
+    // NOR IS THE PEER LABEL (2026-10-03). Every pain line now names the reader's own group
+    // ("When we chat to environmental consultants, ..."), and the reader knows the name of
+    // their own trade however many syllables it has. Graded in, the label alone put most
+    // wordings over the cap for the longer labels, and the writer can only answer that by
+    // dropping words elsewhere. The label's LENGTH is still held by the length rules.
+    // What is graded here is everything the client wrote, with the reader's customer group
+    // as they will read it.
     const gradeProse = normalise(proseOf(input.gradeBody ?? body, signoff))
     const filled = fleschKincaidGrade(gradeProse.replace(/\n+/g, ' '))
     if (filled !== null && filled.grade > FACT_EMAIL1_MAX_FILLED_GRADE) {
-      push('reading_grade_filled', `grade ${filled.grade.toFixed(2)} with the peer label and the customer group filled in (the opener clause apart), over ${FACT_EMAIL1_MAX_FILLED_GRADE}: use shorter words in the pain, the offer and the question`)
+      push('reading_grade_filled', `grade ${filled.grade.toFixed(2)} with the customer group filled in (the opener clause and the peer label apart), over ${FACT_EMAIL1_MAX_FILLED_GRADE}: use shorter words in the pain, the offer and the question`)
     }
   }
   if (input.opener !== undefined) {
@@ -854,7 +941,10 @@ function checkRenderedEmail(input: {
     // for a P3 whose antecedent was replaced, on a paragraph nothing replaces. Measured
     // 2026-09-30: every variant of the first real run failed only on that. The offer and
     // question are scanned in the slot-free render, so nothing goes unchecked.
-    const backRefs = findBackReferences(body, isFact ? 2 : 1)
+    // THE LEAD-IN IS NOT AN ANTECEDENT (2026-10-03). "If you're seeing this too," opens every
+    // offer paragraph, and its words would stand as the antecedent of any pronoun after it,
+    // so a bare "them" in the offer went unseen. The clause is set aside for this scan.
+    const backRefs = findBackReferences(body.replace(/(^|\n\n)If [^,.?!\n]{1,90},\s*/g, '$1'), isFact ? 2 : 1)
     for (const hit of backRefs.demonstratives) push('back_reference', `"${hit.phrase}" in paragraph ${hit.paragraph}`)
     for (const hit of backRefs.unanchoredPronouns) push('bare_pronoun', `"${hit.pronoun}" in paragraph ${hit.paragraph}`)
     // THE QUESTION STANDS ALONE. On the researched path the offer-line selector may put a
@@ -940,7 +1030,7 @@ function checkSubject(input: {
     push('subject_case', 'the subject is lower case')
   }
   for (const text of authored) {
-    for (const idiom of IDIOMS) {
+    for (const idiom of idiomsFor(brief)) {
       if (new RegExp(`(?<![a-z])${idiom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z])`).test(text.toLowerCase())) push('idiom', `subject: "${idiom}": say it literally`)
     }
     if (DASHES.test(text)) push('dash', 'the subject contains an em dash, en dash or double hyphen')
@@ -971,8 +1061,11 @@ function checkLineDeclaration(
   line: TemplateWording,
   index: ReturnType<typeof briefItemIndex>,
   out: TemplateViolation[],
-  /** `followup`: a follow-up paragraph, which may hold {company} or {for_whom}, one kind at most. */
-  opts: { followup: boolean },
+  /**
+   * `followup`: a follow-up paragraph, which may hold {company}, {for_whom} or {peer_group},
+   * one kind at most. `leadIn`: Email 1's lead-in, which holds {company} and nothing else.
+   */
+  opts: { followup: boolean; leadIn?: boolean },
 ): void {
   const push = (rule: string, detail: string) => out.push({ variant, where, rule, detail })
   if (!line || typeof line.text !== 'string' || line.text.trim() === '') {
@@ -1010,8 +1103,11 @@ function checkLineDeclaration(
     const notAllowed = actual.filter(slot => !FOLLOWUP_SLOTS.includes(slot))
     if (notAllowed.length > 0) push('followup_slot', `a follow-up paragraph may hold {company} or {for_whom} only, found {${notAllowed.join('}, {')}}`)
     if (actual.length > 1) push('followup_slot_mix', `one slot kind per follow-up paragraph, found {${actual.join('}, {')}}`)
+  } else if (opts.leadIn) {
+    const notAllowed = actual.filter(slot => slot !== 'company')
+    if (notAllowed.length > 0) push('lead_in_slot', `the lead-in holds {company} and no other slot, found {${notAllowed.join('}, {')}}`)
   } else if (actual.includes('company')) {
-    push('company_outside_followups', '{company} is used in follow-up paragraphs only')
+    push('company_outside_followups', '{company} is used in the Email 1 lead-in and in follow-up paragraphs only')
   }
   // "{company}'s" reads badly for a name that ends in s, and a name is a whole phrase.
   if (/\{company\}['’]s\b/.test(line.text)) push('company_possessive', 'write {company} as a subject or an object, never as a possessive')
@@ -1080,7 +1176,7 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
       for (const phrase of findAmbiguousReferents(own)) docPush(where, 'ambiguous_referent', `"${phrase}" can be read two ways`)
       for (const tell of findAITells(own)) docPush(where, 'ai_tell', tell)
       for (const { label, pattern } of BANNED_JARGON) if (pattern.test(own)) docPush(where, 'jargon', label)
-      for (const idiom of IDIOMS) {
+      for (const idiom of idiomsFor(brief)) {
         if (new RegExp(`(?<![a-z])${idiom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z])`).test(lowerOwn)) docPush(where, 'idiom', `"${idiom}": say it literally`)
       }
       for (const { id, phrase } of forbiddenPhrases(brief)) {
@@ -1097,6 +1193,12 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
   })
 
   const mostBuyers = mostBuyersAngles(brief).map(a => a.id)
+  // EVERY ANGLE A SEQUENCE COULD BE WRITTEN ABOUT IS SUPPORTED BY THE CLIENT'S OWN DOCUMENTS
+  // (reading file 7, fix 2): its consequence and how the offer answers it. A BRIEF fault,
+  // because no rewrite of the copy can supply a causal link the documents do not make.
+  for (const angle of usableAngles(brief)) {
+    for (const fault of angleSupportFaults(angle)) docPush(`brief.pain_angles.${angle.id}`, 'angle_unsupported', fault)
+  }
   // THE PEER RUNG NEEDS A FRAME THAT DOES NOT NAME THE SITE. Its clause is built from the
   // prospect's stored record, not read on their website, so "Your site shows you run ..."
   // would credit their site with a data provider's label. Composition uses only a frame
@@ -1107,26 +1209,13 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
     docPush('opener_frames', 'frame_site_free', 'at least one frame names no site, page or website: it carries a clause built from the reader\'s record, which was not read on their site')
   }
   for (const problem of unreachablePeerKinds(brief, CANONICAL_INDUSTRIES)) docPush('brief.peer_groups', 'peer_kind_industry', problem)
-  // THE OPENER BUILT FROM A KIND, AND THE LABEL THE BRIEF PUTS UNDER IT. Both are the
-  // brief's words and neither is the writer's: "Can see you run a software company." then
-  // "Software makers often tell us ...". Until 2026-10-02 this was found only in a rendered
-  // variant and reported under it, so the writer was asked, and paid, round after round, to
-  // fix a label it cannot change (13 repair calls on a stub run, for a brief missing one
-  // field). The label is chosen by the function composition calls, and compared loosely, as
-  // that function compares: a swap that was not needed costs nothing.
-  for (const group of peerKinds) {
-    const does = `you run ${group.kind!.trim()}`
-    const placed = peerLabelUnderOpener(brief, does, group.label, { kindOfThisGroup: true }).label ?? group.label
-    const shared = wordsInCommon(does, placed)
-    if (shared.length > 0) {
-      docPush('brief.peer_groups', 'peer_opener_repeat', `${group.id}: "${shared.join('", "')}" is said by the opener ("${does}") and again by the label that opens the line under it ("${placed}"); give the brief a peer_group_default.after_opener label that shares no word with a kind, or reword the kind`)
-    }
-  }
+  // The opener built from a kind and the group's own label under it ("Can see you run an HR
+  // consultancy. When we chat to HR consultants, ...") are NOT a fault since 2026-10-03:
+  // the operator asked for the reader's own group by name. The after-opener stand-in and
+  // the brief-level repeat check it needed are withdrawn.
 
-  // Every label that can open a pain line: each peer group's, and the one that stands in
-  // for them under an opener that has already named the kind of firm (after_opener).
-  const afterOpenerLabel = typeof brief.peer_group_default.after_opener === 'string' ? brief.peer_group_default.after_opener.trim() : ''
-  const peerLabels = [...brief.peer_groups.map(p => p.label), ...(afterOpenerLabel ? [afterOpenerLabel] : [])]
+  // Every label that can name the source in a pain line: each peer group's own.
+  const peerLabels = brief.peer_groups.map(p => p.label)
   // A FRAME AND A PEER LABEL THAT SAY THE SAME WORD (second fix round, 2026-10-02). The pain
   // line opens on the label, so it stands straight under the frame: "Your site shows {does}."
   // then "Trade show exhibitors often tell us ...". Until this round that was found in the
@@ -1167,6 +1256,58 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
       push('lines', 'brief_version', `generated from brief v${lines.brief_version}, brief is v${brief.brief_version}`)
     }
     const e1 = lines.email1
+
+    // THE LEAD-IN TO THE OFFER (operator, 2026-10-03): "If {company} is seeing this too,".
+    // A condition that names the reader's firm and asks; never an assertion about it.
+    if (!e1.lead_in) {
+      push('email1.lead_in', 'lead_in_missing', 'Email 1 needs a lead-in to the offer: "If {company} is seeing this too," and a slot_free form "If you\'re seeing this too,"')
+    } else {
+      checkLineDeclaration(variant, 'email1.lead_in', e1.lead_in, index, out, { followup: false, leadIn: true })
+      for (const fault of leadInFaults(e1.lead_in)) push('email1.lead_in', 'lead_in_shape', fault)
+    }
+
+    // FACELESS SOURCES, in every authored line and its slot-free form (2026-10-03).
+    {
+      const authored: Array<[string, TemplateWording]> = []
+      for (const key of ['subject', 'pain', 'offer', 'question'] as const) {
+        if (e1[key]) wordingsOf(e1[key]).forEach((wording, w) => authored.push([`email1.${key}${w === 0 ? '' : '.alt'}`, wording]))
+      }
+      if (e1.lead_in) authored.push(['email1.lead_in', e1.lead_in])
+      for (const f of lines.followups) {
+        (f?.paragraphs ?? []).forEach((p, i) => { if (p) authored.push([`email${f.position}.p${i + 1}`, p]) })
+      }
+      for (const [where, wording] of authored) {
+        for (const form of [wording.text, wording.slot_free]) {
+          const found = typeof form === 'string' ? findFacelessSource(form) : null
+          if (found) push(where, 'faceless_source', `"${found}" says who told us without naming them; name the source with {peer_group}: "When we chat to {peer_group}, a lot of them tell us ..."`)
+        }
+      }
+    }
+
+    // THE SOURCE LINE OPENS DIFFERENTLY IN EACH EMAIL OF A SEQUENCE (reading file 7, fix 4).
+    // A prospect receives ONE Email 1 wording, so each wording is held against both
+    // follow-ups, and the two follow-ups against each other. The source line is the first
+    // sentence of the Email 1 pain and of each follow-up's first pain paragraph.
+    {
+      const firstOf = (text: string | undefined) => splitSentences((text ?? '').trim())[0] ?? ''
+      const followupSources = lines.followups
+        .filter(f => f && (f.position === 2 || f.position === 3))
+        .flatMap(f => {
+          const p = (f.paragraphs ?? []).find(x => x?.kind === 'pain' && typeof x.text === 'string')
+          return p ? [{ where: `email${f.position}`, sentence: firstOf(p.text) }] : []
+        })
+      const email1Sources = e1.pain ? wordingsOf(e1.pain).map((w, i) => ({ where: `email1.pain${i === 0 ? '' : '.alt'}`, sentence: firstOf(w.text) })) : []
+      const pairs: Array<[{ where: string; sentence: string }, { where: string; sentence: string }]> = []
+      for (const a of email1Sources) for (const b of followupSources) pairs.push([a, b])
+      for (let i = 0; i < followupSources.length; i++) for (let j = i + 1; j < followupSources.length; j++) pairs.push([followupSources[i], followupSources[j]])
+      for (const [a, b] of pairs) {
+        if (!a.sentence || !b.sentence) continue
+        const form = sourceOpeningForm(a.sentence)
+        if (form === sourceOpeningForm(b.sentence)) {
+          push(b.where, 'source_opening_repeated', `the source line opens in the same form as ${a.where} ("${a.sentence.split(',')[0]}" and "${b.sentence.split(',')[0]}"); each email in a sequence opens its source line differently: ${SOURCE_OPENING_FORMS.map(f => `"${f.example}"`).join(', ')}`)
+        }
+      }
+    }
 
     for (const key of ['subject', 'pain', 'offer', 'question'] as const) {
       const line = e1[key]
@@ -1221,8 +1362,12 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
       for (const id of pain.from) {
         if (proof.has(id)) push(where, 'proof_as_pain', `${id} is proof and never fills a pain line`)
       }
-      if (!pain.text.trim().startsWith('{peer_group}')) {
-        push(where, 'peer_group_subject', 'the pain line opens on {peer_group}, never a generic noun')
+      // A NAMED SOURCE (operator, 2026-10-03): the first sentence says who told us, by
+      // {peer_group}, in a conversational frame ("When we chat to {peer_group}, a lot of
+      // them tell us ..."). It no longer has to OPEN on the slot.
+      const first = splitSentences(pain.text.trim())[0] ?? ''
+      if (!slotsIn(first).includes('peer_group')) {
+        push(where, 'peer_group_source', 'the pain line\'s first sentence names who told us, with {peer_group}: "When we chat to {peer_group}, a lot of them tell us ..."')
       }
       for (const fault of findPainFormFaults(pain.text)) push(where, fault.rule, fault.detail)
       for (const sentence of findUnlinkedConsequences([pain.text])) {
@@ -1559,7 +1704,13 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
       noteConsecutive(`email${pos}`, renderFollowup(byPos.get(pos)!, GRADE_MASK, pgDefault, signoff).body)
     }
     const overused = new Map<string, number>()
-    const notePhrases = (texts: readonly string[]) => {
+    // THE PEER LABEL IS THE BRIEF'S, and the source is named in each pain as asked
+    // (2026-10-03): a label of two or three words would otherwise be "said three times" by
+    // design, a phrase no writer can change. Each label is masked before counting.
+    const labelsToMask = [pgDefault, ...brief.peer_groups.map(g => g.label)].filter(Boolean).sort((a, b) => b.length - a.length)
+    const maskLabels = (text: string) => labelsToMask.reduce((t, label) => t.replace(new RegExp(`\\b${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'), 'them'), text)
+    const notePhrases = (raw: readonly string[]) => {
+      const texts = raw.map(maskLabels)
       for (const { phrase, count } of findRepeatedPhrases(texts)) {
         // Named with the slot, not with the made-up word that stood in for it.
         const named = phrase.split(FOR_WHOM_PHRASE_MASK).join('{for_whom}')
@@ -1646,8 +1797,9 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
             const fills = { ...cell.fills, peer_group: peer }
             const fact = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills, peerGroupDefault: pgDefault, signoff, wording })
             const masked = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: GRADE_MASK, peerGroupDefault: pgDefault, signoff, wording })
-            // What the filled grade reads: everything as the reader gets it, the opener clause apart.
-            const graded = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: { ...fills, does: GRADE_MASK.does }, peerGroupDefault: pgDefault, signoff, wording })
+            // What the filled grade reads: everything as the reader gets it, the opener clause
+            // and the peer label apart (2026-10-03, see checkRenderedEmail).
+            const graded = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: { ...fills, does: GRADE_MASK.does, peer_group: GRADE_MASK.peer_group }, peerGroupDefault: pgDefault, signoff, wording })
             if (!fact || !masked || !graded) {
               push(`fact email1 [${cell.name} / frame ${f}]`, 'fact_render', 'the firm-fact Email 1 did not render')
               continue
@@ -1668,13 +1820,12 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
       // a word ("you run a software company" then "... tell us their software ...").
       for (const group of peerKinds) {
         const does = `you run ${group.kind!.trim()}`
-        const under = peerLabelUnderOpener(brief, does, group.label, { kindOfThisGroup: true })
         for (const { index: f } of siteFreeFrames) {
-          const fills = { does, ...(under.label ? { peer_group: under.label } : {}) }
+          const fills = { does, peer_group: group.label }
           const where = `fact email1 [peer ${group.id} / frame ${f} / ${tag}]`
           const fact = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills, peerGroupDefault: pgDefault, signoff, wording })
           const masked = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: GRADE_MASK, peerGroupDefault: pgDefault, signoff, wording })
-          const graded = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: { ...fills, does: GRADE_MASK.does }, peerGroupDefault: pgDefault, signoff, wording })
+          const graded = renderFactEmail1({ email1: e1, openerFrames: opener_frames, frameIndex: f, fills: { ...fills, does: GRADE_MASK.does, peer_group: GRADE_MASK.peer_group }, peerGroupDefault: pgDefault, signoff, wording })
           if (!fact || !masked || !graded) {
             push(where, 'fact_render', 'the peer Email 1 did not render')
             continue
@@ -1698,7 +1849,7 @@ export function validateTemplateDocument(input: TemplateDocumentInput): Template
           // "opener_frames[n]": told here, under a variant, either went to a writer that
           // cannot change a label. Further down, a label word is the writer's to avoid: the
           // sentence after the label is the writer's own, and is what is reworded.
-          const placedLabel = under.label ?? group.label
+          const placedLabel = group.label
           const labelWords = new Set(placedLabel.toLowerCase().split(/[^a-z0-9']+/))
           for (const r of findConsecutiveRepeats(sentencesOf(fact.body))) {
             if (factRepeats[f].has(`${r.index}|${r.word}`)) continue

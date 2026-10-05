@@ -279,7 +279,12 @@ export const STATUS_COLUMNS =
   // tier_published_at is READ TO SPLIT THE PUBLISH COUNT BY RUN, and only for that. The
   // VALUE never leaves countRow; only whether it is null survives, as a count. Same
   // treatment as personalisation_trigger above.
-  'research_ran_at, personalisation_trigger, tier_published_at'
+  'research_ran_at, personalisation_trigger, tier_published_at, ' +
+  // Writer v2 (2026-10-03): ONLY the tier is read out of the stored sequence, never its copy,
+  // so a writer v2 client's personalised prospects count as personalised here too. Without it
+  // the funnel reads zero personalised for every writer v2 client, since that writer never
+  // fills personalisation_trigger.
+  'writer_v2_tier:writer_v2_sequence->>tier'
 
 export interface StatusRow {
   sourcing_run_id: string | null
@@ -287,6 +292,8 @@ export interface StatusRow {
   suppressed: boolean | null
   research_ran_at: string | null
   personalisation_trigger: string | null
+  /** writer_v2_sequence->>tier: personalised, semi_personalised, template, or null. */
+  writer_v2_tier?: string | null
   tier_published_at: string | null
   sourced_tier: string | null
   tiering_reason: string | null
@@ -416,7 +423,7 @@ export function countRow(f: BatchFunnel, row: StatusRow): void {
   if (whyNotSendable(row) === null) f.eligible += 1
   if (row.research_ran_at !== null) f.researched += 1
   // The VALUE never leaves this function; only whether there is one. See STATUS_COLUMNS.
-  if (row.personalisation_trigger !== null) f.personalised += 1
+  if (row.personalisation_trigger !== null || row.writer_v2_tier === 'personalised') f.personalised += 1
 
   const failure = readVerificationFailure(
     row.last_verification_error,

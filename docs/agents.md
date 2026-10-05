@@ -1431,3 +1431,7 @@ follow-up backfill reads the same verdict first and does not write for such an o
   ICP. The code holds the line to that sentence and to nothing else.
 - *The log says "no approved trigger reason to hold the opening to".* The client's ICP has
   no trigger with a reason. The rule is not applied to that client.
+
+## Sequence Writer Agent (writer v2) — entry point: src/agents/sequence-writer-agent.ts (added 2026-10-03)
+
+One call writes a prospect's whole four-email sequence from the research facts, the firm fact and the client's playbook (messaging document, `content.writer_playbook`). Behind `organisations.sequence_writer_v2_enabled`. Model: claude-sonnet-4-6. Isolation: every query filters on the client_id passed in; the only cross-prospect input is the same client's recent angles and questions. Full description: docs/writer-v2.md. Decision: ADR-068.

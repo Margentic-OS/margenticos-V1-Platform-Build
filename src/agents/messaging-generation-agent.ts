@@ -3156,7 +3156,9 @@ function resolveShippedAngle(key: string, recorded: Map<string, string>): string
 // Variants this agent writes carry no `lines`, so the firm-fact tier cannot use them and
 // falls back to the template for every prospect, even with firm_fact_tier.enabled. That is
 // the safe direction.
-const CARRIED_OUTBOUND_SECTIONS = ['outbound_brief', 'opener_frames', 'firm_fact_tier'] as const
+// writer_playbook (2026-10-03): writer v2's playbook, operator data changed only through its
+// own proposal, so a regeneration of the variants must never drop it.
+const CARRIED_OUTBOUND_SECTIONS = ['outbound_brief', 'opener_frames', 'firm_fact_tier', 'writer_playbook'] as const
 
 export function carriedOutboundSections(
   existing: { content: Record<string, unknown> } | null,

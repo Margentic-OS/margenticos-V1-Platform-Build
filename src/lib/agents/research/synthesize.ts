@@ -156,6 +156,13 @@ export interface ClientTrigger {
   trigger: string
   /** Empty for a document written before the reason field existed. */
   reason: string
+  /**
+   * What counts as this event and what does not, in the client's words. ABSENT (no key)
+   * when the document carries none, which is every document written before 2026-10-03.
+   * Rendered under its trigger in the synthesis prompt, and read against the selected fact
+   * before the writer runs. See approved-reason.ts and trigger-definition.ts.
+   */
+  definition?: string
 }
 
 export interface ClientDocContext {
@@ -333,13 +340,19 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     // same thing whatever happened to the prospect. A document written before the reason
     // existed carries none, and that reads back as an empty string: the prompt then says
     // what the event is and nothing about why it matters, which is exactly where it was.
+    //
+    // THE DEFINITION TRAVELS TOO, from 2026-10-03, and only when the document carries one:
+    // no key otherwise, so the batch snapshot and the prompt of a client without definitions
+    // are exactly what they were.
     triggerList = ((t1?.triggers as unknown[] | undefined) ?? [])
-      .map(t => typeof t === 'string'
-        ? { trigger: t, reason: '' }
-        : {
-            trigger: ((t as Record<string, unknown> | null)?.trigger as string | undefined) ?? '',
-            reason: ((t as Record<string, unknown> | null)?.reason as string | undefined) ?? '',
-          })
+      .map((t): ClientTrigger => {
+        if (typeof t === 'string') return { trigger: t, reason: '' }
+        const row = t as Record<string, unknown> | null
+        const trigger = (row?.trigger as string | undefined) ?? ''
+        const reason = (row?.reason as string | undefined) ?? ''
+        const definition = typeof row?.definition === 'string' ? row.definition.trim() : ''
+        return definition ? { trigger, reason, definition } : { trigger, reason }
+      })
       .filter(t => t.trigger.trim().length > 0)
     // NO DEFAULT VALUES FOR A MISSING BUYER OR STAGE. This line used to read
     // `${buyer ?? 'a hardcoded archetype'} at ${stage ?? 'a hardcoded stage'}`, so a thin

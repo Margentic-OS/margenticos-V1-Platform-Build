@@ -379,6 +379,9 @@ export async function followupsForStoredEmail1(input: {
   const result = await writeFollowups({
     apiKey,
     clientName,
+    // The client's brief scope reaches the follow-up writer and its checker (2026-10-03):
+    // every claim about what the sender will do must be inside it.
+    messagingContent: content,
     buyer: buyer.description,
     // Same value composed into email1Body above, which is where the writer reads the name
     // it must not reuse.

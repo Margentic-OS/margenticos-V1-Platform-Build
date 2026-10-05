@@ -665,6 +665,9 @@ FAQ extraction (faq-extraction-agent): claude-haiku-4-5-20251001
 
 ---
 
+
+**Amendment 2026-10-03 (ADR-068).** Sequence writer v2 (`src/agents/sequence-writer-agent.ts`): claude-sonnet-4-6, the production research writer's model, no extended thinking, passed explicitly on every call. Chosen after the operator's blind read found the strongest available model at most marginally better at about five times the cost.
+
 ## ADR-014 — Sequence composition approach: multi-variant template rotation with generated mode planned
 Date: April 2026 | Status: Accepted
 
@@ -6687,3 +6690,85 @@ is inside this writer's run-to-run noise, so the cost in yield is NOT establishe
 - **The trigger reasons are read through a checked read.** The research loader treats a
   failed documents read as "no documents", which for this rule would mean "no approved
   reasons" and switch it off. A failed read stops the upload and the backfill.
+
+---
+
+## ADR-066 — PROPOSED: email copy assembled in code from approved building blocks, with the model used only to draft the blocks
+
+**Status:** PROPOSED, 2026-10-03. Filed for later at the operator's instruction; NOT BUILT.
+The smaller route was taken first (ADR-067).
+
+**Context.** Reading file 6 showed two root problems with generated lines: faults that read
+as English but come from free generation (faceless sources, consequences that do not follow,
+questions that do not match, follow-ups promising work outside the client's scope), and a
+growing set of rules written to catch them after the fact.
+
+**Proposal.**
+1. **Approved building blocks in each client's messaging document**, per pain angle and
+   authored together so they flow: (a) a conversational source line ("When we chat to
+   {peer_group}, a lot of them tell us ..."), several wordings; (b) the pain; (c) the
+   consequence that follows from it; (d) a personal line that asks, with the short name
+   ("If {short_name} is seeing this too, ..."); (e) the matching question. Offer lines and
+   break-ups the same way.
+2. **Code assembles** every email from blocks and slots ({short_name}, {peer_group},
+   {for_whom}). The model is used only to draft the blocks, once per client, for approval.
+3. **Trigger blocks** for personalised Email 1: each ICP trigger has an approved bridge and
+   question for that event type; the writer fills in only the specific fact.
+4. Rule Zero: blocks live in each client's documents; code holds only the assembly.
+
+**Estimate when proposed:** 4 to 5 working days, about $6 of model spend.
+
+---
+
+## ADR-067 — After reading file 6: universal template rules, trigger definitions, scope on follow-ups, and an enforced upload hold
+
+**Status:** ACCEPTED, 2026-10-03. The smaller route the operator chose instead of ADR-066.
+
+**Context.** Reading file 6 showed generated copy that read as English and was still wrong:
+faceless sources ("Firms like yours"), consequences that did not follow from the pain,
+questions that did not match their email, an assertion about the reader's firm in front of
+the offer, a chosen event that was not really the trigger it was filed under, and
+follow-ups promising work outside what the client does. The operator held all uploads and
+asked for every fix to be universal (Rule Zero), never MargenticOS-only.
+
+**Decision.**
+1. **The generator, not one client's text, is fixed.** Every Email 1 pain names a
+   conversational source with `{peer_group}`; a faceless source is refused in every line; a
+   lead-in ("If {company} is seeing this too,") goes in front of the offer; the scope judge
+   asks whether the consequence follows, whether each question matches, and whether an
+   offer implies the reader already has the outcome. Voice comes from the brief, including
+   the client's own colloquialisms. Regenerated templates may be polished by hand, and the
+   polish is recorded (`--written-by`).
+2. **Trigger definitions.** Each ICP trigger may carry a written definition. A chosen
+   event outside it is held (`outside_definition`). Definitions are a wording edit to the
+   ICP, so they never reach the search settings (ADR-061).
+3. **Scope, not audience.** Any claim a personalised follow-up makes about what the sender
+   will do is checked against that client's brief scope, as Email 1 already was.
+4. **The peer label is not graded.** The filled reading grade masks the peer label as it
+   masks a slot, at generation and at composition: it is the reader's own trade's name,
+   and every pain line now carries it. Graded in, the longer labels failed most wordings,
+   and at composition sent every prospect of that group to the template.
+5. **Upload hold.** An operator can hold a client's uploads; the upload action refuses
+   while it is on, and an unreadable hold counts as a hold.
+
+**Consequences.** More copy is held or falls to the template while the new rules bed in.
+The existing "never contact their audience" gate was kept beside the scope check, since it
+is market-neutral; whether to retire it is the operator's call. Checked for universality
+by a dry run on a second client's documents, saved nowhere (reading file 7).
+
+## ADR-068 — Writer v2: one call writes the whole sequence from a playbook stored in the messaging document, behind a per-client switch, with three tiers and only three checks
+
+**Status:** Accepted 2026-10-03 (operator). Built on branch `writer-v2-build`; merge waits for the operator's read of the 20-prospect reading file.
+
+**Context.** The old path wrote a personalised Email 1 opening and follow-ups in separate model steps around a fixed template, under a growing set of gates (bridge fact-check, capacity, activity, need-match, judge, floor). The operator's blind read of a prototype on 2026-10-03 rated one-call sequences, written from the research facts and a per-client playbook, far better than anything before; the relevance test showed the old gates reject natural writing.
+
+**Decision.**
+1. **One call per prospect writes all four emails** (`src/agents/sequence-writer-agent.ts`), on the production research writer's model (Sonnet 4.6). The strongest model was at most marginally better at about five times the cost.
+2. **Inputs:** every dated research candidate stored for the prospect (not only those the old synthesis passed), filtered only by the writer's own rules (within 12 months, last 6 preferred, never a founding date, tagline or ended role); the firm fact; the client's playbook.
+3. **The playbook is data in the messaging document** (`content.writer_playbook`), proposed by `scripts/propose-writer-playbook.ts` as an ordinary pending suggestion and approved by the operator. It carries the never-claim patterns as data. A client revision or a messaging regeneration puts the live playbook back; it changes only through its own proposal.
+4. **Three tiers, recorded on every sequence:** personalised, semi-personalised (firm fact or industry label only), template (last resort, the client's approved template with every old-writer column set aside). One retry per tier with the failures stated, then the next tier.
+5. **Only three checks** (`src/lib/writer-v2/checks.ts`): section 0's word counts (E1 40 to 110, E2 and E3 30 to 80, E4 under 45, sign-off included); truth for claims about the prospect or firm (abbreviations match their full form); sender claims within the playbook's scope and never-claim list. Dashes and paragraph spacing are code transforms, not checks.
+6. **Per-client switch** `organisations.sequence_writer_v2_enabled`, default off. On: research skips the old writer before paying for it, extracts the firm fact for every prospect, and writer v2 stores its sequence on `prospects.writer_v2_sequence`; upload composes from it and holds any prospect without a shippable one. Off: nothing changes. The old path is not deleted.
+7. **Reporting:** `sent_sequences.sequence_writer`, `writer_tier` and `playbook_version` are recorded in place of the variant, which becomes nullable only for a v2 personalised or semi-personalised send (CHECK).
+
+**Consequences.** The old holds (approved trigger reason, thread carried) do not apply to v2 sequences; a v2 sequence that failed its checks is stored as the template tier. The footer and the provider's List-Unsubscribe header reach v2 sequences exactly as before. Writer spend lands in `research_usage` (arm `writer_v2`), priced by the existing reader. Because only one messaging suggestion may be pending per client and approval replaces the whole document, the playbook can be proposed only once any other pending messaging suggestion is decided.

@@ -843,11 +843,14 @@ export async function maybeRunFirmFactAfterResearch(input: {
   messagingContent: unknown
   openingWritten: boolean
   usagePath: 'cli' | 'inline' | 'queue' | 'collect'
+  /** The client is on writer v2: the firm fact feeds its semi-personalised tier, so it is
+   *  extracted whatever the old path's firm_fact_tier switch says. */
+  writerV2Enabled?: boolean
 }): Promise<void> {
   try {
     if (input.openingWritten) return
     const content = (input.messagingContent ?? {}) as Record<string, unknown>
-    if ((content.firm_fact_tier as { enabled?: unknown } | undefined)?.enabled !== true) return
+    if (!input.writerV2Enabled && (content.firm_fact_tier as { enabled?: unknown } | undefined)?.enabled !== true) return
     const read = readBrief(content)
     if (!read.brief) {
       // The tier is switched ON and there is no usable brief. Silent, this read as "nothing

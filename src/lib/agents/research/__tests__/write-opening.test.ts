@@ -482,9 +482,12 @@ describe('possessive forms are traceable', () => {
 // ─── The floor, and the writer's two-block output ────────────────────────────
 
 describe('the floor disqualifies claims of private knowledge', () => {
-  it('asks one question about knowability and nothing about quality', () => {
+  // TWO QUESTIONS since 2026-10-03: knowability, and whether the closing question ties back
+  // to what the opening names. Still nothing about quality, and still not a comparison.
+  it('asks about knowability and the question tie-back, and nothing about quality', () => {
     const p = buildFloorPrompt()
-    expect((p.match(/\?/g) ?? []).length).toBe(1)
+    expect((p.match(/\?/g) ?? []).length).toBe(2)
+    expect(p).toContain('QUESTION_TIES_BACK')
     expect(p.replace(/\s+/g, ' ')).toContain('could not be known from public information')
     // It is not a comparison: no A, no B, no "which".
     expect(p).not.toContain('VERSION A')

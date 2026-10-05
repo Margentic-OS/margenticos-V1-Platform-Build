@@ -181,7 +181,8 @@ describe('peer labels', () => {
 //
 // The invented client's generic words are exporter, export and exporting, and its default
 // label is "exporters". inventedPeerBrief gives its first peer group the kind "a software
-// company" and the brief the label "Firms like yours" for under an opener.
+// company". Since 2026-10-03 it has no after-opener label: the reader's own group is named
+// in the pain line ("When we chat to software makers, ..."), and the field is ignored.
 
 const peerProblemsAfter = (mutate: (b: OutboundBrief) => void): string => {
   const b = inventedPeerBrief()
@@ -281,7 +282,7 @@ describe('peerKindFormProblems: the form of a kind of firm', () => {
 })
 
 describe('validateOutboundBrief: peer kinds and the label under an opener', () => {
-  it('passes the invented brief with a kind and an after-opener label (the control)', () => {
+  it('passes the invented brief with a kind and no after-opener label (the control)', () => {
     expect(validateOutboundBrief(inventedPeerBrief())).toEqual([])
   })
 
@@ -384,33 +385,33 @@ describe('validateOutboundBrief: peer kinds and the label under an opener', () =
   // generator then handed the fault to the writer, which cannot change a label, a kind or
   // an industry, and paid for repair calls until the spend cap stopped it.
 
-  it('PLANTED: a brief with a kind and NO after-opener label is refused: the line built from the record depends on it', () => {
-    expect(peerProblemsAfter(b => { delete b.peer_group_default.after_opener }))
-      .toContain('peer_group_default.after_opener is required when a peer group has a kind')
-    // The pair nothing could see: "you run a law firm" then "Law firms tell us ...". "law"
-    // is three letters and "firm" stands for a pronoun, so no shared-word test fired, and
-    // this brief validated with nothing to put between the two sentences.
+  // ── WITHDRAWN 2026-10-03: the after-opener label ──
+  //
+  // Until then a brief with a kind had to give peer_group_default.after_opener ("Firms like
+  // yours"), and that label could not repeat a kind. The operator asked for the reader's own
+  // group by name, mid-sentence, so the stand-in is no longer used and neither rule holds.
+  // A word the opener and the sentence under it truly share is caught at composition.
+
+  it('a brief with a kind and NO after-opener label validates: the group\'s own label is named (2026-10-03)', () => {
+    expect(peerProblemsAfter(b => { delete b.peer_group_default.after_opener })).toBe('')
+    // The pair that once had to be refused here, "you run a law firm" and "law firms": it is
+    // the brief's own label for that group, and the brief is valid with it.
     const law = (b: OutboundBrief) => { b.peer_groups = [{ id: 'PG1', label: 'law firms', industry: 'Legal Services', kind: 'a law firm', source: 'invented' }] }
-    expect(peerProblemsAfter(b => { law(b); delete b.peer_group_default.after_opener }))
-      .toContain('peer_group_default.after_opener is required when a peer group has a kind')
-    // The same kind and label WITH the after-opener label (control).
-    expect(peerProblemsAfter(law)).toBe('')
-  })
-
-  it('PLANTED: an after-opener label that itself repeats a kind is reported against that kind, and after_opener is named as what to change', () => {
-    const problems = peerProblemsAfter(b => { b.peer_group_default.after_opener = 'Software firms like yours' })
-    expect(problems).toContain('PG1: "software" is said by the opener ("you run a software company") and again by the label that opens the line under it ("Software firms like yours")')
-    expect(problems).toContain('reword peer_group_default.after_opener')
-    // "Firms" after "a law firm" is not a repeat: it stands where a pronoun would (control).
-    expect(peerProblemsAfter(b => { b.peer_groups[0] = { id: 'PG1', label: 'law firms', industry: 'Legal Services', kind: 'a law firm', source: 'invented' } })).toBe('')
-  })
-
-  it('with no after-opener label the brief is told ONE thing, to give one: the group\'s own label is not also reported as a repeat (control)', () => {
-    // "you run a software company" then "Software makers" does repeat. But once the brief
-    // is valid that label never stands there, so the one remedy is said once.
+    expect(peerProblemsAfter(b => { law(b); delete b.peer_group_default.after_opener })).toBe('')
+    // Neither the retired requirement nor the retired repeat report appears in any form.
     const problems = peerProblemsAfter(b => { delete b.peer_group_default.after_opener })
-    expect(problems).toContain('peer_group_default.after_opener is required when a peer group has a kind')
+    expect(problems).not.toContain('after_opener is required')
     expect(problems).not.toContain('is said by the opener')
+  })
+
+  it('an after-opener label that repeats a kind is not reported: the field is ignored (2026-10-03)', () => {
+    // "Software firms like yours" under "you run a software company" was refused against PG1
+    // until this date. Nothing places it now, so nothing is said about it.
+    expect(peerProblemsAfter(b => { b.peer_group_default.after_opener = 'Software firms like yours' })).toBe('')
+    // A given after-opener label is still held to the form of any label, because an older
+    // brief may carry one (control, and see the planted cases above).
+    expect(peerProblemsAfter(b => { b.peer_group_default.after_opener = 'Software firms a lot like yours' }))
+      .toBe('peer_group_default.after_opener: label "Software firms a lot like yours" is over 4 words')
   })
 
   it('PLANTED: a kind on an industry that is not a canonical name is refused here, not left for generation', () => {
@@ -433,15 +434,26 @@ describe('validateOutboundBrief: peer kinds and the label under an opener', () =
   })
 })
 
-describe('peerLabelUnderOpener: no word in two sentences in a row', () => {
+// peerLabelUnderOpener and the echo test under it (peerLabelEchoes) still exist and are
+// exported, but since 2026-10-03 composition and the validators no longer call them: the
+// reader's own group is named, and no after-opener label is placed. These tests pin the
+// function as it stands for as long as it is exported, against a brief that still gives
+// the old field. Delete them with the function.
+const withAfterOpener = (): OutboundBrief => {
+  const brief = inventedPeerBrief()
+  brief.peer_group_default.after_opener = 'Firms like yours'
+  return brief
+}
+
+describe('peerLabelUnderOpener (no longer called by composition): no word in two sentences in a row', () => {
   it('PLANTED: when the opener and the label share a word, the after-opener label is returned with what it replaced', () => {
     // "Can see you run a software company. Software makers tell us ..." says it twice.
-    expect(peerLabelUnderOpener(inventedPeerBrief(), 'you run a software company', 'software makers'))
+    expect(peerLabelUnderOpener(withAfterOpener(), 'you run a software company', 'software makers'))
       .toEqual({ label: 'Firms like yours', replaced: 'software makers' })
   })
 
   it('PLANTED: two FORMS of one word are a shared word: "consultancy" then "consultants"', () => {
-    expect(peerLabelUnderOpener(inventedPeerBrief(), 'you run an HR consultancy', 'HR consultants'))
+    expect(peerLabelUnderOpener(withAfterOpener(), 'you run an HR consultancy', 'HR consultants'))
       .toEqual({ label: 'Firms like yours', replaced: 'HR consultants' })
   })
 
@@ -461,7 +473,7 @@ describe('peerLabelUnderOpener: no word in two sentences in a row', () => {
     ['one stem, two endings', 'you run a marketing agency', 'marketers'],
     ['a three-letter word and its plural', 'you handle tax for dentists', 'taxes specialists'],
   ])('PLANTED: %s is an echo: "%s" is not followed by "%s"', (_what, does, label) => {
-    expect(peerLabelUnderOpener(inventedPeerBrief(), does, label)).toEqual({ label: 'Firms like yours', replaced: label })
+    expect(peerLabelUnderOpener(withAfterOpener(), does, label)).toEqual({ label: 'Firms like yours', replaced: label })
   })
 
   it.each<[string, string, string]>([
@@ -472,11 +484,11 @@ describe('peerLabelUnderOpener: no word in two sentences in a row', () => {
     ['only the word "firm" in common', 'you run a law firm', 'accounting firms'],
     ['words that start alike for fewer than six letters', 'you run a market stall', 'marine engineers'],
   ])('%s is not an echo: the label stays (control)', (_what, does, label) => {
-    expect(peerLabelUnderOpener(inventedPeerBrief(), does, label)).toEqual({ label, replaced: null })
+    expect(peerLabelUnderOpener(withAfterOpener(), does, label)).toEqual({ label, replaced: null })
   })
 
   it('when they share nothing the label is returned unchanged and nothing is replaced (control)', () => {
-    expect(peerLabelUnderOpener(inventedPeerBrief(), 'you run a software company', 'furniture makers and importers'))
+    expect(peerLabelUnderOpener(withAfterOpener(), 'you run a software company', 'furniture makers and importers'))
       .toEqual({ label: 'furniture makers and importers', replaced: null })
   })
 
@@ -485,37 +497,65 @@ describe('peerLabelUnderOpener: no word in two sentences in a row', () => {
     expect(peerLabelUnderOpener(plain, 'you run a software company', 'software makers')).toEqual({ label: 'software makers', replaced: null })
     expect(peerLabelUnderOpener(plain, 'you run an export house', null)).toEqual({ label: null, replaced: null })
     // The same two calls against the brief that has one (control): both are replaced.
-    expect(peerLabelUnderOpener(inventedPeerBrief(), 'you run a software company', 'software makers').replaced).toBe('software makers')
-    expect(peerLabelUnderOpener(inventedPeerBrief(), 'you run an export house', null).replaced).toBe('exporters')
+    expect(peerLabelUnderOpener(withAfterOpener(), 'you run a software company', 'software makers').replaced).toBe('software makers')
+    expect(peerLabelUnderOpener(withAfterOpener(), 'you run an export house', null).replaced).toBe('exporters')
   })
 
   it('PLANTED: an after-opener label of only spaces is no label: nothing is replaced', () => {
     // The validator refuses it. Composition reads a stored brief, and must not open a pain
     // line on nothing.
-    const brief = inventedPeerBrief()
+    const brief = withAfterOpener()
     brief.peer_group_default.after_opener = '   '
     expect(peerLabelUnderOpener(brief, 'you run a software company', 'software makers')).toEqual({ label: 'software makers', replaced: null })
   })
 
   it('PLANTED: a null label means the DEFAULT label is what is compared, and what is reported as replaced', () => {
     // A prospect in no peer group gets the default label, "exporters", in the pain line.
-    expect(peerLabelUnderOpener(inventedPeerBrief(), 'you run an export house', null))
+    expect(peerLabelUnderOpener(withAfterOpener(), 'you run an export house', null))
       .toEqual({ label: 'Firms like yours', replaced: 'exporters' })
   })
 
   it('a null label that shares nothing with the opener stays null: the caller still fills the default (control)', () => {
-    expect(peerLabelUnderOpener(inventedPeerBrief(), 'you run a software company', null)).toEqual({ label: null, replaced: null })
+    expect(peerLabelUnderOpener(withAfterOpener(), 'you run a software company', null)).toEqual({ label: null, replaced: null })
   })
 
   it('PLANTED: the after-opener label is returned without its outer spaces', () => {
-    const brief = inventedPeerBrief()
+    const brief = withAfterOpener()
     brief.peer_group_default.after_opener = '  Firms like yours '
     expect(peerLabelUnderOpener(brief, 'you run a software company', 'software makers').label).toBe('Firms like yours')
   })
 
   it('the brief is not changed by the call (control)', () => {
-    const brief = inventedPeerBrief()
+    const brief = withAfterOpener()
     peerLabelUnderOpener(brief, 'you run a software company', 'software makers')
-    expect(brief).toEqual(inventedPeerBrief())
+    expect(brief).toEqual(withAfterOpener())
+  })
+
+  it('the peer fixture as it stands gives no after-opener label, so the function never replaces on it (control)', () => {
+    expect(inventedPeerBrief().peer_group_default.after_opener).toBeUndefined()
+    expect(peerLabelUnderOpener(inventedPeerBrief(), 'you run a software company', 'software makers')).toEqual({ label: 'software makers', replaced: null })
+  })
+})
+
+// ── The client's colloquialisms (operator, 2026-10-03) ──
+//
+// Plain everyday phrases from the client's tone-of-voice document, which the copy may use
+// and the idiom list then lets through for that client alone (idiomsFor). Short phrases,
+// never sentences: a sentence here would be copy the brief writes for the writer.
+describe('validateOutboundBrief: colloquialisms', () => {
+  it('a brief with none, or with a short list, validates (control)', () => {
+    expect(problemsAfter(b => { delete b.colloquialisms })).toBe('')
+    expect(problemsAfter(b => { b.colloquialisms = [] })).toBe('')
+    expect(problemsAfter(b => { b.colloquialisms = ['no worries', 'a lot of', 'the right fit for you'] })).toBe('')
+  })
+  it.each<[string, unknown, string]>([
+    ['not a list', 'no worries', 'colloquialisms must be a list of short phrases'],
+    ['an empty entry', ['no worries', '  '], 'colloquialisms: every entry is a non-empty phrase'],
+    ['an entry that is not text', [5], 'colloquialisms: every entry is a non-empty phrase'],
+    ['an entry of six words', ['the right fit for you today'], 'colloquialisms: "the right fit for you today" is a phrase of up to five words, not a sentence'],
+    ['an entry with a full stop', ['no worries.'], 'colloquialisms: "no worries." is a phrase of up to five words, not a sentence'],
+    ['an entry that is a question', ['all good?'], 'colloquialisms: "all good?" is a phrase of up to five words, not a sentence'],
+  ])('PLANTED: colloquialisms that is %s is refused', (_name, value, expected) => {
+    expect(problemsAfter(b => { (b as { colloquialisms?: unknown }).colloquialisms = value })).toBe(expected)
   })
 })

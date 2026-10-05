@@ -84,7 +84,7 @@ import {
   templateRunCostUsd,
 } from '../src/agents/outbound-template-agent'
 import { parseCapUsd } from '../src/lib/operator/run-spend'
-import { readBrief, validateOutboundBrief, type OutboundBrief } from '../src/lib/outbound-brief/brief'
+import { readBrief, validateOutboundBrief, quotesNotFound, documentText, CLIENT_DOCUMENT_TYPES, type OutboundBrief, type ClientDocumentType } from '../src/lib/outbound-brief/brief'
 import type { VariantLines } from '../src/lib/outbound-templates/template-shape'
 
 /** A flag's value. A flag given with nothing after it, or with another flag after it, is refused: it is not "absent". */
@@ -181,10 +181,29 @@ async function pendingMessagingSuggestion(supabase: SupabaseClient, orgId: strin
 // honest label for the version this becomes.
 const BRIEF_NOTE_PREFIX = 'Outbound brief v'
 
+/**
+ * FIX 2 OF READING FILE 7: every consequence and offer link the brief cites must be in the
+ * client's own document, word for word. Read from the ACTIVE documents of this organisation.
+ * Refuses on any quote not found, before a brief lands and before anything is generated.
+ */
+async function assertQuotesInDocuments(supabase: SupabaseClient, orgId: string, brief: OutboundBrief) {
+  const documents: Partial<Record<ClientDocumentType, string>> = {}
+  for (const type of CLIENT_DOCUMENT_TYPES) {
+    const { data, error } = await supabase.from('strategy_documents')
+      .select('content').eq('organisation_id', orgId).eq('document_type', type).eq('status', 'active').is('segment_id', null)
+      .order('updated_at', { ascending: false }).limit(1).maybeSingle()
+    if (error) throw new Error(`could not read the ${type} document: ${error.message}`)
+    if (data) documents[type] = documentText(data.content)
+  }
+  const missing = quotesNotFound(brief, documents)
+  if (missing.length > 0) throw new Error(`the brief cites passages the client's documents do not contain:\n- ${missing.join('\n- ')}`)
+}
+
 async function landBrief(supabase: SupabaseClient, orgId: string, briefPath: string) {
   const brief = JSON.parse(fs.readFileSync(briefPath, 'utf-8')) as OutboundBrief
   const problems = validateOutboundBrief(brief)
   if (problems.length > 0) throw new Error(`brief is not valid:\n- ${problems.join('\n- ')}`)
+  await assertQuotesInDocuments(supabase, orgId, brief)
   if (await pendingMessagingSuggestion(supabase, orgId)) {
     throw new Error('a messaging suggestion is already pending for this organisation; approve or reject it first')
   }
@@ -233,6 +252,7 @@ async function generate(supabase: SupabaseClient, orgId: string, outPath: string
       : `no outbound_brief in the ${briefPath ? '--brief file' : 'pending suggestion'}`)
   }
   const brief = read.brief
+  await assertQuotesInDocuments(supabase, orgId, brief)
 
   const { maxUsd } = flags
   const signoff = await fetchSenderSignoff(supabase, orgId)

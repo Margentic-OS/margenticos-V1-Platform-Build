@@ -38,13 +38,16 @@
 //                          trigger the opening would rest on.
 //   no_trigger_matched     the selected fact matched none of the client's triggers.
 //   trigger_has_no_reason  it matched one whose reason was never written.
+//   outside_definition     (set by produce-opening, 2026-10-03) the matched trigger carries
+//                          a definition and the selected fact is not within it, or the
+//                          reading could not be used. See trigger-definition.ts.
 //   not_checked            the client has no trigger carrying a reason at all, or the
 //                          caller supplied no list. The rule cannot be applied, and is not:
 //                          withholding every opening from a client because their ICP
 //                          predates the reason field would be a pipeline stop for a missing
 //                          input.
 //
-// The three middle states HOLD personalisation: no opening is written, and the prospect
+// The middle states HOLD personalisation: no opening is written, and the prospect
 // goes down the ladder to a line about what their firm does, or to the template. A
 // personalised opening with no approved implication behind it is a fact followed by a
 // guess.
@@ -55,17 +58,39 @@ import type { ObservationCandidate } from './types'
 export interface TriggerWithReason {
   trigger: string
   reason: string
+  /**
+   * WHAT COUNTS AS THIS EVENT AND WHAT DOES NOT, in the client's words (added 2026-10-03).
+   * Plain sentences, approved with the ICP like the reason.
+   *
+   * WHY. A trigger is a short line, and a short line is read generously. "A job is posted
+   * for a delivery or client-facing role" fired on a blog post introducing a new team
+   * member whose role nobody checked, and on a marketing hire, which is not a delivery hire.
+   * The reason said what the event means; nothing said what the event IS. See
+   * trigger-definition.ts for the check that reads a fact against it.
+   *
+   * ABSENT MEANS TODAY'S BEHAVIOUR EXACTLY: no check, no call, no cost. Loaders add the key
+   * only when the document carries a non-empty definition.
+   */
+  definition?: string
 }
 
 export type ApprovedReason =
-  | { state: 'approved'; reason: string; trigger: string; triggerIndex: number }
+  | { state: 'approved'; reason: string; trigger: string; triggerIndex: number; definition?: string }
   | { state: 'no_selection' }
   | { state: 'no_trigger_matched' }
   | { state: 'trigger_has_no_reason'; triggerIndex: number }
   | { state: 'not_checked'; why: 'no_trigger_list' | 'no_trigger_has_a_reason' }
+  /**
+   * The fact matched a trigger with an approved reason, and that trigger's definition was
+   * read against it: the fact is outside it ('outside'), or the reading could not be used
+   * ('unusable', which holds too: an unchecked fact is the thing this state exists to stop).
+   * `why` is the model's own sentence, or what went wrong with the reading. Never returned
+   * by resolveApprovedReason, which is deterministic; set by produce-opening after the check.
+   */
+  | { state: 'outside_definition'; trigger: string; triggerIndex: number; verdict: 'outside' | 'unusable'; why: string }
 
 /** The states that hold personalisation. One list, read by the gate and by its tests. */
-export const HOLDING_STATES = ['no_selection', 'no_trigger_matched', 'trigger_has_no_reason'] as const
+export const HOLDING_STATES = ['no_selection', 'no_trigger_matched', 'trigger_has_no_reason', 'outside_definition'] as const
 export type HoldingState = (typeof HOLDING_STATES)[number]
 
 export function holdsPersonalisation(approved: ApprovedReason): approved is Extract<ApprovedReason, { state: HoldingState }> {
@@ -130,7 +155,12 @@ export function resolveApprovedReason(
   const trigger = triggers[index - 1]
   const reason = typeof trigger.reason === 'string' ? trigger.reason.trim() : ''
   if (!reason) return { state: 'trigger_has_no_reason', triggerIndex: index }
-  return { state: 'approved', reason, trigger: trigger.trigger, triggerIndex: index }
+  // THE DEFINITION TRAVELS WITH THE MATCH, and only when there is one. No key at all
+  // otherwise, so a client without definitions resolves to exactly what it did before.
+  const definition = typeof trigger.definition === 'string' ? trigger.definition.trim() : ''
+  return definition
+    ? { state: 'approved', reason, trigger: trigger.trigger, triggerIndex: index, definition }
+    : { state: 'approved', reason, trigger: trigger.trigger, triggerIndex: index }
 }
 
 /**

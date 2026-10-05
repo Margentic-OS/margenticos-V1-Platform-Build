@@ -232,6 +232,7 @@ friday hour january july june march may midnight moment monday month monthly mor
 night november october quarter quarterly saturday season september spring summer sunday
 thursday today tomorrow tonight tuesday today wednesday week weekday weekend weekly
 winter year yearly yesterday
+jan feb mar apr jun jul aug sep sept oct nov dec
 
 billion couple dozen eight eighteen eighty eleven fifteen fifty first five forty four
 fourteen fourth half hundred million nine nineteen ninety once one second seven

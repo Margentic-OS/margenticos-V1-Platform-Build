@@ -111,7 +111,7 @@ async function testA(): Promise<void> {
 
     // Email 2 from compose must match the same variant's email 2 from the primary doc verbatim.
     // (applyPersonalization never touches emails 2-4)
-    const assignedVariantEmail2 = primaryVariants?.[result.variant_id]?.emails
+    const assignedVariantEmail2 = (result.variant_id ? primaryVariants?.[result.variant_id] : undefined)?.emails
       ?.find(e => e.sequence_position === 2)?.body
     if (assignedVariantEmail2) {
       assert(

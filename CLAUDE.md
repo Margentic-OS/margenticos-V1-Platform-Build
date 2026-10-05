@@ -819,6 +819,12 @@ Per ADR-013, current agent model assignments:
   Composition (bridge sentence):                       NONE. Composition makes zero model
                                                        calls. BRIDGE_ENABLED has been false
                                                        since 5047e24 (2026-08-19).
+  Sequence writer v2 (whole four-email sequence):      claude-sonnet-4-6
+                                                       The production research writer's model,
+                                                       no extended thinking. Only for clients
+                                                       with sequence_writer_v2_enabled. One call
+                                                       per prospect, one retry per tier, so two
+                                                       to four calls at most. See ADR-068.
   Signal processing, batch tasks:                      claude-haiku-4-5-20251001
   Reply handling (positive reply classification):      claude-haiku-4-5-20251001
   Claude Code itself (build, debug, refactor):         claude-sonnet-4-6
@@ -998,10 +1004,24 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      ending: plan/planning, hard/harder), checked on every wording, on the
                      follow-ups and on the email a firm-fact prospect receives, and held
                      again at composition between the opener and the sentence under it;
-                     "Could" asks a person, a thing takes "Would" (ask_could); {peer_group}
-                     only in the Email 1 pain line; at least one opener frame does not name
-                     the site (frame_site_free). The scope judge also names unnatural
-                     phrasing. See src/lib/style/repetition.ts and docs/firm-fact-tier.md.
+                     "Could" asks a person, a thing takes "Would" (ask_could); at least one
+                     opener frame does not name the site (frame_site_free). The scope judge
+                     also names unnatural phrasing. See src/lib/style/repetition.ts and
+                     docs/firm-fact-tier.md.
+                     AFTER READING FILE 6, 2026-10-03, ALL UNIVERSAL (ADR-067): the Email 1
+                     pain names a conversational source with {peer_group} mid-sentence
+                     ("When we chat to {peer_group}, a lot of them tell us ...";
+                     peer_group_source), and a FACELESS source ("Firms like yours", "Many
+                     firms", "Some firms") is refused in every line (findFacelessSource).
+                     The offer is led in by "If {company} is seeing this too," (lead_in;
+                     slot-free "If you're seeing this too,"), never by an assertion about
+                     the firm. The scope judge also asks whether the consequence follows
+                     from the pain, whether each question matches its email, and whether an
+                     offer implies the reader already has the outcome. {peer_group} may now
+                     appear in follow-ups too. Words a brief lists as the client's own
+                     colloquialisms are exempt from the idiom list. after_opener is
+                     withdrawn and ignored. The filled reading grade masks the peer label
+                     (the reader's own trade name), at generation and at composition.
                      ELEVEN MORE RULES were added on 2026-10-01 from the operator's read of
                      the first reading file (consequences as possibilities, no manual-task
                      wording, the question in its own paragraph, proof once per sequence and
@@ -1115,7 +1135,15 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      referrals?" is allowed and is the better sentence anyway: a question
                      invites a correction, where a statement invites a reply that opens
                      with one. Reported by the copy reviewer as guess_about_their_clients.
-                     The same rule is stated to the messaging agent; change both together.
+                     ASKED IS FINE; STATED IS NOT. Confirmed by the operator 2026-10-04. A
+                     question is allowed even when introduced by what other founders tell
+                     us ("A lot of founders tell us most new work still comes through
+                     referrals. Is that true for you?"): the sentence about the reader is
+                     the question. Stated as a claim about the reader, or about firms like
+                     theirs ("most firms like yours grow on referrals"), is not, whether or
+                     not it is framed as something we hear.
+                     The same rule is stated to the messaging agent and to writer v2
+                     (src/lib/writer-v2/prompt.ts, rule 5); change all three together.
 
 Word counts include the {{first_name}} line and BOTH sign-off lines, and exclude the
 opt-out footer. word_count and subject_char_count are RECOMPUTED by the agent from the body
@@ -1269,6 +1297,14 @@ Out-of-office:
 Opt-out footer in all outbound emails:
   "Not for you? Just reply stop."
   Never use the word "unsubscribe."
+
+  PER CLIENT FOR WRITER V2 (2026-10-04, ADR-068): a client on writer v2 may set its own
+  footer as playbook text (content.writer_playbook.opt_out_footer). Composition then appends
+  that text instead, to every email of that client, in all three tiers. It is validated as a
+  notice: one line, never "unsubscribe", no dashes. MargenticOS: "Not the right time? Just
+  reply 'no thanks' and I won't email again." The reply classifier names "no thanks" as an
+  opt-out, so that promise holds. The provider's List-Unsubscribe header is a campaign
+  setting and stays on regardless.
 
   Applied at COMPOSITION time, never at document generation time.
   Single source of truth: src/lib/composition/opt-out-footer.ts
@@ -2243,6 +2279,19 @@ For quick reference. Full text in /docs/ADR.md.
            EVERY OPENING WRITTEN BEFORE THE RULE IS HELD until its research is run again;
            the follow-up backfill cannot release it. The trigger reasons come through a
            checked read: a failed read stops the upload, never "no reasons"
+  ADR-066  PROPOSED, NOT BUILT: email copy assembled in code from approved building blocks
+  ADR-067  After reading file 6: the template generator's rules are universal (named
+           conversational source, lead-in before the offer, consequence follows, question
+           matches); each ICP trigger can carry a written definition and a chosen event
+           outside it is held (outside_definition); a personalised follow-up's claims about
+           the sender are checked against the brief's scope; and an operator can HOLD a
+           client's uploads (organisations.outbound_upload_hold), which handleUploadLeads
+           refuses while on. An unreadable hold counts as a hold. Only Doug lifts it
+  ADR-068  Writer v2: one call writes the whole sequence from a playbook stored in the
+           messaging document, behind organisations.sequence_writer_v2_enabled. Three tiers
+           (personalised, semi-personalised, template), one retry each, only three checks
+           (word counts, truth, sender scope). The old path stays for every client with the
+           switch off. See docs/writer-v2.md
 
 ---
 

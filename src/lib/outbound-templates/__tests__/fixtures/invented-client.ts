@@ -35,9 +35,9 @@ export function inventedBrief(): OutboundBrief {
     confirmed_at: '2026-09-30T00:00:00Z',
     unconfirmed_items: [],
     pain_angles: [
-      { id: 'PA1', rank: 1, outcome: 'lost deals', statement: 'Buyers abroad leave pages they cannot read.', symptom: 'Buyers abroad leave the site.', consequence: 'Sales abroad can stall.', reach: 'most_buyers', resolved_by: ['O3', 'O1'], source: 'invented' },
-      { id: 'PA2', rank: 2, outcome: 'stalled growth', statement: 'A new market grows slower than planned while the pages wait.', symptom: 'A new market grows slower than planned.', consequence: 'Growth plans can slip.', reach: 'most_buyers', resolved_by: ['O1', 'O2'], source: 'invented' },
-      { id: 'PA3', rank: 3, outcome: 'lost deals', statement: 'Free tools leave errors buyers notice.', symptom: 'Buyers notice errors in translated pages.', consequence: 'Trust can drop.', reach: 'some_buyers', resolved_by: ['O1'], source: 'invented' },
+      { id: 'PA1', rank: 1, outcome: 'lost deals', statement: 'Buyers abroad leave pages they cannot read.', symptom: 'Buyers abroad leave the site.', consequence: 'Sales abroad can stall.', reach: 'most_buyers', resolved_by: ['O3', 'O1'], consequence_support: { source: 'positioning.invented_pains[0]', quote: 'invented passage for PA1 consequence' }, link_support: { source: 'positioning.invented_value[0]', quote: 'invented passage for PA1 offer link' }, source: 'invented' },
+      { id: 'PA2', rank: 2, outcome: 'stalled growth', statement: 'A new market grows slower than planned while the pages wait.', symptom: 'A new market grows slower than planned.', consequence: 'Growth plans can slip.', reach: 'most_buyers', resolved_by: ['O1', 'O2'], consequence_support: { source: 'positioning.invented_pains[1]', quote: 'invented passage for PA2 consequence' }, link_support: { source: 'positioning.invented_value[1]', quote: 'invented passage for PA2 offer link' }, source: 'invented' },
+      { id: 'PA3', rank: 3, outcome: 'lost deals', statement: 'Free tools leave errors buyers notice.', symptom: 'Buyers notice errors in translated pages.', consequence: 'Trust can drop.', reach: 'some_buyers', resolved_by: ['O1'], consequence_support: { source: 'positioning.invented_pains[2]', quote: 'invented passage for PA3 consequence' }, link_support: { source: 'positioning.invented_value[2]', quote: 'invented passage for PA3 offer link' }, source: 'invented' },
       { id: 'PA4', rank: 4, outcome: 'stalled growth', statement: 'A past translation supplier missed its dates.', symptom: 'A past supplier was late.', consequence: 'Launches can slip.', reach: 'some_buyers', conflicts_with: ['X2'], resolved_by: [], source: 'invented' },
     ],
     outcomes: [
@@ -89,7 +89,7 @@ export function inventedBrief(): OutboundBrief {
 export const INVENTED_OPENER_FRAMES = ['Your site says {does}.', 'From your site, {does}.']
 
 const plain = (text: string, from: string[], kind?: TemplateLine['kind']): TemplateLine =>
-  ({ text, slots: [], slot_free: null, from, ...(kind ? { kind } : {}) })
+  ({ text, slots: text.includes('{peer_group}') ? ['peer_group'] : [], slot_free: null, from, ...(kind ? { kind } : {}) })
 
 /** A follow-up paragraph that names the reader's firm, with the form a prospect with no usable name receives. */
 const named = (text: string, slotFree: string, from: string[], kind: TemplateLine['kind']): TemplateLine =>
@@ -106,9 +106,9 @@ export function inventedVariants(): Record<string, VariantLines> {
           alt: { text: 'pages buyers abroad can read', slots: [], slot_free: null, from: ['PA1'] },
         },
         pain: {
-          text: '{peer_group} often tell us buyers abroad leave too soon. As a result, sales can stall.',
+          text: 'When we chat to {peer_group}, a lot of them say buyers abroad leave too soon. So sales can stall.',
           slots: ['peer_group'], slot_free: null, from: ['PA1'],
-          alt: { text: "{peer_group} say buyers in new places often leave pages they can't read. So deals can be lost.", slots: ['peer_group'], slot_free: null, from: ['PA1'] },
+          alt: { text: "Talking to {peer_group}, we hear that buyers leave pages they can't read. So deals can be lost.", slots: ['peer_group'], slot_free: null, from: ['PA1'] },
         },
         offer: {
           text: 'We translate your pages and a native speaker checks each one, so {for_whom} abroad can read your site.',
@@ -122,16 +122,17 @@ export function inventedVariants(): Record<string, VariantLines> {
           text: 'Is losing orders from other countries a problem right now?', slots: [], slot_free: null, from: ['PA1'],
           alt: { text: 'Do people from overseas give up before they order?', slots: [], slot_free: null, from: ['PA1'] },
         },
+        lead_in: { text: 'If {company} is seeing this too,', slots: ['company'], slot_free: "If you're seeing this too,", from: ['PA1'] },
         offer_angle: 'buyers abroad leave pages they cannot read',
       },
       followups: [
         { position: 2, angle: 'PA2', paragraphs: [
-          plain('Exporters often tell us a new market starts slower than they hoped it would.', ['PA2'], 'pain'),
+          plain('In our chats with {peer_group}, a lot of them say a new market starts slower than hoped.', ['PA2'], 'pain'),
           plain('So growth plans can slip, and the launch can cost more than it should.', ['PA2'], 'pain'),
           named('Does that match what {company} sees?', 'Does that match what you see?', ['PA2'], 'ask'),
         ] },
         { position: 3, angle: 'PA3', paragraphs: [
-          plain('Some firms tried free tools first and buyers noticed the errors.', ['PA3', 'T1'], 'pain'),
+          plain('From what {peer_group} tell us, free tools came first and buyers noticed the errors.', ['PA3', 'T1'], 'pain'),
           named(
             'We translate the pages your team sends most, so people overseas can read what {company} sells.',
             'We translate the pages your team sends most, so people overseas can read what you sell.',
@@ -150,9 +151,9 @@ export function inventedVariants(): Record<string, VariantLines> {
         angle: 'PA2',
         subject: { text: 'new markets', slots: [], slot_free: null, from: ['PA2'] },
         pain: {
-          text: '{peer_group} often tell us a new market is slow to pick up. So growth plans can slip.',
+          text: 'When we chat to {peer_group}, many of them say a new market is slow to pick up. So growth plans can slip.',
           slots: ['peer_group'], slot_free: null, from: ['PA2'],
-          alt: { text: '{peer_group} say sales in a new country often start slower than planned. As a result, growth can stall.', slots: ['peer_group'], slot_free: null, from: ['PA2'] },
+          alt: { text: 'Talking to {peer_group}, we hear that sales in a new country often start slower than planned. As a result, growth can stall.', slots: ['peer_group'], slot_free: null, from: ['PA2'] },
         },
         offer: {
           text: 'We turn your key pages into the words {for_whom} use, so more of your site gets read.',
@@ -166,11 +167,12 @@ export function inventedVariants(): Record<string, VariantLines> {
           text: 'Is slow growth in a new country something you want to fix?', slots: [], slot_free: null, from: ['PA2'],
           alt: { text: 'Would faster sales in a new region help you?', slots: [], slot_free: null, from: ['PA2'] },
         },
+        lead_in: { text: 'If {company} sees this too,', slots: ['company'], slot_free: 'If you see this too,', from: ['PA2'] },
         offer_angle: null,
       },
       followups: [
         { position: 2, angle: 'PA3', paragraphs: [
-          plain('Some firms tried free tools first to save money.', ['PA3', 'T1'], 'pain'),
+          plain('In our chats with {peer_group}, a few say they tried free tools first to save money.', ['PA3', 'T1'], 'pain'),
           plain('Then buyers often noticed the errors and trusted the pages less than before.', ['PA3'], 'pain'),
           named('Is that something {company} has seen on its own site?', 'Is that something you have seen with your own site?', ['PA3'], 'ask'),
         ] },
@@ -205,6 +207,6 @@ export function inventedPeerBrief(): OutboundBrief {
     { id: 'PG1', label: 'software makers', industry: 'Software Publishers', kind: 'a software company', source: 'invented' },
     { id: 'PG2', label: 'furniture makers and importers', industry: 'Furniture Manufacturing', source: 'invented' },
   ]
-  brief.peer_group_default = { label: 'exporters', after_opener: 'Firms like yours', source: 'invented' }
+  brief.peer_group_default = { label: 'exporters', source: 'invented' }
   return brief
 }

@@ -20,6 +20,9 @@ import { OPT_OUT_FOOTER, OPT_OUT_FOOTER_MARGIN_PX } from './opt-out-footer'
 export function composedToVariables(
   emails: ComposedEmail[],
   firstName: string | null,
+  /** The footer composition appended (ComposedSequence.opt_out_footer). Defaults to the
+   *  standard one, which is what every old-path sequence carries. */
+  optOutFooter: string = OPT_OUT_FOOTER,
 ): Record<string, string> {
   const name = firstName ?? ''
   const vars: Record<string, string> = {}
@@ -30,7 +33,7 @@ export function composedToVariables(
 
     // Substitute {{first_name}} with the actual name before HTML encoding.
     const resolvedBody = email.body.replace(/\{\{first_name\}\}/g, name)
-    vars[`m_body_${n}`] = plainTextToHtml(resolvedBody)
+    vars[`m_body_${n}`] = plainTextToHtml(resolvedBody, optOutFooter)
   }
 
   return vars
@@ -73,7 +76,7 @@ export function assertCompleteVariables(
 // sign-off and reads as a notice. Blank paragraphs are filtered out by the line below,
 // so that separation cannot be expressed as extra newlines in the body text: it has to
 // be carried on the footer paragraph itself.
-export function plainTextToHtml(text: string): string {
+export function plainTextToHtml(text: string, optOutFooter: string = OPT_OUT_FOOTER): string {
   return text
     .split('\n\n')
     .filter(p => p.trim().length > 0)
@@ -85,7 +88,7 @@ export function plainTextToHtml(text: string): string {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
 
-      if (trimmed === OPT_OUT_FOOTER) {
+      if (trimmed === optOutFooter) {
         return `<p style="margin-top:${OPT_OUT_FOOTER_MARGIN_PX}px">${escaped}</p>`
       }
 

@@ -22,12 +22,22 @@
 // languages, the missing demonyms (with a test pairing every listed country to one), the
 // one form trade words are compared in, and a comma-joined list of trades.
 //
-// A REMAINDER IS DISTINCTIVE WHEN ONE WORD IN IT IS: three characters or more, and not a
-// place, a nationality, a weekday, a month, a common English word, one of the calling
-// client's generic words or one of the firm's own trade words, and not inside a run of
-// words that is a place. A hyphenated word is one when one of its parts is. "Kessel", "Marlow",
-// "Vantor" and "Northtown" are on no list, and a control at the foot of this file holds
-// that true.
+// THE SIXTH READING, 2026-10-03, CHANGED MORE THAN ANY ROUND BEFORE IT, each marked CHANGED
+// BY THE SIXTH READING with the old expectation. The operator: "short names drop trailing
+// descriptors and initialisms; places and trade words keep the full name". A COMMON ENGLISH
+// WORD NO LONGER BLOCKS a short name, so every case that kept its full name only because
+// what was left was ordinary words ("Orchard Group", "Real Estate Advisors", "Quiet
+// Harbour Group", "Los Angeles Tax Advisors") is now said by what is left. A trailing
+// initialism comes off ("Quillon HCM Consulting Group" is "Quillon"), and so do the firm's
+// own trade words ("Kessel Logistics Group" with logistics on its record is "Kessel"). The
+// operator's own three examples are real prospects' names, so the cases here are invented
+// names of the same three shapes.
+//
+// A REMAINDER IS SAID WHEN ONE WORD IN IT NAMES SOMETHING: three characters or more, and
+// not a place, a nationality, a weekday, a month, one of the calling client's generic words
+// or one of the firm's own trade words, and not inside a run of words that is a place. A
+// hyphenated word is one when one of its parts is. "Kessel", "Marlow", "Vantor" and
+// "Northtown" are on no list, and a control at the foot of this file holds that true.
 
 import { describe, it, expect } from 'vitest'
 import { companyShortName, firmTradeWords, COMPANY_SHORT_NAME_MAX_CHARS } from '../company-short-name'
@@ -58,11 +68,10 @@ describe('companyShortName', () => {
     // else, and "Brightwater" alone is neither a place nor a common word.
     ['Brightwater Holdings Co., Ltd.', 'Brightwater'],
     ['Kessel GmbH', 'Kessel'],
-    // Unchanged, and now for a reason: "Group" would go, but "orchard" is a common word,
-    // so the full name is what points at this firm.
-    ['the Orchard Group', 'Orchard Group'],
+    // CHANGED BY THE SIXTH READING, was "Orchard Group": a common word no longer keeps the
+    // full name.
+    ['the Orchard Group', 'Orchard'],
     ['Rêve Atelier', 'Rêve Atelier'],
-    // A surname that is not also a common word. "Smith and Co" is, and is "your firm": see below.
     ['Kessel and Co', 'Kessel'],
     // CHANGED, was "Northtown Consulting" under "a market's own word stays". "Consulting"
     // is now one of the service words that come off in every market.
@@ -139,7 +148,7 @@ describe('companyShortName', () => {
 
   describe('a firm named after the reader', () => {
     const jane = { firstName: 'Jane', lastName: 'Marlow' }
-    it.each(['Jane Marlow Ltd', 'Dr. Jane Marlow', 'Dr Jane Marlow', 'Jane Marlow PhD', 'Marlow Ltd', 'The Jane Marlow Company'])(
+    it.each(['Jane Marlow Ltd', 'Dr. Jane Marlow', 'Dr Jane Marlow', 'Jane Marlow PhD', 'The Jane Marlow Company'])(
       'PLANTED: "%s" is not written back to Jane Marlow in the third person', stored => {
         expect(companyShortName(stored, NONE, jane)).toBeNull()
       })
@@ -151,9 +160,19 @@ describe('companyShortName', () => {
       expect(companyShortName('Jane Marlow Ltd', NONE)).toBe('Jane Marlow')
       expect(companyShortName('Jane Marlow Ltd', NONE, { firstName: 'Tom', lastName: 'Kessel' })).toBe('Jane Marlow')
     })
-    it('PLANTED: a remainder that is the reader\'s own name is not said, and the full name is', () => {
-      // One word left, and it is the reader's surname: titles ignored, first or last.
-      expect(companyShortName('Marlow Consulting', NONE, { lastName: 'Marlow' })).toBe('Marlow Consulting')
+    it('READING FILE 7: the reader\'s surname alone is said, with an entity word that follows it', () => {
+      // The operator's two examples were real firms named after their reader; these are
+      // invented names of the same shapes.
+      expect(companyShortName('Marlow Consulting', NONE, { lastName: 'Marlow' })).toBe('Marlow')
+      expect(companyShortName('Marlow Consulting', NONE, jane)).toBe('Marlow')
+      expect(companyShortName('Marlow Group Consulting', NONE, jane)).toBe('Marlow Group')
+      expect(companyShortName('Marlow Partners Advisory LLC', NONE, jane)).toBe('Marlow Partners')
+      expect(companyShortName('Marlow Ltd', NONE, jane)).toBe('Marlow')
+      // Control: to anybody else the entity word goes as before.
+      expect(companyShortName('Marlow Group Consulting', NONE, { firstName: 'Tom', lastName: 'Kessel' })).toBe('Marlow')
+    })
+    it('PLANTED: a remainder that is the reader as a PERSON is not said, and the full name is', () => {
+      // One word left, and it is the reader's first name.
       expect(companyShortName('Jane Advisory Ltd', NONE, { firstName: 'Jane' })).toBe('Jane Advisory')
       // Two words left, and they are the reader.
       expect(companyShortName('Jane Marlow Group', NONE, jane)).toBe('Jane Marlow Group')
@@ -305,15 +324,53 @@ describe('companyShortName: trailing generic business words', () => {
     // Without the "a word is left in front of it" condition "Tax" would go, nothing would
     // be left, and the firm would become "your firm".
     expect(companyShortName('Tax & Advisory Ltd', NONE)).toBe('Tax & Advisory')
+    // THE SIXTH READING: a common word no longer blocks a short name, but "Tax" here is not
+    // a name left over. It is the trade joined to the service word, and a trade keeps the
+    // full name. "so Tax can win the right clients" is the sentence this holds off.
+    expect(companyShortName('Tax, Audit & Advisory', NONE)).toBeNull()
   })
 
   it.each([
-    ['Summit Consulting'],
-    ['Lantern Consulting Group'],
-    ['Bridge Partners'],
-    ['Beacon Advisory Services'],
-  ])('PLANTED: a remainder that is a common word keeps the full name ("%s")', stored => {
-    expect(companyShortName(stored, NONE)).toBe(stored)
+    // CHANGED BY THE SIXTH READING. Each kept its full name because what was left is a
+    // common word. The operator: "short names drop trailing descriptors". The first stands
+    // in for his own example of this shape, which is a real firm's name.
+    ['Harbour Consulting', 'Harbour'],
+    ['Lantern Consulting Group', 'Lantern'],
+    ['Bridge Partners', 'Bridge'],
+    ['Beacon Advisory Services', 'Beacon'],
+    ['Amber Ridge Consulting', 'Amber Ridge'],
+    ['Bright Meadow Consulting', 'Bright Meadow'],
+  ])('PLANTED: a remainder of common words is said ("%s" is "%s")', (stored, said) => {
+    expect(companyShortName(stored, NONE)).toBe(said)
+  })
+
+  it.each([
+    // THE SIXTH READING: a trailing initialism comes off, as a descriptor does. Invented,
+    // in the shape of the operator's own example.
+    ['Quillon HCM Consulting Group', 'Quillon'],
+    ['Kessel HR Ltd', 'Kessel'],
+    ['Amber Ridge CX Advisors', 'Amber Ridge'],
+    ['Kessel UK', 'Kessel'],
+    // A name that IS an initialism keeps its capitals: there is nothing in front of it.
+    ['The QTX Company', 'QTX'],
+    ['QTX Group', 'QTX'],
+  ])('PLANTED: a trailing initialism comes off ("%s" is "%s")', (stored, said) => {
+    expect(companyShortName(stored, NONE)).toBe(said)
+  })
+  it('an initialism that is not trailing, joined by "&", mixed case or with a digit stays (control)', () => {
+    expect(companyShortName('JB Kessel Advisory', NONE)).toBe('JB Kessel')
+    expect(companyShortName('Marlow & KMR Consulting', NONE)).toBe('Marlow & KMR')
+    expect(companyShortName('Kessel SaaS Consulting', NONE)).toBe('Kessel SaaS')
+    expect(companyShortName('Kessel B2B Consulting', NONE)).toBe('Kessel B2B')
+    // Six capitals is a word typed in capitals, not an initialism.
+    expect(companyShortName('Kessel NORTHX Consulting', NONE)).toBe('Kessel NORTHX')
+  })
+  it('PLANTED: what an initialism leaves is held to the same refusals', () => {
+    // "Denver" is a place: the full name is said.
+    expect(companyShortName('Denver HCM Consulting', NONE)).toBe('Denver HCM Consulting')
+    expect(companyShortName('Denver HCM Ltd', NONE)).toBe('Denver HCM')
+    // Control: with no initialism, a place alone is "your firm".
+    expect(companyShortName('Denver Ltd', NONE)).toBeNull()
   })
 
   it.each([
@@ -332,6 +389,10 @@ describe('companyShortName: trailing generic business words', () => {
 
   it('a place that is only part of the remainder does not hold it back (control)', () => {
     expect(companyShortName('Kessel Denver Consulting', NONE)).toBe('Kessel Denver')
+  })
+  it('PLANTED: a one-word place keeps the full name and alone is "your firm", under the sixth reading too', () => {
+    expect(companyShortName('Denver Consulting', NONE)).toBe('Denver Consulting')
+    expect(companyShortName('Denver', NONE)).toBeNull()
   })
 
   it('PLANTED: a remainder under three characters keeps the full name', () => {
@@ -356,41 +417,56 @@ describe('companyShortName: trailing generic business words', () => {
   // more was a name, so a bare trade phrase and a bare region went out as the firm:
   // "so Human Resources can win the right clients", "Does that match what North Texas sees?".
   it.each([
-    // A trade said in two or three words, and nothing else.
-    ['Real Estate Advisors'],
-    ['Human Resources Consulting'],
-    ['Supply Chain Solutions'],
-    ['Health and Safety Consultants'],
-    // A word under three letters is on no list, and is not what makes a name: "IT" here.
-    ['IT Support Solutions'],
-    // A region: a compass word and a place, or two ordinary words.
+    // A region: a compass word and a place, or a listed region of two words.
     ['North Texas Advisors'],
     ['Greater Boston Consulting'],
     ['Twin Cities Advisors'],
     ['Thames Valley Advisors'],
-    // A place and a common word, which together are not a place.
-    ['Denver Tax Advisors'],
-    // CHANGED BY THE REVIEW, was "Quiet Harbour": every word of the remainder is a common
-    // word, and code cannot tell this from "Real Estate". The full name is never wrong.
-    ['Quiet Harbour Group'],
-  ])('PLANTED: a remainder of several words, not one of them distinctive, keeps the full name ("%s")', stored => {
+  ])('PLANTED: a remainder of several words that is a place keeps the full name ("%s")', stored => {
     expect(companyShortName(stored, NONE)).toBe(stored)
   })
 
-  it('PLANTED: the calling client\'s generic word is not the distinctive word of a remainder either', () => {
-    expect(companyShortName('Haulage Freight Consulting', CLIENT)).toBe('Haulage Freight Consulting')
-    // Control: for a client with no such word, "Haulage" is on neither list and makes it a name.
-    expect(companyShortName('Haulage Freight Consulting', NONE)).toBe('Haulage Freight')
+  it.each([
+    // CHANGED BY THE SIXTH READING, each was the full name: every word of what is left is a
+    // common word, or a place beside one, and a common word no longer keeps the full name.
+    // THE KNOWN COST, accepted with the operator's rule: a trade said in ordinary words is
+    // said alone unless the firm's own record names it (see the trade-word tests below).
+    ['Real Estate Advisors', 'Real Estate'],
+    ['Human Resources Consulting', 'Human Resources'],
+    ['Supply Chain Solutions', 'Supply Chain'],
+    ['Health and Safety Consultants', 'Health and Safety'],
+    ['IT Support Solutions', 'IT Support'],
+    ['Denver Tax Advisors', 'Denver Tax'],
+    ['Quiet Harbour Group', 'Quiet Harbour'],
+  ])('PLANTED: a remainder of common words, or of a place and a common word, is said ("%s" is "%s")', (stored, said) => {
+    expect(companyShortName(stored, NONE)).toBe(said)
+  })
+  it('PLANTED: the same trade said in ordinary words keeps the full name when the firm\'s record names it', () => {
+    expect(companyShortName('Real Estate Advisors', NONE, {}, firmTradeWords('Real Estate', null))).toBe('Real Estate Advisors')
+    expect(companyShortName('Human Resources Consulting', NONE, {}, firmTradeWords('Human Resources', []))).toBe('Human Resources Consulting')
   })
 
-  it('PLANTED: a full name over the cap is "your firm" when its remainder is not distinctive', () => {
-    // CHANGED BY THE REVIEW, was "Quiet Harbour Strategy": the remainder is three common
-    // words, so it is not said, and the full name is over the character cap.
+  it('PLANTED: the calling client\'s generic word is not the distinctive word of a remainder either', () => {
+    // A client word beside a place: nothing in what is left names the firm.
+    expect(companyShortName('Haulage Denver Consulting', CLIENT)).toBe('Haulage Denver Consulting')
+    // CHANGED BY THE SIXTH READING, was the full name: "Freight" is a common word, and a
+    // common word now names the firm.
+    expect(companyShortName('Haulage Freight Consulting', CLIENT)).toBe('Haulage Freight')
+    // Control: for a client with no such word, "Haulage" is on neither list and makes it a name.
+    expect(companyShortName('Haulage Freight Consulting', NONE)).toBe('Haulage Freight')
+    expect(companyShortName('Haulage Denver Consulting', NONE)).toBe('Haulage Denver')
+  })
+
+  it('PLANTED: a full name over the cap is said by its remainder', () => {
+    // CHANGED BY THE SIXTH READING, was null: the remainder is three common words, which
+    // are now said.
     const stored = 'Quiet Harbour Strategy Consulting'
     expect(stored.length).toBeGreaterThan(COMPANY_SHORT_NAME_MAX_CHARS)
-    expect(companyShortName(stored, NONE)).toBeNull()
-    // Control: one word on neither list, and the same shape is said by its remainder.
+    expect(companyShortName(stored, NONE)).toBe('Quiet Harbour Strategy')
     expect(companyShortName('Kessel Harbour Strategy Consulting', NONE)).toBe('Kessel Harbour Strategy')
+    // Control: a remainder that is a place is not said, and the full name is over the cap.
+    expect('Greater Manchester Consultancy Group'.length).toBeGreaterThan(COMPANY_SHORT_NAME_MAX_CHARS)
+    expect(companyShortName('Greater Manchester Consultancy Group', NONE)).toBeNull()
   })
 
   it.each([
@@ -414,13 +490,23 @@ describe('companyShortName: trailing generic business words', () => {
   // up only as the WHOLE remainder, so beside a common word it was read word by word, and
   // "los", "hong" and "diego" are on no list: "so Los Angeles Tax can win the right clients".
   it.each([
-    ['Los Angeles Tax Advisors'],
-    ['Hong Kong Tax Advisors'],
-    ['St. Louis Tax Advisors'],
-    ['San Diego Wealth Advisors'],
-    ['El Paso Legal Consulting'],
-  ])('PLANTED: a word inside a listed place of several words is not distinctive ("%s" keeps the full name)', stored => {
-    expect(companyShortName(stored, NONE)).toBe(stored)
+    // CHANGED BY THE SIXTH READING, each was the full name. The run of words that is a place
+    // still names nothing, as before, but the common word beside it now does.
+    ['Los Angeles Tax Advisors', 'Los Angeles Tax'],
+    ['Hong Kong Tax Advisors', 'Hong Kong Tax'],
+    ['St. Louis Tax Advisors', 'St. Louis Tax'],
+    ['San Diego Wealth Advisors', 'San Diego Wealth'],
+    ['El Paso Legal Consulting', 'El Paso Legal'],
+  ])('PLANTED: a listed place of several words beside a common word is said with it ("%s" is "%s")', (stored, said) => {
+    expect(companyShortName(stored, NONE)).toBe(said)
+  })
+  it.each([
+    ['Los Angeles Advisors'],
+    ['San Diego Consulting Group'],
+    // A run that is a place, and a client's generic word beside it: nothing names the firm.
+    ['Los Angeles Haulage Consulting'],
+  ])('PLANTED: a remainder whose every word sits in a place, or is the client\'s, keeps the full name ("%s")', stored => {
+    expect(companyShortName(stored, CLIENT)).toBe(stored)
   })
   it('a place of several words beside a word on no list is still part of a name (control)', () => {
     expect(companyShortName('Kessel Hong Kong Consulting', NONE)).toBe('Kessel Hong Kong')
@@ -429,9 +515,12 @@ describe('companyShortName: trailing generic business words', () => {
 
   // THE SECOND ROUND OF THE REVIEW. A hyphenated word matched no entry on any list, so a
   // hyphenated region or trade was a name: "so Asia-Pacific can win the right clients".
+  it('CHANGED BY THE SIXTH READING: a hyphenated pair of common words is said, as the pair is', () => {
+    // Was the full name "Real-Estate Advisors".
+    expect(companyShortName('Real-Estate Advisors', NONE)).toBe('Real-Estate')
+  })
   it.each([
     ['Asia-Pacific Advisors'],
-    ['Real-Estate Advisors'],
     ['North-Texas Advisors'],
     ['Pan-European Solutions'],
     // A place of two words written with a hyphen: neither part is on a list by itself.
@@ -461,8 +550,6 @@ describe('companyShortName: trailing generic business words', () => {
     ['Texan Consulting'],
     ['Celtic Advisory'],
     ['North American Advisors'],
-    // Beside a common word, where the remainder as a whole is on no list.
-    ['American Tax Advisors'],
     ['Friday Solutions'],
     ['Monday Consulting'],
     ['April Consulting'],
@@ -488,6 +575,11 @@ describe('companyShortName: trailing generic business words', () => {
     ['Appalachian Advisors'],
   ])('PLANTED: the demonyms the first list missed are not said alone either ("%s" keeps the full name)', stored => {
     expect(companyShortName(stored, NONE)).toBe(stored)
+  })
+
+  it('CHANGED BY THE SIXTH READING: a demonym beside a common word is said with it', () => {
+    // Was the full name "American Tax Advisors". "American" alone still names nothing.
+    expect(companyShortName('American Tax Advisors', NONE)).toBe('American Tax')
   })
 
   it('PLANTED: and a name that is only one of them is "your firm", as a place is', () => {
@@ -537,6 +629,18 @@ describe('companyShortName: trailing generic business words', () => {
       expect(companyShortName('Logistics Ltd', NONE, {}, tradeWords())).toBeNull()
     })
 
+    it('PLANTED: the firm\'s own trade words come off the END of a name, as service words do (the sixth reading)', () => {
+      expect(companyShortName('Kessel Logistics Solutions', NONE, {}, tradeWords())).toBe('Kessel')
+      expect(companyShortName('Kessel Freight Forwarding', NONE, {}, tradeWords())).toBe('Kessel')
+      expect(companyShortName('Amber Ridge Logistics', NONE, {}, tradeWords())).toBe('Amber Ridge')
+      // Joined on, as a service word joins: the word in front goes with it.
+      expect(companyShortName('Kessel Freight & Logistics', NONE, {}, tradeWords())).toBe('Kessel')
+      // Never the last word: a name made only of the firm's trade is said in full.
+      expect(companyShortName('Freight Logistics Solutions', NONE, {}, tradeWords())).toBe('Freight Logistics Solutions')
+      // Never from the front or the middle.
+      expect(companyShortName('Logistics Kessel Group', NONE, {}, tradeWords())).toBe('Logistics Kessel')
+    })
+
     it('with no trade words given, or with other trade words, the same names shorten (control: the KNOWN LIMIT)', () => {
       // "logistics" and "CRM" are on neither list, so nothing but the record can hold them.
       expect(companyShortName('Logistics Solutions', NONE)).toBe('Logistics')
@@ -544,7 +648,10 @@ describe('companyShortName: trailing generic business words', () => {
       expect(companyShortName('Logistics Solutions', NONE, {}, firmTradeWords('Marketing', ['advertising']))).toBe('Logistics')
       // A name that is not one of the trade words is untouched by them.
       expect(companyShortName('Kessel Consulting', NONE, {}, tradeWords())).toBe('Kessel')
-      expect(companyShortName('Kessel Logistics Group', NONE, {}, tradeWords())).toBe('Kessel Logistics')
+      // CHANGED BY THE SIXTH READING, was "Kessel Logistics": the firm's own trade word now
+      // comes off the end. Without the trade words it is part of the name.
+      expect(companyShortName('Kessel Logistics Group', NONE, {}, tradeWords())).toBe('Kessel')
+      expect(companyShortName('Kessel Logistics Group', NONE)).toBe('Kessel Logistics')
     })
 
     // THE SECOND ROUND OF THE REVIEW, 2026-10-02. Matching was exact, word for word, so the
@@ -696,16 +803,17 @@ describe('companyShortName: trailing generic business words', () => {
     expect(companyShortName('Northtown Cold Room Engineering Works', NONE)).toBeNull()
   })
 
-  it('PLANTED: a name that is ONE word, and that word a place or a common word, is "your firm"', () => {
-    // CHANGED, was the word itself: with the legal form off there is one word, and it
-    // points at no firm in particular. The operator: "your firm when nothing distinctive remains".
-    expect(companyShortName('Orchard GmbH', NONE)).toBeNull()
+  it('PLANTED: a name that is ONE word, and that word a place or under three characters, is "your firm"', () => {
     expect(companyShortName('Denver Ltd', NONE)).toBeNull()
-    expect(companyShortName('The Summit Company', NONE)).toBeNull()
     expect(companyShortName('QX Ltd', NONE)).toBeNull()
-    // A surname that is also an ordinary word is caught by the same rule. The price of a
-    // word list with no notion of names; the fallback is the safe one.
-    expect(companyShortName('Smith and Co', NONE)).toBeNull()
+  })
+  it('CHANGED BY THE SIXTH READING: a one-word name that is a common word is said', () => {
+    // Each was null: a common word no longer blocks. "The Harbour Company" stands in for a
+    // shape the fifth reading used, whose word is a real firm's name.
+    expect(companyShortName('Orchard GmbH', NONE)).toBe('Orchard')
+    expect(companyShortName('The Harbour Company', NONE)).toBe('Harbour')
+    // A surname that is also an ordinary word is a name again.
+    expect(companyShortName('Smith and Co', NONE)).toBe('Smith')
   })
   it('a one-word name that is neither is used as it is (control)', () => {
     expect(companyShortName('Kessel GmbH', NONE)).toBe('Kessel')
@@ -717,7 +825,7 @@ describe('companyShortName: trailing generic business words', () => {
 describe('the two lists the shorter name reads', () => {
   it('PLANTED: the common words are the list the cut was measured on', () => {
     expect(COMMON_ENGLISH_WORDS.size).toBeGreaterThan(20_000)
-    for (const word of ['summit', 'pyramid', 'bridge', 'apex', 'beacon', 'orchard', 'lantern']) {
+    for (const word of ['harbour', 'pyramid', 'bridge', 'apex', 'beacon', 'orchard', 'lantern']) {
       expect(COMMON_ENGLISH_WORDS.has(word), word).toBe(true)
     }
     // Above the cut: real words, and rare enough to be a firm's name.

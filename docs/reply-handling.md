@@ -142,3 +142,8 @@ it, braced or percent-encoded, nothing is sent. The approved-draft path marks th
 
 What happens after someone books is booking detection, not reply handling. See the Cal.com
 section of `integrations.md` and ADR-056.
+
+
+## "No thanks" is an opt-out (2026-10-04)
+
+A writer v2 client may set its own opt-out footer (docs/writer-v2.md). MargenticOS's asks the reader to reply "no thanks". The classifier's opt_out definition names a short decline ("no thanks", "no", "not for me") as opt_out, never objection_mild, so a reply in the footer's own words suppresses the prospect at once.

@@ -327,7 +327,7 @@ still be plain letters and digits (the earlier allow-list rule).
 
 | Note | Where it is enforced |
 |---|---|
-| 1. Build, don't check | The record-built line (`src/lib/sourcing/peer-kind.ts`). Written only when the provider's industry maps exactly to a peer group with a `kind` in the brief, AND the firm's own name holds one of the brief's `generic_kind_words` or a keyword is itself a short singular description of the kind ("management consulting"; never "software for consultants"). VETOED when our stored website reading names another kind of firm ("a recruitment agency", "an HR recruitment consultancy"). Carried only by a frame that does not name the site; the pain line under it opens on `after_opener` ("Firms like yours"). Ladder order: specific clause, kind from site, kind from record, slogan clause, template |
+| 1. Build, don't check | The record-built line (`src/lib/sourcing/peer-kind.ts`). Written only when the provider's industry maps exactly to a peer group with a `kind` in the brief, AND the firm's own name holds one of the brief's `generic_kind_words` or a keyword is itself a short singular description of the kind ("management consulting"; never "software for consultants"). VETOED when our stored website reading names another kind of firm ("a recruitment agency", "an HR recruitment consultancy"). Carried only by a frame that does not name the site. (The pain line under it opened on `after_opener`, "Firms like yours", until 3 October; withdrawn, see below.) Ladder order: specific clause, kind from site, kind from record, slogan clause, template |
 | 2. Short names | `companyShortName`, above. The firm's stored industry and keywords are passed in |
 | 3. No repeats | `phrase_repeat` (a phrase at most twice per sequence) and `consecutive_word` (no word in two sentences in a row), in `src/lib/style/repetition.ts`, on every wording and on the firm-fact email. At composition the opener and the sentence under it may not share a word: the other wording is used, else the next rung |
 | 4. Acronyms and slogans | Only HR, IT, AI, UK, US, USA, EU, UAE, CEO, B2B, B2C may appear (`KNOWN_ACRONYMS`). Any other short form refuses the clause or kind, read as the page writes it ("a pr agency" from a page saying "PR agency" is refused). Never repaired by deleting the acronym. Slogans (section `tagline`) are tried last at extraction and sit below the record-built line |
@@ -342,6 +342,24 @@ judge through the generator's keep path. See the Backlog.
 what went into the body or why it kept its stored wording (`nothing_held`, `no_slots`,
 `body_is_not_a_stored_template`, `stored_body_differs_from_lines`, `filled_body_over_band`).
 It is returned to the caller and not stored: the body as sent is in `sent_sequences.emails`.
+
+## After reading file 6 (3 October)
+
+Every rule here is universal: it holds for any client, and the client's own words come
+from its brief. See ADR-067.
+
+| Change | Where it is enforced |
+|---|---|
+| Named, conversational source | Every Email 1 pain wording names its source with `{peer_group}` mid-sentence ("When we chat to {peer_group}, a lot of them tell us ..."): `peer_group_source`. A faceless source ("Firms like yours", "Many firms", "Some firms", "businesses like you") is refused in every authored line: `findFacelessSource` in `validate-templates.ts`. `after_opener` is withdrawn and ignored |
+| The reader's own group | Composition names the reader's peer group where known (the label is never swapped for a stand-in). On the peer and broad rungs the label's own words under the opener ("you run a software company", "software makers") are not a repeat; on the specific rung they still are, because there a label word is usually the reader's customers. `openerRepeats` in `firm-fact-email1.ts` |
+| Lead-in, not assertion | Each Email 1 carries `lead_in`: "If {company} is seeing this too," (slot-free "If you're seeing this too,"), joined in front of the offer. At most 8 words, only `{company}` as a slot (`lead_in_missing`, `lead_in_shape`, `lead_in_slot`). Composition names it with the short name after Email 1 is fingerprinted, and only when the named email still fits its band |
+| Consequence, question, outcome | The scope judge also asks: does the consequence follow from the pain (`consequence_follows`), does each question match its email (`question_matches`), does an offer imply the reader already has the outcome (`asserts_about_reader`). The personalised Email 1 floor also asks that the question tie back to the hook |
+| Reading grade | The filled grade (`reading_grade_filled`, cap 5) no longer reads the peer label: it is masked like a slot, at generation and at composition. The label is the name of the reader's own trade, and graded in, the longer labels ("environmental consultants") put most wordings over the cap. Its length is still held by the length rules |
+| Voice | The brief's `colloquialisms` (up to five, each at most five words) are exempt from the idiom list for that client only |
+| Trigger definitions | Each ICP tier 1 trigger may carry `definition` (what counts, what does not). Synthesis is shown it, and `checkFactWithinDefinition` (Haiku, temperature 0) holds a chosen event outside it: `outside_definition`. Drafted per client by `scripts/propose-trigger-definitions.ts` as a pending ICP suggestion (wording only, so the search is untouched) |
+| Scope on follow-ups | `followup-scope.ts`: any claim a personalised Email 2 or 3 makes about what the sender will do must fall within the brief's scope ("what we do", "never claim"). `fact-check-followups` is given the scope |
+| Small fixes | Short names drop trailing descriptors and initialisms (places and trade words keep the full name); the opener says "you run" for a firm and "you are" only for a person (`kindVerbFor`); "Sept"-style month abbreviations are allowed |
+| Upload hold | `organisations.outbound_upload_hold` and `_note`. `handleUploadLeads` refuses while it is on, and an unreadable hold counts as a hold. On for MargenticOS since 3 October; only the operator lifts it |
 
 ## Cost
 

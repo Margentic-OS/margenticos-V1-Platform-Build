@@ -115,10 +115,11 @@ describe('tier routing, in order', () => {
     const { seq } = await compose(prospect({ firm_fact: GOOD_FACT }))
     expect(seq.opening.tier).toBe('firm_fact')
     expect(email(seq, 1).body).toContain('you run dental clinics.')
-    expect(email(seq, 1).body).toMatch(/Software makers (often tell us|say) /)
+    // The pain line names the reader's own group as its source (2026-10-03).
+    expect(email(seq, 1).body).toMatch(/\n\n(When we chat to software makers, a lot of them say|Talking to software makers, we hear that) /)
     expect(email(seq, 1).body).toContain('bakeries')
-    // Follow-ups are the template's paragraphs.
-    expect(email(seq, 2).body).toContain('Exporters often tell us a new market starts slower than they hoped it would.')
+    // Follow-ups are the template's paragraphs, with the same group named as their source.
+    expect(email(seq, 2).body).toContain('In our chats with software makers, a lot of them say a new market starts slower than hoped.')
   })
 
   it.each([
@@ -128,8 +129,8 @@ describe('tier routing, in order', () => {
   ])('tier 3: %s ships the slot-free template', async (_name, fact, reason) => {
     const { seq } = await compose(prospect({ firm_fact: fact }))
     expect(seq.opening).toMatchObject({ tier: 'template', detail: { reason } })
-    expect(email(seq, 1).body).toMatch(/^\{\{first_name\}\}\n\nExporters (often tell us buyers abroad|say buyers in new places)/)
-    expect(email(seq, 1).body).not.toMatch(/\{(does|for_whom|peer_group)\}/)
+    expect(email(seq, 1).body).toMatch(/^\{\{first_name\}\}\n\n(When we chat to exporters, a lot of them say buyers abroad|Talking to exporters, we hear that buyers leave)/)
+    expect(email(seq, 1).body).not.toMatch(/\{(does|for_whom|peer_group|company)\}/)
     expect(email(seq, 1).body).not.toContain('dental clinics')
   })
 
@@ -170,7 +171,7 @@ describe('sequence coherence at composition (tier 1), both ways', () => {
     expect(detail.email1_angle).toBe('PA1')
     expect([detail.followup_angles[2], detail.followup_angles[3]]).not.toContain('PA1')
     expect(detail.swaps).toEqual([])
-    expect(email(seq, 2).body).toContain('Exporters often tell us a new market starts slower than they hoped it would.')
+    expect(email(seq, 2).body).toContain('In our chats with exporters, a lot of them say a new market starts slower than hoped.')
   })
 
   it('a document whose Email 2 repeats Email 1\'s angle: Email 2 is replaced from another variant', async () => {
@@ -185,7 +186,7 @@ describe('sequence coherence at composition (tier 1), both ways', () => {
     const detail = seq.opening.detail as { swaps: Array<{ position: number; to_variant: string; to_angle: string }>; followup_angles: Record<number, string> }
     expect(detail.swaps).toContainEqual(expect.objectContaining({ position: 2, to_variant: 'B', to_angle: 'PA3' }))
     expect(detail.followup_angles[2]).not.toBe('PA1')
-    expect(email(seq, 2).body).toContain('Some firms tried free tools first to save money.')
+    expect(email(seq, 2).body).toContain('In our chats with exporters, a few say they tried free tools first to save money.')
     expect(email(seq, 2).body).not.toContain('a new market starts slower')
   })
 
@@ -232,7 +233,8 @@ describe('wording rotation at composition (rule 8)', () => {
 
   it('tier 1 always keeps wording 0 of the offer, the one the opening was written against', async () => {
     const c = content()
-    const offerZero = 'We translate your pages and a native speaker checks each one, so your buyers can read your site.'
+    // Wording 0 of the offer, behind the lead-in, which names the firm on every tier (2026-10-03).
+    const offerZero = 'If Testco is seeing this too, we translate your pages and a native speaker checks each one, so your buyers can read your site.'
     for (let i = 0; i < 12; i++) {
       const { seq } = await compose(prospect({ id: `prospect-${i}`, personalisation_trigger: 'Your team opened a second office in Leeds.' }), c)
       expect(email(seq, 1).body).toContain(offerZero)
@@ -259,8 +261,8 @@ describe('the reader\'s firm by name in the template follow-ups (fourth reading,
     expect(email(seq, 2).body).toContain('Does that match what Testco sees?')
     expect(email(seq, 3).body).toContain('so people overseas can read what Testco sells.')
     expect(email(seq, 3).body).not.toContain('{company}')
-    expect(slotFills(seq)[2]).toEqual({ company: true, for_whom: false })
-    expect(slotFills(seq)[3]).toEqual({ company: true, for_whom: false })
+    expect(slotFills(seq)[2]).toEqual({ company: true, for_whom: false, peer_group: false })
+    expect(slotFills(seq)[3]).toEqual({ company: true, for_whom: false, peer_group: false })
     // Email 4 holds no slot in this document: it is the stored body, and the record says why.
     expect(slotFills(seq)[4]).toEqual({ reason: 'no_slots' })
     // The word count is of what ships.
@@ -324,13 +326,16 @@ describe('the reader\'s firm by name in the template follow-ups (fourth reading,
     expect(email(seq, 2).body).toContain('Does that match what Testco sees?')
   })
 
-  it('PLANTED: Email 1 is never touched by this, in any tier', async () => {
+  it('PLANTED: the follow-up fills never touch Email 1: only its lead-in names the firm, and its fingerprint is the unnamed one', async () => {
+    // Since 2026-10-03 Email 1's lead-in names the firm on every tier ("If Testco is seeing
+    // this too, we ..."). That is the ONLY difference, and it is made after the fingerprint
+    // the follow-ups are written against is taken.
     const c = content()
     const named = await compose(prospect({ company_name: 'Testco' }), c)
     const unnamed = await compose(prospect({ company_name: null }), c)
-    expect(email(named.seq, 1).body).toBe(email(unnamed.seq, 1).body)
+    expect(email(named.seq, 1).body.replace('If Testco is seeing this too,', "If you're seeing this too,")).toBe(email(unnamed.seq, 1).body)
     expect(named.seq.followups.email1_fingerprint).toBe(unnamed.seq.followups.email1_fingerprint)
-    expect(email(named.seq, 1).body).not.toContain('Testco')
+    expect(email(named.seq, 1).body.split('Testco')).toHaveLength(2)
   })
 
   it('PLANTED: a personalised prospect keeps its generated follow-up as written; the template one beside it is named', async () => {
@@ -354,21 +359,22 @@ describe('the reader\'s firm by name in the template follow-ups (fourth reading,
     const c = content()
     // Give Email 2's first paragraph a customer-group form.
     const p = c.variants.A.lines.followups[0].paragraphs[0]
-    p.text = 'Exporters often tell us a new market starts slower when {for_whom} are slow to buy.'
+    // Its slot_free form is the paragraph as stored, so the stored body still matches the lines.
+    p.text = 'In our chats with exporters, a lot of them say a new market starts slower when {for_whom} are slow to buy.'
     p.slots = ['for_whom']
-    p.slot_free = 'Exporters often tell us a new market starts slower than they hoped it would.'
+    p.slot_free = 'In our chats with exporters, a lot of them say a new market starts slower than hoped.'
     const tier2 = await compose(prospect({ firm_fact: GOOD_FACT }), c)
     expect(tier2.seq.opening.tier).toBe('firm_fact')
     expect(email(tier2.seq, 2).body).toContain('when bakeries are slow to buy.')
-    expect(slotFills(tier2.seq)[2]).toEqual({ company: true, for_whom: true })
+    expect(slotFills(tier2.seq)[2]).toEqual({ company: true, for_whom: true, peer_group: false })
     // Email 3 holds no customer-group paragraph: the record says what WENT IN, so its
     // for_whom is false although the prospect holds one.
     expect(email(tier2.seq, 3).body).not.toContain('bakeries')
-    expect(slotFills(tier2.seq)[3]).toEqual({ company: true, for_whom: false })
+    expect(slotFills(tier2.seq)[3]).toEqual({ company: true, for_whom: false, peer_group: true })
     // A template-tier prospect holds no customer group: that paragraph is slot-free, and the
     // paragraph that names the firm is still filled, on its own.
     const tier3 = await compose(prospect({}), c)
-    expect(email(tier3.seq, 2).body).toContain('than they hoped it would.')
+    expect(email(tier3.seq, 2).body).toContain('a new market starts slower than hoped.')
     expect(email(tier3.seq, 2).body).toContain('Does that match what Testco sees?')
   })
   it('PLANTED: a filled follow-up over its word band ships the stored body, and the record says why', () => {
@@ -414,10 +420,18 @@ describe('the reader\'s firm by name in the template follow-ups (fourth reading,
 // the whole composition, so they hold the row-to-record step as well as the decision.
 
 describe('the peer rung, from the prospect row to the email', () => {
-  /** The invented client's document WITH a peer kind, an after-opener label and a site-free frame. */
+  /**
+   * The invented client's document WITH a peer kind and a site-free frame, and its peer label
+   * moved apart from the kind. The shared fixture's "software makers" under "you run a
+   * software company" fails the peer rung on "software" since the after-opener label was
+   * withdrawn (2026-10-03; planted below), and these tests are about the rung shipping.
+   */
+  const PEER_LABEL_APART = 'app makers'
   function peerContent(enabled = true): Record<string, any> {
+    const brief = inventedPeerBrief()
+    brief.peer_groups[0].label = PEER_LABEL_APART
     return buildMessagingContent({
-      base: {}, brief: inventedPeerBrief(),
+      base: {}, brief,
       result: { opener_frames: INVENTED_PEER_FRAMES, variants: inventedVariants() },
       signoff: INVENTED_SIGNOFF, firmFactTierEnabled: enabled,
     }) as Record<string, any>
@@ -426,8 +440,8 @@ describe('the peer rung, from the prospect row to the email', () => {
   // An invented company. Its stored industry is one the brief has a kind for, and its name
   // holds a word the brief lists as true of every firm this client writes to ("export").
   const SOFTWARE_EXPORTER = { company_name: 'Kessel Export', company_industry: 'software publishers' }
-  const PEER_EMAIL1 = /^\{\{first_name\}\}\n\nCan see you run a software company\.\n\nFirms like yours (often tell us|say) /
-  const TEMPLATE_EMAIL1 = /^\{\{first_name\}\}\n\nExporters (often tell us buyers abroad|say buyers in new places)/
+  const PEER_EMAIL1 = /^\{\{first_name\}\}\n\nCan see you run a software company\.\n\n(When we chat to app makers, a lot of them say|Talking to app makers, we hear that) /
+  const TEMPLATE_EMAIL1 = /^\{\{first_name\}\}\n\n(When we chat to exporters, a lot of them say buyers abroad|Talking to exporters, we hear that buyers leave)/
 
   it('PLANTED: a row with a stored industry, a name that says the kind and no firm fact composes tier firm_fact, rung peer', async () => {
     const { seq } = await compose(prospect(SOFTWARE_EXPORTER), peerContent())
@@ -437,15 +451,29 @@ describe('the peer rung, from the prospect row to the email', () => {
       fact_reason: 'no_fact',
       research_result_id: null,
       peer: { peer_group_id: 'PG1', industry: 'Software Publishers', evidence: { word: 'export', found_in: 'name' } },
-      peer_label_replaced: 'software makers',
+      fills: { peer_group: PEER_LABEL_APART },
     })
+    // The group's own label is named; nothing stands in for it (2026-10-03).
+    expect('peer_label_replaced' in (seq.opening.detail as Record<string, unknown>)).toBe(false)
     expect(email(seq, 1).body).toMatch(PEER_EMAIL1)
     // The frame that names their site is never over a line nobody read on their site.
     expect(email(seq, 1).body).not.toContain('Your site says')
-    // Only Email 1 changes: the follow-ups are the template's paragraphs.
-    expect(email(seq, 2).body).toContain('Exporters often tell us a new market starts slower than they hoped it would.')
+    // The follow-ups are the template's paragraphs, with the same group named as their source.
+    expect(email(seq, 2).body).toContain(`In our chats with ${PEER_LABEL_APART}, a lot of them say a new market starts slower than hoped.`)
     // The word count is of the Email 1 that ships.
     expect(email(seq, 1).word_count).toBe(countWords(email(seq, 1).body.replace('Not for you? Just reply stop.', '').trim()))
+  })
+
+  it('PLANTED: the shared peer fixture, "software makers" under "you run a software company", ships the peer rung from the row to the email (2026-10-03)', async () => {
+    const shared = buildMessagingContent({
+      base: {}, brief: inventedPeerBrief(), result: { opener_frames: INVENTED_PEER_FRAMES, variants: inventedVariants() },
+      signoff: INVENTED_SIGNOFF, firmFactTierEnabled: true,
+    }) as Record<string, any>
+    const { seq } = await compose(prospect(SOFTWARE_EXPORTER), shared)
+    // Until 2026-10-03 the label's word "software" failed the rung and the template shipped.
+    expect(seq.opening).toMatchObject({ tier: 'firm_fact', detail: { rung: 'peer', fills: { peer_group: 'software makers' } } })
+    expect(email(seq, 1).body).toContain('you run a software company')
+    expect(email(seq, 1).body).toContain('software makers')
   })
 
   it('the same row with no stored industry composes the template, and the record says why there was no peer rung (control)', async () => {
@@ -643,5 +671,67 @@ describe('the peer rung, from the prospect row to the email', () => {
       expect(selected.some(columns => columns.includes('company_industry') && columns.includes('apollo_enrichment_data') && columns.includes('company_name'))).toBe(true)
       expect(seq.opening).toMatchObject({ tier: 'firm_fact', detail: { rung: 'peer', peer: { evidence: { word: 'exporter', found_in: 'tag' } } } })
     })
+  })
+})
+
+// ── Email 1's lead-in names the reader's firm, on every tier (operator, 2026-10-03) ────────
+//
+// "If Testco is seeing this too, we ...": composition names the firm in the lead-in after the
+// Email 1 fingerprint is taken, and records it in slot_fills[1]. Run through composeSequence
+// so the row-to-name step and the record are held as well as the decision.
+
+describe('Email 1\'s lead-in names the reader\'s firm, on every tier (2026-10-03)', () => {
+  const slotFills = (seq: Awaited<ReturnType<typeof composeSequence>>) => seq.followups.slot_fills ?? {}
+  const NAMED = '\n\nIf Testco is seeing this too, we '
+  const UNNAMED = "\n\nIf you're seeing this too, we "
+  function peerContentApart(): Record<string, any> {
+    const brief = inventedPeerBrief()
+    brief.peer_groups[0].label = 'app makers'
+    return buildMessagingContent({
+      base: {}, brief, result: { opener_frames: INVENTED_PEER_FRAMES, variants: inventedVariants() },
+      signoff: INVENTED_SIGNOFF, firmFactTierEnabled: true,
+    }) as Record<string, any>
+  }
+
+  it.each<[string, Record<string, unknown>, () => Record<string, any>, string]>([
+    ['research', { personalisation_trigger: 'Your team opened a second office in Leeds.' }, content, 'research'],
+    ['firm_fact, specific rung', { firm_fact: GOOD_FACT }, content, 'firm_fact'],
+    ['firm_fact, peer rung', { company_name: 'Testco Export', company_industry: 'software publishers' }, peerContentApart, 'firm_fact'],
+    ['template', {}, content, 'template'],
+  ])('PLANTED: %s: the lead-in names the firm, the record says so, and the word count is of the named email', async (_name, row, doc, tier) => {
+    const { seq } = await compose(prospect(row), doc())
+    expect(seq.opening.tier).toBe(tier)
+    const body = email(seq, 1).body
+    expect(body).toMatch(/\n\nIf Testco[^,]* is seeing this too, we /)
+    expect(body).not.toContain(UNNAMED)
+    expect(slotFills(seq)[1]).toEqual({ company: true, for_whom: false })
+    expect(email(seq, 1).word_count).toBe(countWords(body.replace('Not for you? Just reply stop.', '').trim()))
+  })
+
+  it('PLANTED: with no usable name the slot-free clause ships, and the record says why', async () => {
+    for (const row of [{ company_name: null }, { company_name: null, firm_fact: GOOD_FACT }]) {
+      const { seq } = await compose(prospect(row))
+      expect(email(seq, 1).body).toContain(UNNAMED)
+      expect(slotFills(seq)[1]).toEqual({ reason: 'nothing_held' })
+    }
+  })
+
+  it('PLANTED: a document written before the lead-in existed ships Email 1 as it was, and says so', async () => {
+    const variants = inventedVariants()
+    delete variants.A.email1.lead_in
+    const c = buildMessagingContent({
+      base: {}, brief: inventedBrief(), result: { opener_frames: INVENTED_OPENER_FRAMES, variants },
+      signoff: INVENTED_SIGNOFF, firmFactTierEnabled: true,
+    }) as Record<string, any>
+    const { seq } = await compose(prospect({}), c)
+    expect(email(seq, 1).body).toContain('\n\nWe translate your pages')
+    expect(email(seq, 1).body).not.toContain('If ')
+    expect(slotFills(seq)[1]).toEqual({ reason: 'no_lead_in' })
+  })
+
+  it('the name in the lead-in is the same reading as the follow-ups\' (control)', async () => {
+    const { seq } = await compose(prospect({ company_name: 'The Testco Company, Inc.' }))
+    expect(email(seq, 1).body).toContain(NAMED)
+    expect(email(seq, 2).body).toContain('Does that match what Testco sees?')
   })
 })

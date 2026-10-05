@@ -62,8 +62,11 @@ const SYSTEM_PROMPT = `You classify B2B cold email replies. Output JSON only —
 
 Intent taxonomy:
   opt_out                      — any refusal, explicit or implicit. Covers: "stop", "remove me",
-                                 "not interested", "leave me alone", hostile language, and any
-                                 unmistakable refusal regardless of exact wording. One signal is enough.
+                                 "not interested", "no thanks", "leave me alone", hostile language,
+                                 and any unmistakable refusal regardless of exact wording. One signal
+                                 is enough. A reply that is only a short decline ("no thanks", "no",
+                                 "not for me") is opt_out, never objection_mild: the footer of every
+                                 email tells the reader that replying this way stops the emails.
   out_of_office                — automated OOO or vacation auto-reply. No human authored this message.
   positive_direct_booking      — prospect expresses clear, active interest in booking a call or meeting.
                                  Forward-looking and specific. May or may not use the word "book".

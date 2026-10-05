@@ -80,6 +80,7 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, unres
         // day a hold ships: every personalised prospect researched before it is held.
         const totalExplained = result.heldWithoutFollowupCount
           + (result.heldWithoutApprovedReasonCount ?? 0)
+          + (result.heldWithoutWriterV2Count ?? 0)
           + result.compositionFailureCount
         if (totalAttempted === 0 && totalBlocked === 0 && totalExplained === 0 && pendingCount > 0) {
           setUploadState({
@@ -302,7 +303,8 @@ function SuccessDisplay({
   const hasCompFails = result.compositionFailureCount > 0
   const hasHeld      = result.heldWithoutFollowupCount > 0
   const heldForReason = result.heldWithoutApprovedReasonCount ?? 0
-  const hasIssue     = isPartial || hasBlocked || hasShellBlocked || hasCompFails || hasHeld || heldForReason > 0
+  const heldForWriter = result.heldWithoutWriterV2Count ?? 0
+  const hasIssue     = isPartial || hasBlocked || hasShellBlocked || hasCompFails || hasHeld || heldForReason > 0 || heldForWriter > 0
 
   const headerText = !hasUploaded && (hasBlocked || hasShellBlocked)
     ? 'Upload held'
@@ -352,6 +354,13 @@ function SuccessDisplay({
           <p className="text-[11px] text-[#92400E]">
             <span className="mr-1">⚠</span>
             {heldForReason} lead{heldForReason === 1 ? '' : 's'} held, not sent: the first email is personalised and was not written to one of this client&apos;s approved trigger reasons as they read today. They are still waiting. The follow-up backfill cannot fix this. Run their research again, which writes a new first email and its follow-ups together.
+          </p>
+        )}
+
+        {heldForWriter > 0 && (
+          <p className="text-[11px] text-[#92400E]">
+            <span className="mr-1">⚠</span>
+            {heldForWriter} lead{heldForWriter === 1 ? '' : 's'} held, not sent: this client is on the new sequence writer and no sequence that may be sent has been written for {heldForWriter === 1 ? 'it' : 'them'} yet. They are still waiting. Each lead&apos;s reason is on its row.
           </p>
         )}
 

@@ -56,6 +56,13 @@ import {
   type FollowupOutcome,
 } from './followup-frame'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage, type TokenUsage } from './types'
+import {
+  followupScopeFromMessaging,
+  findNeverClaimPhrases,
+  neverClaimPhraseFailure,
+  scopeBlockForWriter,
+  type FollowupScope,
+} from './followup-scope'
 
 const FOLLOWUP_MODEL = 'claude-sonnet-4-6'
 
@@ -261,6 +268,19 @@ by role, stage or situation instead. A wrong number reads as a database lookup.
 Never assert what they do NOT have. A problem they can recognise themselves in survives being
 wrong. A verdict about them does not.
 
+A SENTENCE ABOUT FIRMS IN GENERAL IS STILL ABOUT THEM when they would read it as describing
+themselves. "Firms without X rarely manage Y" tells this reader they lack X. If the findings do
+not say it about them, do not write it, in any framing.
+
+NEVER IMPLY THEY ALREADY HAVE WHAT THE OFFER PROVIDES. The offer is something they can get. A
+sentence presenting the result of the sender's work as already theirs, or as already working
+for them, tells them they do not need it.
+
+SAY ONLY WHAT THE SENDER DOES. When the user message lists what the sender does and what it
+never claims, every sentence about what the sender does or will do is one of the things listed,
+and none of what it never claims. A checker reads every such sentence against that list, and
+one outside it costs that email.
+
 No dashes of any kind between clauses. Use a full stop, a comma or a colon.
 
 ## THE CLIENT'S OWN APPROVED FOLLOW-UPS
@@ -356,6 +376,18 @@ export interface WriteFollowupsParams {
    */
   datedCandidates: ReadonlyArray<{ date?: string | null; observation?: string | null }>
   now?: Date
+  /**
+   * The client's messaging document content, for its brief's SCOPE: what the sender does,
+   * what it never claims and the outcomes a reader can get. Added 2026-10-03, operator
+   * instruction: a follow-up may say the sender does only what that client's brief says it
+   * does, and never that the reader already has the outcome.
+   *
+   * OPTIONAL, AND ABSENT MEANS TODAY'S BEHAVIOUR: no scope block for the writer, no phrase
+   * pass, no scope questions for the checker. The same holds for a document with no brief.
+   * Typed `unknown` and read here, so a caller passes the content it already holds and
+   * nothing about the brief's shape leaks into its signature.
+   */
+  messagingContent?: unknown
 }
 
 /** Splits the two labelled blocks. Absent means empty string, never undefined. */
@@ -373,6 +405,8 @@ export function parseFollowupOutput(raw: string): { email2: string; email3: stri
 export async function writeFollowups(params: WriteFollowupsParams): Promise<FollowupResult> {
   const client = new Anthropic({ apiKey: params.apiKey })
   const system = buildFollowupSystemPrompt()
+  // READ ONCE. The writer, the phrase pass and the checker all see the same scope.
+  const scope = followupScopeFromMessaging(params.messagingContent)
 
   let usage: TokenUsage = ZERO_TOKEN_USAGE
   const attempts: FollowupResult['attempts'] = []
@@ -413,6 +447,9 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
       params.supportingEvent.trim(),
       ``,
     ] : []),
+    // THE SENDER'S SCOPE, before the reference copy, so the writer knows what it may say the
+    // sender does before it reads how this client sounds. Absent with no brief.
+    ...(scope ? [scopeBlockForWriter(scope), ``] : []),
     `## The client's approved follow-ups, for tone and length only`,
     ``,
     // THE HEADING TELLS THE TRUTH ABOUT WHAT IS UNDER IT. When one position's reference
@@ -498,7 +535,7 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
     const prose2 = kept2?.prose ?? scrub(parsed.email2)
     const prose3 = kept3?.prose ?? scrub(parsed.email3)
 
-    const outcome = gate(prose2, prose3, params)
+    const outcome = gate(prose2, prose3, params, scope)
 
     // ── THE FACT-CHECK, ONLY ON COPY THE DETERMINISTIC GATES ALREADY ACCEPTED ──
     //
@@ -509,8 +546,13 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
     // IT CANNOT TAKE THE EMAILS DOWN WITH IT. factCheckFollowups returns no failures when
     // the check itself could not run, and logs why. A verifier outage must not become a
     // prospect outage: the copy has already passed every rule that is not this one.
+    //
+    // EITHER EMAIL, NOT EMAIL 2 ALONE. Changed 2026-10-03. This ran only when email 2 passed
+    // the gates, which was right while the pair shipped or fell back together. Since each
+    // email is accepted on its own (2026-09-25), an email 3 beside a failing email 2 was
+    // banked with no fact-check and no scope check at all.
     let factCheck: FactCheckResult | null = null
-    if (outcome.email2.prose !== null) {
+    if (outcome.email2.prose !== null || outcome.email3.prose !== null) {
       factCheck = await factCheckFollowups({
         apiKey: params.apiKey,
         prose2, prose3,
@@ -518,6 +560,8 @@ export async function writeFollowups(params: WriteFollowupsParams): Promise<Foll
         prospectId: params.prospectId,
         // So the coverage rule can tell a sentence about THEIR firm from one about ours.
         companyName: params.reference.companyName,
+        // The client's brief scope, or null, in which case no scope question is asked.
+        scope,
       })
       usage = addTokenUsage(usage, factCheck.usage)
     }
@@ -669,6 +713,7 @@ function gate(
   prose2: string,
   prose3: string,
   params: WriteFollowupsParams,
+  scope: FollowupScope | null,
 ): { email2: FollowupOutcome; email3: FollowupOutcome } {
   const missing: string[] = []
   if (!prose2 && !prose3) missing.push('the writer returned neither EMAIL2 nor EMAIL3')
@@ -728,8 +773,13 @@ function gate(
   // What this buys is the whole point of the change: email 2 is no longer discarded for
   // something email 3 did.
   const pair = checkFollowupPairGates(prose2, prose3, words2, words3)
-  const all2 = f2
-  const all3 = [...f3, ...pair]
+  // A NEVER_CLAIMS PHRASE, refused here for free. Added 2026-10-03. The client has said it
+  // never uses these words, so no model is needed to recognise them, and an email holding
+  // one is not worth paying the checker for. No brief, no phrases, nothing changes.
+  const phrases2 = scope ? findNeverClaimPhrases(prose2, scope).map(h => neverClaimPhraseFailure(2, h)) : []
+  const phrases3 = scope ? findNeverClaimPhrases(prose3, scope).map(h => neverClaimPhraseFailure(3, h)) : []
+  const all2 = [...f2, ...phrases2]
+  const all3 = [...f3, ...pair, ...phrases3]
 
   // ── EACH EMAIL IS ACCEPTED ON ITS OWN ────────────────────────────────────────
   //

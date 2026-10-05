@@ -30,6 +30,7 @@ import {
 import { resolveBuyer } from './resolve-buyer'
 import { holdsPersonalisation, reasonTheWritersArgueFrom, resolveApprovedReason, type ApprovedReason, type TriggerWithReason } from './approved-reason'
 import { checkBridgeStatesReason } from './reason-match'
+import { checkFactWithinDefinition } from './trigger-definition'
 import { logger } from '@/lib/logger'
 import { FatalApiError } from '@/lib/agents/fatal-api-error'
 import type { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
@@ -54,6 +55,11 @@ import { hasUsableCandidate } from './synthesize'
 export type MessagingContent = Parameters<typeof getVariantEmail1Frame>[0]
 
 export interface ProduceOpeningInput {
+  /**
+   * The client is on writer v2 (organisations.sequence_writer_v2_enabled). The old writer is
+   * not run and nothing is paid for: writer v2 writes the whole sequence after research.
+   */
+  writerV2Enabled?: boolean
   apiKey: string
   clientName: string
   ctx: ProspectContext
@@ -267,6 +273,15 @@ export const NO_APPROVED_REASON_REASON =
   'so there is no approved account of what it means for the prospect. No personalised opening is written.'
 
 /**
+ * The judge_reasoning a prospect carries when the selected fact matched a trigger with an
+ * approved reason, but is outside that trigger's written definition, or could not be read
+ * against it. The model's own sentence follows, so the operator can check the call.
+ */
+export const OUTSIDE_DEFINITION_REASON_PREFIX =
+  'Not written: the fact research selected is not what its trigger\'s definition counts, ' +
+  'so the approved reason does not apply to it. No personalised opening is written. Why: '
+
+/**
  * What produceOpening returns when the writer is not run. Nothing was written and nothing
  * was compared, so the arrays are empty and the usage is zero. The same shape the batch
  * path's EMPTY_OPENING uses for a prospect that stopped being mailable, and callers already
@@ -299,6 +314,16 @@ function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningWithF
     followup_attempts: [],
     followup_email1_fingerprint: null,
   } satisfies OpeningWithFollowups
+}
+
+/** The judge_reasoning on a prospect whose client is on writer v2. */
+export const WRITER_V2_SKIPPED_REASON =
+  'Not written by this writer: the client is on writer v2, which writes the whole sequence after research.'
+
+/** What produceOpening returns for a writer v2 client: the not-written shape, with no code. */
+export function writerV2SkippedOpening(): OpeningWithFollowups {
+  const { not_written_reason: _code, ...rest } = notWrittenOpening('no_usable_candidate', WRITER_V2_SKIPPED_REASON)
+  return rest
 }
 
 /**
@@ -477,7 +502,13 @@ export async function produceOpening({
   uniqueness,
   onAttempt,
   writeFollowupEmails = false,
+  writerV2Enabled = false,
 }: ProduceOpeningInput): Promise<OpeningWithFollowups> {
+  // WRITER V2 CLIENTS SKIP THIS WRITER ENTIRELY, before anything is paid for. Here, because
+  // every research path converges on this function. The result carries NO not_written_reason:
+  // that code lists a prospect on the operator's "writer stopped" panel, and nothing stopped.
+  if (writerV2Enabled) return writerV2SkippedOpening()
+
   // THE DO-NOT-WRITE VERDICT HAS A READER, AND THIS IS IT. Added 2026-09-11.
   //
   // When synthesis's selection rule finds nothing that clears even SPECIFIC + VERIFIABLE +
@@ -533,6 +564,63 @@ export async function produceOpening({
   // the event points to" to "what the reader must now do" came from.
   // Where the rule is not applied the value passes through untouched, undefined included: an
   // unset field must arrive as unset, not as a different value wearing its name.
+  // ═══ THE FACT IS WHAT ITS TRIGGER SAYS IT IS, WHERE THE CLIENT HAS SAID WHAT THAT IS ═══
+  //
+  // Operator instruction, 2026-10-03. The trigger the fact matched may carry a definition:
+  // what counts and what does not. A blog post introducing a new colleague matched "a role
+  // is posted for a delivery or client-facing role" when nobody had checked the role, and
+  // the approved reason (hiring points to growth) was then argued from a hire in the back
+  // office. See trigger-definition.ts.
+  //
+  // HERE, AFTER THE APPROVED REASON RESOLVES AND BEFORE THE WRITER, for two reasons: every
+  // research path converges on this function, including the one that reuses stored
+  // findings without running synthesis (so a check inside synthesis alone would never
+  // reach those), and a prospect held here costs one small call rather than a writer run.
+  //
+  // NO DEFINITION, NO CALL. A client whose triggers carry none behaves exactly as before.
+  //
+  // THE TOKENS ARE COUNTED ON THE OPENING'S USAGE, as every other call in this function is.
+  // That usage is priced as Sonnet, and this call is Haiku, so the figure overstates this
+  // call by about three times. Overstated is the safe direction for a cost cap, and the
+  // call is small; a per-model split of opening usage does not exist to put it in.
+  let definitionUsage: TokenUsage = ZERO_TOKEN_USAGE
+  if (approved.state === 'approved' && approved.definition) {
+    const selected = candidates.find(c => c.id === selectedCandidateId)
+    // resolveApprovedReason returns 'approved' only for a selected candidate it found, so
+    // this is always present. Guarded rather than asserted: a missing fact cannot be checked,
+    // and an unchecked fact is held, not passed.
+    const check = selected
+      ? await checkFactWithinDefinition({
+          apiKey,
+          trigger: approved.trigger,
+          definition: approved.definition,
+          fact: { observation: selected.observation, source: selected.source, provenance: selected.provenance, date: selected.date },
+          prospectId: ctx.id,
+        })
+      : { verdict: 'unusable' as const, why: 'the fact could not be checked against the trigger\'s definition: the selected fact is missing', usage: ZERO_TOKEN_USAGE }
+    definitionUsage = check.usage
+    if (check.verdict !== 'within') {
+      const held: ApprovedReason = {
+        state: 'outside_definition', trigger: approved.trigger, triggerIndex: approved.triggerIndex,
+        verdict: check.verdict, why: check.why,
+      }
+      logger.info('research/produce-opening: not written, the selected fact is outside its trigger\'s definition', {
+        prospect_id: ctx.id,
+        variant_id: variantId,
+        trigger_index: approved.triggerIndex,
+        verdict: check.verdict,
+        why: check.why,
+      })
+      // The same code as a fact with no approved reason: the operator's list and every
+      // caller already treat it as "the writer was stopped". approved_reason.state says which.
+      return {
+        ...notWrittenOpening('no_approved_reason', OUTSIDE_DEFINITION_REASON_PREFIX + check.why),
+        usage: check.usage,
+        approved_reason: held,
+      }
+    }
+  }
+
   const reasonForWriter = reasonTheWritersArgueFrom(approved, prospectReason)
   const approvedReasonText = approved.state === 'approved' ? approved.reason : null
 
@@ -570,7 +658,9 @@ export async function produceOpening({
   //
   // THIS MOVES EVERY COST FIGURE UP FOR THE SAME WORK. That is the correct number, not a
   // regression, and it is said out loud here because the step will otherwise be read as one.
-  let verifierUsage: TokenUsage = ZERO_TOKEN_USAGE
+  // Starts at the definition check's usage, zero when it did not run, so it is folded into
+  // opening.usage below with the verifiers' and cannot be dropped on any return.
+  let verifierUsage: TokenUsage = definitionUsage
 
   const writerResult = await writeAndJudgeOpening({
     apiKey,
@@ -807,6 +897,8 @@ export async function produceOpening({
     followups = await writeFollowups({
     apiKey,
     clientName,
+    // The client's brief scope reaches the follow-up writer and its checker (2026-10-03).
+    messagingContent,
     buyer: buyer.description,
     // The name the gate refuses to see in the prose. THE SAME VALUE that was substituted
     // into the email 1 body above, which is where the writer learns it.

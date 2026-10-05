@@ -97,6 +97,104 @@ export interface PainAngle {
    */
   resolved_by: string[]
   source: string
+  /**
+   * WHERE THE CLIENT'S OWN DOCUMENTS SAY THIS (reading file 7, fix 2, 2026-10-03): "each
+   * pain unit's consequence and offer link must be supported by the client's own documents;
+   * where the documents don't support a causal link, never invent one."
+   *
+   *   consequence_support  the document passage that says this symptom leads to this
+   *                        consequence.
+   *   link_support         the document passage that says what the client does answers
+   *                        this pain (the outcomes in resolved_by).
+   *
+   * OPTIONAL HERE, so a brief already live still reads. REQUIRED FOR NEW COPY: the template
+   * validator refuses, before anything is paid for, any angle a sequence could be written
+   * about that lacks either, and the run script checks each quote is in the named document.
+   * null means the documents were read and do not support it: the angle is not written
+   * about until the client confirms the link (Notion Backlog, before first paying client).
+   */
+  consequence_support?: AngleSupport | null
+  link_support?: AngleSupport | null
+}
+
+/**
+ * One passage of the client's own documents. `source` names the document and the field
+ * ("positioning.best_fit_characteristics.must_haves[1]"); `quote` is copied from it, word
+ * for word, so code can find it there.
+ */
+export interface AngleSupport {
+  source: string
+  quote: string
+}
+
+/** The client's own documents an AngleSupport may cite: the strategy documents, by type. */
+export const CLIENT_DOCUMENT_TYPES = ['icp', 'positioning', 'tov', 'messaging'] as const
+export type ClientDocumentType = (typeof CLIENT_DOCUMENT_TYPES)[number]
+
+/** The document an AngleSupport cites, read from the first segment of its source. */
+export function supportDocumentType(support: AngleSupport): ClientDocumentType | null {
+  const head = (support.source ?? '').trim().split(/[.[\s]/)[0]?.toLowerCase() ?? ''
+  return (CLIENT_DOCUMENT_TYPES as readonly string[]).includes(head) ? head as ClientDocumentType : null
+}
+
+/**
+ * Why an angle cannot be written about yet, or [] when both its consequence and its offer
+ * link cite the client's own documents. Shape only: whether each quote is really in the
+ * document is checked where the documents are read (the run script).
+ */
+export function angleSupportFaults(angle: Pick<PainAngle, 'id' | 'consequence_support' | 'link_support'>): string[] {
+  const faults: string[] = []
+  for (const [field, what] of [['consequence_support', 'its consequence'], ['link_support', 'how the offer answers it']] as const) {
+    const support = angle[field]
+    if (support === undefined) {
+      faults.push(`${angle.id}: ${field} is missing: cite the passage of the client's documents that supports ${what}, or set it to null if they do not, and the angle is held until the client confirms it`)
+    } else if (support === null) {
+      faults.push(`${angle.id}: the client's documents do not support ${what} (${field} is null), so it is never written about: confirm it with the client, or drop the angle`)
+    } else if (supportDocumentType(support) === null) {
+      faults.push(`${angle.id}: ${field}.source "${support.source}" does not name one of the client's documents (${CLIENT_DOCUMENT_TYPES.join(', ')})`)
+    } else if (typeof support.quote !== 'string' || support.quote.trim().length < 8) {
+      faults.push(`${angle.id}: ${field}.quote must be copied from that document`)
+    }
+  }
+  return faults
+}
+
+/** Text compared for a quote: lower case, curly quotes straightened, whitespace collapsed. */
+export function normaliseForQuote(text: string): string {
+  return text.toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ').trim()
+}
+
+/** Every string in a document's content, joined: what a quote is looked for in. */
+export function documentText(content: unknown): string {
+  const out: string[] = []
+  const walk = (v: unknown) => {
+    if (typeof v === 'string') out.push(v)
+    else if (Array.isArray(v)) v.forEach(walk)
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk)
+  }
+  walk(content)
+  return out.join(' \n ')
+}
+
+/**
+ * Every support passage, on an angle a sequence could use, whose quote is not in the
+ * document it names. `documents` maps a document type to that client's active document's
+ * text (documentText). A document that is absent finds nothing, so it is reported too.
+ */
+export function quotesNotFound(brief: OutboundBrief, documents: Partial<Record<ClientDocumentType, string>>): string[] {
+  const missing: string[] = []
+  for (const angle of usableAngles(brief)) {
+    for (const field of ['consequence_support', 'link_support'] as const) {
+      const support = angle[field]
+      if (!support) continue
+      const type = supportDocumentType(support)
+      const text = type ? documents[type] : undefined
+      if (!type || !text || !normaliseForQuote(text).includes(normaliseForQuote(support.quote))) {
+        missing.push(`${angle.id}.${field}: "${support.quote}" is not in the ${type ?? 'named'} document`)
+      }
+    }
+  }
+  return missing
 }
 
 export type ProofPlacement = 'offer' | 'value_note'
@@ -180,17 +278,20 @@ export interface OutboundBrief {
   /**
    * The slot-free peer noun, used when a prospect's peer group is unknown.
    *
-   * `after_opener` is what stands where the label would when the opener has just said what
-   * kind of firm the reader runs: "Can see you run an HR consultancy. HR consultants tell
-   * us ..." says the same thing twice in two sentences, and "Firms like yours tell us ..."
-   * does not. Up to PEER_LABEL_MAX_WORDS words, and it opens the pain line. REQUIRED when
-   * any peer group has a kind (2026-10-02): the opener built from a kind is always followed
-   * by this label, so that line never rests on a test for shared words. Optional otherwise.
-   * It must itself share no word with any kind.
+   * `after_opener` (2026-10-02) is IGNORED since 2026-10-03: the reader's own group is named
+   * instead, mid-sentence ("When we chat to HR consultants, ..."). Kept in the type so an
+   * older brief still reads.
    */
   peer_group_default: { label: string; source: string; after_opener?: string }
   third_parties: ThirdParty[]
   voice: VoiceItem[]
+  /**
+   * Plain colloquial phrases this client's tone of voice uses and the copy may use (operator,
+   * 2026-10-03): "a lot of", "no worries", "the right fit". Taken from the client's
+   * tone-of-voice document, so it differs per client (Rule Zero). A phrase here is exempt
+   * from the idiom list; an obscure idiom is still refused. Optional; absent means none.
+   */
+  colloquialisms?: string[]
   /**
    * The ONE proof point that is the client's lead differentiator, or null when there is
    * none (operator rule 4, 2026-10-01). Only this proof point may appear in an Email 1
@@ -572,26 +673,19 @@ export function validateOutboundBrief(value: unknown): string[] {
       CANONICAL_INDUSTRIES,
     ))
 
-    // 2. The opener built from a kind is always followed by the after-opener label, so a
-    //    brief with a kind has one. Without it that line rested on the shared-word test,
-    //    and "you run a law firm" then "Law firms often tell us" went past it. Asked only
-    //    when the field is ABSENT: one that is given and unusable is reported above.
-    if (withKind.length > 0 && b.peer_group_default?.after_opener === undefined) {
-      problems.push('peer_group_default.after_opener is required when a peer group has a kind: it opens the line under "you run <kind>", where the group\'s own label would say the same thing twice ("Firms like yours")')
-    }
+    // 2 and 3 WITHDRAWN 2026-10-03: the after-opener label ("Firms like yours") is no longer
+    // used. The operator asked for the reader's own peer group by name ("When we chat to HR
+    // consultants, ..."), and a stand-in label cannot sit mid-sentence. The field may still
+    // be present in an older brief and is ignored. A word the opener and the sentence under
+    // it really share is caught at composition (operator note 3 on the fifth reading).
+  }
 
-    // 3. And that label must not itself repeat a kind ("Software firms like yours" under
-    //    "you run a software company"). Asked through the function composition calls, so
-    //    what is checked here is what is sent. Only once there IS a usable label: without
-    //    one the group's own label would stand there, and rule 2 has already said so.
-    const afterOpener = typeof b.peer_group_default?.after_opener === 'string' ? b.peer_group_default.after_opener.trim() : ''
-    for (const pg of afterOpener === '' ? [] : withKind) {
-      const does = `you run ${pg.kind!.trim()}`
-      const placed = peerLabelUnderOpener(b, does, typeof pg.label === 'string' ? pg.label : null, { kindOfThisGroup: true }).label ?? ''
-      const echoes = peerLabelEchoes(does, placed)
-      if (echoes.length > 0) {
-        problems.push(`${pg.id}: "${echoes.join('", "')}" is said by the opener ("${does}") and again by the label that opens the line under it ("${placed}"); reword peer_group_default.after_opener so it shares no word with any kind`)
-      }
+  // The client's allowed colloquialisms: plain phrases of a few words, never a sentence.
+  if (b.colloquialisms !== undefined) {
+    if (!Array.isArray(b.colloquialisms)) problems.push('colloquialisms must be a list of short phrases')
+    else for (const phrase of b.colloquialisms) {
+      if (typeof phrase !== 'string' || !phrase.trim()) problems.push('colloquialisms: every entry is a non-empty phrase')
+      else if (phrase.trim().split(/\s+/).length > 5 || /[.?!]/.test(phrase)) problems.push(`colloquialisms: "${phrase}" is a phrase of up to five words, not a sentence`)
     }
   }
 
