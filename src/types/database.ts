@@ -129,6 +129,8 @@ export type Database = {
           open_count: number
           organisation_id: string
           paused_at: string | null
+          region_countries: string[] | null
+          region_name: string | null
           replied_count: number
           sending_state: string | null
           sending_status_checked_at: string | null
@@ -157,6 +159,8 @@ export type Database = {
           open_count?: number
           organisation_id: string
           paused_at?: string | null
+          region_countries?: string[] | null
+          region_name?: string | null
           replied_count?: number
           sending_state?: string | null
           sending_status_checked_at?: string | null
@@ -185,6 +189,8 @@ export type Database = {
           open_count?: number
           organisation_id?: string
           paused_at?: string | null
+          region_countries?: string[] | null
+          region_name?: string | null
           replied_count?: number
           sending_state?: string | null
           sending_status_checked_at?: string | null

@@ -132,7 +132,7 @@ function tables(kind: 'session' | 'service', table: string): any {
   if (table === 'campaigns') {
     const b: any = {
       select: () => b, eq: () => b, in: () => b,
-      then: (r: any) => r({ data: [{ id: 'campaign-1', external_id: 'ext-1', shell_step_count: 4, shell_segment_id: null }], error: null }),
+      then: (r: any) => r({ data: [{ id: 'campaign-1', external_id: 'ext-1', shell_step_count: 4, shell_segment_id: null, region_countries: null }], error: null }),
     }
     return b
   }

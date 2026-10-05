@@ -21,6 +21,7 @@ import { describeThreadHold, threadVerdict } from '@/lib/composition/thread-carr
 import { describeReasonHold, loadTriggersChecked, openingReasonVerdict } from '@/lib/composition/opening-reason'
 import type { TriggerWithReason } from '@/lib/agents/research/approved-reason'
 import { logger } from '@/lib/logger'
+import { routeProspectToCampaign } from '@/lib/outbound/campaign-routing'
 import { applySendGate } from '@/lib/sourcing/send-gate'
 import { claimNotification } from '@/lib/notifications/claim-notification'
 import { sendTransactionalEmail } from '@/lib/email/send'
@@ -274,9 +275,10 @@ type ProspectRow = {
   // role here sent no job title at all to the outbound provider.
   job_title: string | null
   segment_id: string | null
+  /** ISO-2, or null when unknown. Picks between a segment's regional campaigns. */
+  country: string | null
   /** prospects.trigger_data.judge: what the stored Email 1 was held to when it was written. */
   opening_judge?: unknown
-  campaigns: { id: string; external_id: string | null; shell_step_count: number | null; shell_segment_id: string | null } | null
 }
 
 export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResult> {
@@ -444,7 +446,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   // campaigns.shell_segment_id IS NULL) OR (prospect.segment_id = campaigns.shell_segment_id).
   const { data: rawRows, error: fetchErr } = await supabase
     .from('prospects')
-    .select('id, email, first_name, last_name, company_name, job_title, segment_id, opening_judge:trigger_data->judge')
+    .select('id, email, first_name, last_name, company_name, job_title, segment_id, country, opening_judge:trigger_data->judge')
     .eq('organisation_id', orgId)
     .in('id', Array.from(claimedIdSet))
 
@@ -536,14 +538,15 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns: [], compositionFailureCount: 0, heldWithoutFollowupCount: 0 }
   }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
 
-  // ── Campaign resolution by segment (null-safe matching) ────────────────────
-  // Fetch all campaigns for this org. Match campaigns to prospects by segment:
-  // If prospect.segment_id = campaigns.shell_segment_id (null-safe), link them.
-  // Default case: both NULL. If prospect has no matching campaign, block it.
-  // If prospect segment matches multiple campaigns, report ambiguity and block.
+  // ── Campaign resolution: by segment, then by the prospect's country ────────
+  // Fetch all campaigns for this org. A prospect's candidates are the campaigns of its
+  // segment (prospect.segment_id = campaigns.shell_segment_id, null-safe; default case
+  // both NULL). Among those, routeProspectToCampaign picks the one whose region names the
+  // prospect's country, else the catch-all (region_countries NULL). No candidate, or a
+  // region configuration that does not give exactly one answer, blocks the prospect.
   const { data: allCampaigns, error: campaignFetchErr } = await supabase
     .from('campaigns')
-    .select('id, external_id, shell_step_count, shell_segment_id')
+    .select('id, external_id, shell_step_count, shell_segment_id, region_countries')
     .eq('organisation_id', orgId)
 
   if (campaignFetchErr) {
@@ -569,21 +572,13 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   for (const row of approvedRows) {
     const resolvedSegmentId = resolvedFromRaw.get(row.segment_id) ?? null
-    const matchingCampaigns = segmentToCampaigns.get(resolvedSegmentId) ?? []
-
-    if (matchingCampaigns.length === 0) {
-      campaignBlockedReasons.push({
-        prospectId: row.id,
-        reason: `No campaign configured for segment ${resolvedSegmentId ?? 'default'}. Register a campaign before uploading.`,
-      })
-    } else if (matchingCampaigns.length > 1) {
-      campaignBlockedReasons.push({
-        prospectId: row.id,
-        reason: `Segment ${resolvedSegmentId ?? 'default'} has ${matchingCampaigns.length} campaigns. Ambiguous routing. Fix in campaign settings.`,
-      })
-    } else {
-      prospectToCampaign.set(row.id, matchingCampaigns[0])
-    }
+    const route = routeProspectToCampaign(
+      segmentToCampaigns.get(resolvedSegmentId) ?? [],
+      row.country,
+      resolvedSegmentId ?? 'default',
+    )
+    if (route.ok) prospectToCampaign.set(row.id, route.campaign)
+    else campaignBlockedReasons.push({ prospectId: row.id, reason: route.reason })
   }
 
   // If any prospect cannot be routed to a campaign, block them and return
@@ -634,8 +629,13 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   const shellBlockedExternalIds = new Set<string>()
   const seenExternalIds = new Set<string>()
 
+  // THE ROUTED CAMPAIGN, not a join. Until 2026-10-05 this read row.campaigns, which the
+  // prospect select above never fetched, so externalId was always undefined and every
+  // campaign skipped the check: a campaign with no shell, or the wrong step count, took
+  // leads. With regional campaigns a second campaign can exist unsynced, so it matters now.
   for (const row of approvedRows) {
-    const externalId = row.campaigns?.external_id
+    const routed = prospectToCampaign.get(row.id)
+    const externalId = routed?.external_id
     if (!externalId || seenExternalIds.has(externalId)) continue
     seenExternalIds.add(externalId)
 
@@ -644,7 +644,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     if (!segEntry) continue
 
     const { docStepCount } = segEntry
-    const shellStepCount = row.campaigns?.shell_step_count ?? null
+    const shellStepCount = routed?.shell_step_count ?? null
 
     if (shellStepCount === null) {
       shellBlockedCampaigns.push({ campaignExternalId: externalId, reason: 'no_shell', docStepCount, shellStepCount: null })
