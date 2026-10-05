@@ -12,8 +12,19 @@
 //      caught where code can see them (a statement naming the firm, an event-shaped sentence,
 //      a proper noun or number found in no input). An abbreviation and its full form count as
 //      the same name ("HR" for "Human Resources").
-//   3. SENDER SCOPE: a sender claim cites a line that is in the playbook, and no sentence
-//      matches the playbook's never-claim or call-to-action patterns.
+//   3. SENDER SCOPE: a sender claim either cites a line that is in the playbook, or describes
+//      only actions the playbook's offer names (every content word it uses appears in the offer,
+//      its short wordings or the proof). No sentence may match the playbook's never-claim or
+//      call-to-action patterns, whatever else it passes.
+//
+// RETRY REDUCTION (operator, 2026-10-05, after the first 188-prospect batch, where 130 of 188
+// sequences had at least one failed attempt):
+//   - the writer is given its word limits for the part it writes (greeting, sign-off and footer
+//     taken out), derived from the bands below, which are unchanged;
+//   - a sentence about what the sender does that names the prospect's firm only as who it is for
+//     ("We find the right buyers for <firm>") is a sender claim, judged by the scope check;
+//   - a prospect claim may cite several facts ("R1, R2"), each of which must exist;
+//   - the scope check reads the actions a sender claim describes, not its exact wording.
 //
 // THE LIMIT, stated so nobody over-trusts it: an undeclared claim made only of common words
 // ("you just won a big one") is not caught. General hedged lines about firms like theirs are
@@ -57,6 +68,26 @@ export const WRITER_V2_WORD_BANDS: Record<number, { min: number; max: number; la
   2: { min: 30, max: 80, label: '30 to 80' },
   3: { min: 30, max: 80, label: '30 to 80' },
   4: { min: 1, max: 44, label: 'under 45' },
+}
+
+/**
+ * THE WORD LIMITS FOR WHAT THE WRITER ACTUALLY WRITES. The bands above count the email as sent:
+ * greeting line, body and the two-line sign-off. The writer writes the greeting but never the
+ * sign-off, and was told the as-sent bands, so it had to subtract words it could not see. Every
+ * one of the 121 word-count failures in the 2026-10-05 batch was over the limit, not under.
+ * Derived from the bands, never a second set of numbers: the bands stay the hard limits.
+ */
+export function bodyWordLimits(firstName: string, sender: Sender): Record<number, { min: number; max: number }> {
+  const overhead = countWords(`${firstName},`) + countWords(sender.firstName) + countWords(sender.company)
+  return Object.fromEntries(Object.entries(WRITER_V2_WORD_BANDS).map(([n, b]) =>
+    [Number(n), { min: Math.max(1, b.min - overhead), max: b.max - overhead }]))
+}
+
+/** The words of a body after its greeting line: what the writer itself wrote, sign-off excluded. */
+function wordsAfterGreeting(body: string): number {
+  const lines = body.trim().split('\n')
+  const greeting = /^[^.?!\n]{1,40},$/.test(lines[0]?.trim() ?? '') ? countWords(lines[0]) : 0
+  return countWords(body) - greeting
 }
 
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
@@ -200,6 +231,83 @@ const EVENT_SHAPE = /^(saw|noticed|spotted|caught|read)\b|\byou(?:'ve| have| had
 // Words that open a sentence or are ordinary capitalised words, never a name.
 const COMMON = new Set(['i', 'we', 'you', 'your', 'it', 'if', 'the', 'a', 'an', 'and', 'but', 'so', 'with', 'that', 'this', 'no', 'not', 'what', 'when', 'is', 'are', 'has', 'have', 'would', 'worth', 'last', 'just', 'saw', 'quick', 'happy', 'either', 'fair', 'great', 'most', 'one', 'some', 'any', 'all', 'how', 'who', 'does', 'do', 'or', 'in', 'on', 'at', 'for', 'of', 'to', 'by', 'from', 'as', 'be', 'our', 'my', 'they', 'their', 'there', 'then', 'still', 'even', 'every', 'each', 'nothing', "there's", "that's", "it's", "we're", "you're", "we'll", "you'll", "i'm", "i'd", "isn't", "don't", "doesn't", "won't", "can't", 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'ok', 'okay'])
 
+/** The fact ids a declaration cites: "R1", "R1, R2", "R3 and R1", "R2 / R5". */
+export function citedFactIds(factId: string): string[] {
+  return [...new Set((factId ?? '').split(/\s*(?:,|;|\/|&|\+|\band\b)\s*/i).map(s => s.trim()).filter(Boolean))]
+}
+
+// ─── Sender claims: what the sender says it does ──────────────────────────────
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Every way a sentence may name the firm: its names case-insensitively, its initials as written. */
+function firmNamePatterns(p: ProspectNames): Array<{ source: string; flags: string }> {
+  const names = [p.companyName, p.shortName].filter((n): n is string => !!n && n.length > 2).map(n => ({ source: escapeRe(n), flags: 'i' }))
+  const acronyms = [p.shortName, p.companyName].map(acronymOf).filter((a): a is string => !!a).map(a => ({ source: escapeRe(a), flags: '' }))
+  const seen = new Set<string>()
+  return [...names, ...acronyms].filter(x => !seen.has(x.source + x.flags) && seen.add(x.source + x.flags))
+}
+
+/**
+ * THE FIRM NAMED ONLY AS WHO THE SENDER'S WORK IS FOR. "We find the right buyers for Velocity"
+ * says what the sender does; the firm is the beneficiary, and nothing is asserted about it.
+ * Tonight's batch failed such lines as undeclared claims about the firm (operator, 2026-10-05).
+ *
+ * Returns the sentence with each beneficiary mention replaced by "you" ("for Velocity" gives
+ * "for you", "who Velocity serves" gives "who you serve") when, after that, the sentence no
+ * longer names the firm and is about the sender (we, us, our). Otherwise null: the firm is
+ * named some other way ("so that cycle stops at Velocity", "Velocity's new practice"), and the
+ * sentence stays a claim about the firm for the truth check. Two shapes only, on purpose.
+ */
+export function asSenderClaimForTheFirm(sentence: string, p: ProspectNames): string | null {
+  const patterns = firmNamePatterns(p)
+  if (patterns.length === 0) return null
+  let out = sentence
+  for (const { source, flags } of patterns) {
+    out = out
+      .replace(new RegExp(`\\bfor (?:the )?${source}(?![\\w'’])`, `g${flags}`), 'for you')
+      .replace(new RegExp(`\\bwho ${source} (?:serves|serve|works with|work with)\\b`, `g${flags}`), 'who you serve')
+  }
+  if (out === sentence) return null
+  if (patterns.some(({ source, flags }) => new RegExp(`\\b${source}(?!\\w)`, flags).test(out))) return null
+  if (!/\b(?:we|we're|we'll|we've|us|our)\b/i.test(out)) return null
+  return out
+}
+
+// Function words, pronouns and generic quantifiers. A sender claim is judged on what is left:
+// the words that say what the sender does. "go" is here so "nothing goes out unseen" is read by
+// its visibility words, never by the verb of motion.
+const FUNCTION_WORDS = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'so', 'then', 'to', 'of', 'in', 'on', 'at', 'for', 'with', 'by', 'from', 'as', 'into', 'about', 'before', 'after', 'when', 'while', 'until', 'where', 'how', 'if', 'that', 'this', 'these', 'those', 'which', 'who', 'whom', 'what', 'it', 'its', "it's", 'we', "we're", "we'll", "we've", "we'd", 'us', 'our', 'ours', 'you', "you're", "you'll", "you've", "you'd", 'your', 'yours', 'they', 'them', 'their', 'is', 'are', 'be', 'been', 'being', 'was', 'were', 'am', 'do', 'does', 'did', "don't", "doesn't", "didn't", 'have', 'has', 'had', "haven't", "hasn't", 'will', 'would', 'can', 'could', "can't", "won't", 'just', 'also', 'every', 'each', 'all', 'any', 'both', 'one', 'there', "there's", "that's", 'here', 'not', 'no', 'never', 'nothing', 'anything', 'everything', 'something', 'anyone', 'everyone', 'someone', 'only', 'than', 'too', 'very', 'go', 'goes', 'going', 'went', 'gone'])
+
+// Irregular forms read as their base, so "seen" matches "see" and "found" matches "find".
+const IRREGULAR: Record<string, string> = { seen: 'see', saw: 'see', found: 'find', wrote: 'write', written: 'write', sent: 'send', ran: 'run', took: 'take', taken: 'take', brought: 'bring', met: 'meet', made: 'make', got: 'get', kept: 'keep', people: 'person' }
+
+/** A crude, consistent stem: the same rule reads the sentence and the playbook, so it only has to agree with itself. */
+function stem(word: string): string {
+  let w = IRREGULAR[word] ?? word
+  w = w.replace(/ility$/, 'le').replace(/ies$/, 'y').replace(/(?<=\w{3})(?:ing|ed|es|s)$/, '')
+  if (/([b-df-hj-np-tv-z])\1$/.test(w)) w = w.slice(0, -1) // pinned -> pinn -> pin
+  return w.replace(/e$/, '')
+}
+
+function contentStems(text: string): string[] {
+  return norm(text).replace(/[^a-z0-9' ]/g, ' ').split(/\s+/).map(w => w.replace(/'s$/, '').replace(/^'+|'+$/g, '')).filter(w => w && !FUNCTION_WORDS.has(w)).map(stem)
+}
+
+/**
+ * The words of a sender claim that name an action the playbook's offer does not. Empty means
+ * every action it describes is in the offer: the offer itself, its short wordings and the proof
+ * (finding buyers, writing to them, booking meetings, visibility, for the first client). Read
+ * from the client's own playbook, never from a list here. The never-claim and call-to-action
+ * patterns are a separate check on every sentence and are never relaxed by this one.
+ */
+export function wordsOutsideOffer(sentence: string, playbook: WriterPlaybook, sender: Sender): string[] {
+  const allowed = new Set(contentStems([playbook.offer, ...(playbook.offer_wordings ?? []), playbook.proof, sender.company].join(' ')))
+  const outside = norm(sentence).replace(/[^a-z0-9' ]/g, ' ').split(/\s+/).map(w => w.replace(/'s$/, '').replace(/^'+|'+$/g, ''))
+    .filter(w => w && !FUNCTION_WORDS.has(w) && !allowed.has(stem(w)))
+  return [...new Set(outside)]
+}
+
 export interface CheckInput {
   output: WriterOutput
   /** The facts the writer was OFFERED in this tier. A claim resting on any other fact fails. */
@@ -218,11 +326,16 @@ export function writerV2Failures({ output: out, offered, prospect: p, sender, pl
   if (!emails[0].subject || !emails[0].subject.trim()) failures.push('Email 1 has no subject line')
   if (emails.slice(1).some(e => e.subject)) failures.push('Emails 2 to 4 reply in the same thread and must have no subject')
 
-  // 1. WORD COUNTS, as sent.
+  // 1. WORD COUNTS, as sent. The failure also states the count and limit for the part the
+  // writer wrote, so a retry is told a number it can act on.
+  const limits = bodyWordLimits(p.firstName, sender)
   for (const e of emails) {
     const words = countWords(withSignOff(e.body, sender))
     const band = WRITER_V2_WORD_BANDS[e.email]
-    if (words < band.min || words > band.max) failures.push(`Email ${e.email} is ${words} words with the sign-off; it must be ${band.label}`)
+    if (words < band.min || words > band.max) {
+      const own = limits[e.email]
+      failures.push(`Email ${e.email} is ${words} words with the sign-off; it must be ${band.label} (the part you write after the greeting is ${wordsAfterGreeting(e.body)} words; it must be ${own.min} to ${own.max})`)
+    }
   }
 
   // 2. TRUTH, declared claims.
@@ -234,29 +347,39 @@ export function writerV2Failures({ output: out, offered, prospect: p, sender, pl
     if (f.ineligible) failures.push(`${where} rests on ${f.id}, which may not be used: ${f.ineligible}`)
     return f
   }
+  // The chosen fact is the ONE fact the sequence opens on, and it decides the recorded tier, so
+  // it stays a single id. Only a sentence may cite several.
   const used = out.fact_used ?? { fact_id: 'none', quote: '' }
   if (used.fact_id !== 'none') {
-    const f = checkFact(used.fact_id, 'The chosen fact')
-    if (f && used.quote && !norm(f.evidence).includes(norm(used.quote).replace(/^"|"$/g, ''))) {
-      failures.push(`The quote given for ${f.id} is not in its evidence: "${used.quote}"`)
+    if (citedFactIds(used.fact_id).length > 1) {
+      failures.push(`The chosen fact names several facts ("${used.fact_id}"); name only the one fact the sequence opens on`)
+    } else {
+      const f = checkFact(used.fact_id, 'The chosen fact')
+      if (f && used.quote && !norm(f.evidence).includes(norm(used.quote).replace(/^"|"$/g, ''))) {
+        failures.push(`The quote given for ${f.id} is not in its evidence: "${used.quote}"`)
+      }
     }
   }
   for (const c of out.prospect_claims ?? []) {
     const where = `Email ${c.email} sentence "${c.sentence}"`
     if (!(c.email >= 1 && c.email <= 4)) { failures.push(`A declared claim names Email ${c.email}, which does not exist`); continue }
     if (!bodyText(c.email).includes(norm(c.sentence))) failures.push(`${where} is declared as a claim but is not in Email ${c.email}`)
-    const f = checkFact(c.fact_id, where)
-    if (f && f.kind === 'research') {
-      const d = parseFactDate(f.date)
-      const s = c.sentence.toLowerCase()
+    // A sentence may rest on several facts ("R1, R2"); every one must exist. A month or year
+    // in the sentence is right when it matches ANY of them, since each may supply part of it.
+    const ids = citedFactIds(c.fact_id)
+    if (ids.length === 0) { failures.push(`${where} is declared as a claim but names no fact`); continue }
+    const cited = ids.map(id => checkFact(id, where)).filter((f): f is WriterFact => !!f)
+    if (cited.length < ids.length) continue
+    const dated = cited.filter(f => f.kind === 'research').map(f => ({ f, d: parseFactDate(f.date) })).filter((x): x is { f: WriterFact; d: Date } => !!x.d)
+    if (dated.length > 0) {
+      const named = dated.map(x => `${x.f.id} is dated ${x.f.date}`).join(', ')
       const monthIndex = monthNamedIn(c.sentence)
-      const evidenceMonth = monthNamedIn(f.evidence)
-      if (d && monthIndex !== null && monthIndex !== d.getUTCMonth() && monthIndex !== evidenceMonth) {
-        failures.push(`${where} says ${MONTHS[monthIndex]}, but ${f.id} is dated ${f.date}`)
+      if (monthIndex !== null && !dated.some(({ f, d }) => monthIndex === d.getUTCMonth() || monthIndex === monthNamedIn(f.evidence))) {
+        failures.push(`${where} says ${MONTHS[monthIndex]}, but ${named}`)
       }
-      const year = s.match(/\b(19|20)\d\d\b/)?.[0]
-      if (d && year && Number(year) !== d.getUTCFullYear() && !f.evidence.includes(year)) {
-        failures.push(`${where} says ${year}, but ${f.id} is dated ${f.date}`)
+      const year = c.sentence.toLowerCase().match(/\b(19|20)\d\d\b/)?.[0]
+      if (year && !dated.some(({ f, d }) => Number(year) === d.getUTCFullYear() || f.evidence.includes(year))) {
+        failures.push(`${where} says ${year}, but ${named}`)
       }
     }
   }
@@ -273,7 +396,18 @@ export function writerV2Failures({ output: out, offered, prospect: p, sender, pl
       if (declared.some(d => d.email === e.email && (d.s.includes(ns) || ns.includes(d.s)))) continue
       // Naming the firm is not by itself a claim: a hedged line or a question asserts nothing.
       const hedged = /\bif\b|\bwhether\b|\?\s*$|\b(?:firms|teams|people|founders|consultants|companies) like\b/i.test(s)
-      const namesFirm = !hedged && (firmNames.some(n => ns.includes(n)) || firmAcronyms.some(a => new RegExp(`\\b${a}\\b`).test(s)))
+      let namesFirm = !hedged && (firmNames.some(n => ns.includes(n)) || firmAcronyms.some(a => new RegExp(`\\b${a}\\b`).test(s)))
+      if (namesFirm) {
+        // What the sender does, with the firm named only as who it is for: a sender claim, judged
+        // by the scope check (the offer's actions, never a cited line, so a citation cannot carry
+        // an extra clause about the firm past it).
+        const asSender = asSenderClaimForTheFirm(s, p)
+        if (asSender !== null) {
+          namesFirm = false
+          const outside = wordsOutsideOffer(asSender, playbook, sender)
+          if (outside.length > 0) failures.push(`Email ${e.email} sentence "${s}" says what we do in words the playbook's offer does not use (${outside.join(', ')}); describe only what the offer and proof say we do`)
+        }
+      }
       if (namesFirm || EVENT_SHAPE.test(s)) failures.push(`Email ${e.email} sentence "${s}" says something about the prospect or their firm and rests on no declared fact`)
     }
   })
@@ -310,11 +444,16 @@ export function writerV2Failures({ output: out, offered, prospect: p, sender, pl
     }
   })
 
-  // 3. SENDER SCOPE.
+  // 3. SENDER SCOPE. A sender claim is in scope when the line it cites is in the playbook, OR
+  // when every action it describes is one the offer names, in any wording. The second is what
+  // most failures in the 2026-10-05 batch needed: the writer cited two real wordings joined by
+  // " / ", or reworded one, and the sentence itself was within the offer.
   const scopeNorm = norm(playbookScopeText(playbook))
   for (const c of out.sender_claims ?? []) {
-    if (c.playbook_line && !scopeNorm.includes(norm(c.playbook_line).replace(/^"|"$/g, ''))) {
-      failures.push(`Email ${c.email} sentence "${c.sentence}" cites a playbook line that is not in the playbook: "${c.playbook_line}"`)
+    if (!c.playbook_line || scopeNorm.includes(norm(c.playbook_line).replace(/^"|"$/g, ''))) continue
+    const outside = wordsOutsideOffer(asSenderClaimForTheFirm(c.sentence ?? '', p) ?? c.sentence ?? '', playbook, sender)
+    if (outside.length > 0) {
+      failures.push(`Email ${c.email} sentence "${c.sentence}" cites a playbook line that is not in the playbook: "${c.playbook_line}", and says what we do in words the offer does not use (${outside.join(', ')})`)
     }
   }
   const rules = [...playbook.never_claim, ...playbook.calls_to_action.never]

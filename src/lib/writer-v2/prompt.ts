@@ -16,14 +16,17 @@
 // were removed again the same day: measured over 20 prospects they moved nothing, and the hard
 // limits do the work. Replaced (2026-10-05) by: a short opening sentence about the fact, why it
 // matters in its own paragraph, the question alone on its own line; long months abbreviated only;
-// short offer wordings rotated from the playbook.
+// short offer wordings rotated from the playbook. Retry reduction (2026-10-05): the word limits
+// are given for the part the writer writes, greeting, sign-off and footer taken out (derived from
+// the unchanged bands, per prospect, so they sit in the user message); an offer line naming the
+// firm as who it is for is declared as a sender claim; a claim may cite several facts.
 //
 // THE SYSTEM PROMPT IS BYTE-IDENTICAL ACROSS A CLIENT'S PROSPECTS (instructions + playbook), so
 // it is sent with a cache breakpoint and every prospect after the first reads it from cache.
 // Anything that varies per prospect or per batch goes in the user message.
 
 import type { WriterFact } from './facts'
-import { WRITER_V2_WORD_BANDS } from './checks'
+import { WRITER_V2_WORD_BANDS, bodyWordLimits, type Sender } from './checks'
 import { renderPlaybook, type WriterPlaybook } from './playbook'
 
 export type WriterTier = 'personalised' | 'semi_personalised'
@@ -50,21 +53,21 @@ TASK: write a four-email sequence to the prospect as ONE conversation, in one pa
 11. SHAPE (guidance, not a template). Email 1: the observation (if personal), why it matters (hedged, never asserting about the reader), the offer (outcome-led, within the playbook's scope), one question tied to the hook. Emails 2 and 3: the angle, its consequence, the offer or proof, one question. Email 4: a short, warm close naming the main theme.
 12. SELF-CHECK the draft against six tests, then revise once: human-sounding; paints a clear picture; easy to read; coherent; ties together across the emails; gives a reason to reply.
 
-LENGTHS (hard limits, counted including the greeting line and the two-line sign-off that is added after your body): Email 1 ${band(1).label} words; Emails 2 and 3 ${band(2).label}; Email 4 ${band(4).label}.
+LENGTHS are hard limits. The message gives them for the words you write AFTER the greeting line: the greeting, the two-line sign-off and the footer are already taken out, so count only your own words and stay inside those numbers. (As sent, the limits are Email 1 ${band(1).label} words; Emails 2 and 3 ${band(2).label}; Email 4 ${band(4).label}.)
 
 FORMAT OF EACH BODY: the prospect's first name and a comma on the first line, then short paragraphs, one per line, separated by a blank line. When there is a fact about them, the opening is one short sentence about it. Why it matters starts a new paragraph. The question is one short sentence on its own line. In a semi-personalised sequence, never invent a sentence about them: say only what the FIRM or RECORD fact says. No dashes of any kind. Do NOT write a sign-off or a footer; they are added for you. Only Email 1 has a subject line (short, lower case is fine); Emails 2 to 4 reply in the same thread and have none.
 
-TRUTH. Every sentence that says something about the prospect or their firm (what they did, said, posted, hired, won, run, are heading to) must rest on one of the facts given, by its id, and quote the evidence it rests on. Dates must be right. Anything the sender says it does must sit within the playbook's offer and proof, and never touch its never-claim list.
+TRUTH. Every sentence that says something about the prospect or their firm (what they did, said, posted, hired, won, run, are heading to) must rest on the facts given, by id, and quote the evidence it rests on. A sentence that draws on several facts lists every id ("R1, R2"). Dates must be right. Anything the sender says it does must describe only actions the playbook's offer and proof name, and never touch its never-claim list. A sentence about what the sender does that names the firm only as who it is for ("We find the right buyers for <firm>") is a sender claim: list it under sender_claims, not prospect_claims.
 
 Return ONLY one JSON object, no prose before or after, with exactly these keys:
 {
   "draft": "the first draft of all four emails as plain text",
   "self_check": "one line per test: what the draft got wrong, and what you changed",
-  "fact_used": { "fact_id": "R1, FIRM, RECORD or none", "quote": "the words of that fact's evidence you rest on, copied exactly" },
+  "fact_used": { "fact_id": "ONE id: the fact the sequence opens on (R1, FIRM, RECORD or none)", "quote": "the words of that fact's evidence you rest on, copied exactly" },
   "link_sentence": "one sentence: why this fact makes the client's outcome valuable to this prospect now",
   "angles": [ { "email": 1, "angle": "angle name from the playbook" }, { "email": 2, "angle": "..." }, { "email": 3, "angle": "..." }, { "email": 4, "angle": "..." } ],
   "emails": [ { "email": 1, "subject": "...", "body": "..." }, { "email": 2, "subject": null, "body": "..." }, { "email": 3, "subject": null, "body": "..." }, { "email": 4, "subject": null, "body": "..." } ],
-  "prospect_claims": [ { "email": 1, "sentence": "the sentence exactly as written in the body", "fact_id": "R1" } ],
+  "prospect_claims": [ { "email": 1, "sentence": "the sentence exactly as written in the body", "fact_id": "R1, or every id it rests on: R1, R2" } ],
   "sender_claims": [ { "email": 1, "sentence": "the sentence exactly as written", "playbook_line": "the words of the playbook's Offer or Proof it sits within, copied exactly" } ]
 }`
 
@@ -89,7 +92,7 @@ export function emptyBatchMemory(): BatchMemory {
   return { followUpAnglePairs: [], questions: [] }
 }
 
-export function writerV2UserMessage(p: WriterProspect, tier: WriterTier, offered: WriterFact[], leftOut: number, memory: BatchMemory, today: Date): string {
+export function writerV2UserMessage(p: WriterProspect, tier: WriterTier, offered: WriterFact[], leftOut: number, memory: BatchMemory, today: Date, sender: Sender): string {
   const iso = (d: Date) => d.toISOString().slice(0, 10)
   const windowStart = new Date(today.getTime() - 365 * 24 * 3600 * 1000)
   const describe = (f: WriterFact) => f.kind === 'research' ? 'research' : f.kind === 'firm' ? 'what the firm does, from its website' : 'industry label only, from the stored company record'
@@ -97,6 +100,7 @@ export function writerV2UserMessage(p: WriterProspect, tier: WriterTier, offered
     `${f.id} [${describe(f)}]${f.recent ? ' [RECENT]' : ''}${f.shared ? ' [SHARED, NOT THEIRS]' : ''}\n   date: ${f.date ?? 'standing description'}\n   source: ${f.source} | ${f.provenance}\n   evidence: "${f.evidence}"`).join('\n')
   const pairs = memory.followUpAnglePairs.slice(-12)
   const questions = memory.questions.slice(-16)
+  const own = bodyWordLimits(p.firstName, sender)
   return `Today is ${iso(today)}. The 12-month window starts ${iso(windowStart)}.
 TIER: ${tier === 'personalised' ? 'PERSONALISED (open on the most meaningful research fact)' : 'SEMI-PERSONALISED (no personal fact; open with what the firm does, or on the pain if only the industry label is given)'}
 
@@ -108,6 +112,8 @@ Company as a sentence says it: ${p.shortName ?? 'do not name the firm; say "your
 
 FACTS YOU MAY USE (${leftOut} other stored findings were left out: undated, older than 12 months, a founding date, tagline or ended role${tier === 'semi_personalised' ? ', or not used in this tier' : ''})
 ${factLines}
+
+WORD LIMITS for the words you write after the greeting line (greeting, sign-off and footer already taken out): Email 1 ${own[1].min} to ${own[1].max}; Email 2 ${own[2].min} to ${own[2].max}; Email 3 ${own[3].min} to ${own[3].max}; Email 4 at most ${own[4].max}.
 
 ALREADY USED IN THIS BATCH (choose differently where the playbook allows)
 Email 2 / Email 3 angle pairs: ${pairs.length ? pairs.map(([a, b]) => `${a} / ${b}`).join('; ') : 'none yet'}

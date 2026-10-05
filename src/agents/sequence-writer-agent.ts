@@ -179,7 +179,7 @@ async function writeTier(
   // The instructions and the playbook are identical for every prospect of this client, so the
   // system prompt carries a cache breakpoint and later prospects read it from cache.
   const system: Anthropic.TextBlockParam[] = [{ type: 'text', text: writerV2System(playbook), cache_control: { type: 'ephemeral' } }]
-  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: writerV2UserMessage(p, tier, offered, leftOut, memory, today) }]
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: writerV2UserMessage(p, tier, offered, leftOut, memory, today, sender) }]
   const attempts: WriterV2Attempt[] = []
 
   for (let i = 0; i < 2; i++) {
