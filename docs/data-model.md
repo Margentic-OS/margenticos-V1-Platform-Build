@@ -354,6 +354,20 @@ Fields:
   sequence_name   — human-readable name for the sequence
   started_at / paused_at
   created_at / updated_at
+  region_countries — ISO-2 country codes this campaign takes at upload (added 2026-10-05).
+                    NULL means the CATCH-ALL: every country no other campaign in the same
+                    segment names, and every prospect whose country is unknown. Every
+                    campaign registered before regions is NULL, so a client with one
+                    campaign routes as it always did. CHECK-constrained to upper-case
+                    two-letter codes.
+  region_name     — the label the upload panel shows ("UK/IE"). Display only.
+
+A client may have several campaigns for one segment, one per region, each with its own send
+window. The upload picks between them by the prospect's country
+(src/lib/outbound/campaign-routing.ts) and REFUSES, rather than guesses, when two campaigns
+are both catch-alls or name the same country. The send window, time zone and daily limit are
+NOT stored here: the provider's campaign enforces them, and the upload panel reads them from
+there, so there is no second copy to drift.
 
 RLS:
   Operator: full access

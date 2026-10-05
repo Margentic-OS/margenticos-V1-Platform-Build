@@ -31,6 +31,48 @@ Taplio has no public scheduling API. The integration is content delivery only.
 Approved posts are delivered to Taplio manually or via Zapier. No API call is built.
 See /docs/ADR.md ADR-010.
 
+## Regional campaigns — one client, a campaign per time zone (2026-10-05)
+
+**What it does.** A client can run several cold-email campaigns for the same segment, each
+covering a set of countries and sending in that region's working hours. At upload each
+prospect goes to the campaign whose `campaigns.region_countries` names its country, and
+otherwise to the campaign with no region (the catch-all, which also takes unknown country).
+Router: `src/lib/outbound/campaign-routing.ts`. Called from `handleUploadLeads`.
+
+MargenticOS runs two: **US and everywhere else** (America/Detroit, 08:00 to 18:00, 75 a day)
+and **UK/IE** (GB and IE, Europe/London 08:00 to 18:00, 15 a day). Both on the same six
+mailboxes, so the per-mailbox load is the total of the two.
+
+**What does not change per campaign.** Reply polling is one workspace-wide stream attributed
+by each email's campaign id; the bounce and unsubscribe scan walks every registered campaign;
+provider suppression is by address across the whole workspace; MON-013, MON-029 and MON-031
+enumerate campaigns or replies, not "the" campaign. The weekly watch reads every active
+campaign of the client together (limits summed, mailboxes counted once).
+
+**The schedule lives on the provider, not in our table.** The upload panel reads each
+campaign's window, daily limit and mailbox count live (`campaign-send-settings.ts` handler).
+The provider accepts only its own list of ~100 time zones and Europe/London is not on it;
+`Europe/Isle_of_Man` is (an IANA link to London: same GMT/BST and change dates), so a UK
+window is stored as Isle_of_Man and shown as London.
+
+**Adding a regional campaign, in this order.**
+1. Create it on the provider, paused, copying the existing campaign's settings.
+2. Merge and deploy any routing code first. Code that predates regions treats two campaigns
+   in a segment as ambiguous and marks EVERY pending prospect failed on the next upload.
+3. Register it (Campaign registration panel), then set `region_name` and `region_countries`
+   on its row, and give the catch-all its `region_name`.
+4. Sync its sequence shell (upload panel). Until it has a shell of the right step count the
+   upload refuses it and reports `no_shell`; the other campaign's batch still goes.
+
+**If it breaks.**
+- Prospects failed with "routing is ambiguous": two campaigns in one segment are catch-alls,
+  or a country is named twice. Fix the rows; the router refuses every prospect until then.
+- "no campaign for XX and no catch-all": a segment has only regional campaigns.
+- A UK prospect went to the US campaign: check `prospects.country` holds `GB` (ISO-2). "UK"
+  is translated to GB by `toIso2CountryCode`.
+- Panel row says "Send window could not be read": the provider read failed; the upload is
+  unaffected, only the display.
+
 ## Campaign stats and status — where the dashboard numbers come from
 
 The same cron that polls replies also refreshes each campaign's counters and its status,
