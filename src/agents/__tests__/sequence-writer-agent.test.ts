@@ -52,9 +52,9 @@ const GOOD_SEMI = sequence('Firms like yours tell us outreach stops when deliver
 const BAD = sequence('We guarantee you new clients.', 'none', null)
 
 function anthropic(replies: string[]) {
-  const calls: Array<{ messages: Array<{ role: string; content: unknown }>; model: string }> = []
-  const create = vi.fn(async (params: { messages: Array<{ role: string; content: unknown }>; model: string }) => {
-    calls.push({ messages: JSON.parse(JSON.stringify(params.messages)), model: params.model })
+  const calls: Array<{ messages: Array<{ role: string; content: unknown }>; model: string; max_tokens: number; system: unknown }> = []
+  const create = vi.fn(async (params: { messages: Array<{ role: string; content: unknown }>; model: string; max_tokens: number; system: unknown }) => {
+    calls.push({ messages: JSON.parse(JSON.stringify(params.messages)), model: params.model, max_tokens: params.max_tokens, system: params.system })
     const text = replies[calls.length - 1]
     if (text === undefined) throw new Error('the test gave no reply for this call')
     return { content: [{ type: 'text', text }], stop_reason: 'end_turn', usage: { input_tokens: 1000, output_tokens: 500 } }
@@ -212,7 +212,15 @@ describe('an attempt that fails only on word count is shortened, not rewritten',
     expect(r.record.tier).toBe('personalised')
     expect(r.calls).toHaveLength(2)
     const asked = r.calls[1].messages[0].content as string
-    expect(asked).toMatch(/^EMAIL 2: 84 words as sent .* the limit is 80\. Remove at least 7 words\./)
+    expect(asked).toMatch(/^EMAIL 2: 84 words as sent .* the limit is 80\. Aim for about 70: remove about 14 words\./)
+    // The answer is the text only, under a tight cap: 300 tokens for each email asked.
+    expect(r.calls[1].max_tokens).toBe(300)
+    expect(r.calls[1].model).toBe('claude-sonnet-4-6')
+    const system = r.calls[1].system as string
+    for (const kept of ['the personal detail', 'what they would lose or risk', 'the offer', 'the question']) expect(system).toContain(kept)
+    expect(system).toMatch(/CUT FIRST:\n- lead-in phrases/)
+    expect(system).toMatch(/about 10 words under its limit/)
+    expect(system).not.toMatch(/\$\{|\{SHORTEN/) // the target is a number, not a placeholder
     expect(asked).not.toMatch(/EMAIL 1|EMAIL 3|EMAIL 4/)
     expect(r.calls[1].messages).toHaveLength(1) // a fresh call, not a turn in the writing conversation
     expect(r.record.emails![1].body).toBe(`Riley,\n\n${words(35)}.\n\nUseful?`)
@@ -228,6 +236,16 @@ describe('an attempt that fails only on word count is shortened, not rewritten',
       expect.objectContaining({ arm: 'writer_v2', path: 'cli', opening: expect.objectContaining({ calls: 1 }) }),
       expect.objectContaining({ arm: 'writer_v2_shorten', path: 'cli', research_result_id: null, opening: expect.objectContaining({ calls: 1 }) }),
     ])
+  })
+
+  it('two over-length emails: both asked in one call, with the cap for two', async () => {
+    const s = JSON.parse(LONG)
+    s.emails[2].body = `Riley,\n\n${words(80)}.\n\nWorth a quick chat?`
+    const both = JSON.stringify({ emails: [{ email: 2, body: `Riley,\n\n${words(35)}.\n\nUseful?` }, { email: 3, body: `Riley,\n\n${words(35)}.\n\nWorth a quick chat?` }] })
+    const r = await run(database({ candidates: RESEARCH, firmFact: FIRM }), [JSON.stringify(s), both])
+    expect(r.calls[1].max_tokens).toBe(600)
+    expect(r.calls[1].messages[0].content).toMatch(/EMAIL 2:[\s\S]*EMAIL 3:/)
+    expect(r.record.tier).toBe('personalised')
   })
 
   it('lists the declared sentences of that email to keep word for word', async () => {

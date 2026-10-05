@@ -44,12 +44,11 @@ import { peerKindRecordFromRow } from '@/lib/sourcing/peer-kind'
 import { factsForProspect, hasQualifyingResearch, type WriterFact } from '@/lib/writer-v2/facts'
 import { copiedPhrases, overLengthOnly, splitSentences, transformOutput, writerV2Failures, type Sender, type WriterOutput } from '@/lib/writer-v2/checks'
 import { exampleSentences, playbookFromDocumentContent, type WriterPlaybook } from '@/lib/writer-v2/playbook'
-import { emptyBatchMemory, WRITER_V2_SHORTEN_INSTRUCTIONS, writerV2ShortenMessage, writerV2System, writerV2UserMessage, type BatchMemory, type WriterTier } from '@/lib/writer-v2/prompt'
+import { emptyBatchMemory, SHORTEN_MAX_TOKENS_PER_EMAIL, WRITER_V2_SHORTEN_INSTRUCTIONS, writerV2ShortenMessage, writerV2System, writerV2UserMessage, type BatchMemory, type WriterTier } from '@/lib/writer-v2/prompt'
 import type { WriterV2Attempt, WriterV2Record } from '@/lib/writer-v2/record'
 
 export const WRITER_V2_MODEL = RESEARCH_SONNET_MODEL
 const MAX_TOKENS = 8000
-const SHORTEN_MAX_TOKENS = 2000
 
 export type WriterV2UsagePath = 'cli' | 'inline' | 'queue' | 'collect'
 
@@ -238,11 +237,7 @@ async function shortenOverLength(
 ): Promise<{ attempt: WriterV2Attempt; passed: WriterOutput | null }> {
   const declared = (n: number) => [...(output.prospect_claims ?? []), ...(output.sender_claims ?? [])].filter(c => c.email === n).map(c => c.sentence)
   const asked = over.map(o => ({ ...o, body: output.emails.find(e => e.email === o.email)?.body ?? '', keep: declared(o.email) }))
-  const res = await anthropic.messages.create({
-    model: WRITER_V2_MODEL, max_tokens: SHORTEN_MAX_TOKENS,
-    system: WRITER_V2_SHORTEN_INSTRUCTIONS,
-    messages: [{ role: 'user', content: writerV2ShortenMessage(asked) }],
-  })
+  const res = await anthropic.messages.create(shortenRequest(asked))
   const usage = readTokenUsage(res.usage)
   const fail = (failures: string[], shortened?: WriterV2Attempt['shortened']) => ({ attempt: { tier, failures, usage, stop_reason: res.stop_reason, kind: 'shorten' as const, ...(shortened ? { shortened } : {}) }, passed: null })
   if (res.stop_reason === 'max_tokens' || res.stop_reason === 'refusal') return fail([`the shortening call stopped: ${res.stop_reason}`])
@@ -254,6 +249,16 @@ async function shortenOverLength(
   const failures = writerV2Failures({ output: merged, offered, prospect: p, sender, playbook })
   if (failures.length > 0) return fail(failures, shortened)
   return { attempt: { tier, failures: [], usage, stop_reason: res.stop_reason, kind: 'shorten', shortened }, passed: merged }
+}
+
+/** The shorten call exactly as sent, so a check outside the agent sends the same request. */
+export function shortenRequest(asked: Array<{ email: number; body: string; words: number; max: number; keep: string[] }>) {
+  return {
+    model: WRITER_V2_MODEL,
+    max_tokens: SHORTEN_MAX_TOKENS_PER_EMAIL * asked.length,
+    system: WRITER_V2_SHORTEN_INSTRUCTIONS,
+    messages: [{ role: 'user' as const, content: writerV2ShortenMessage(asked) }],
+  }
 }
 
 export function parseShortened(text: string): Map<number, string> | null {

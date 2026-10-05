@@ -122,25 +122,44 @@ Questions: ${questions.length ? questions.map(q => `"${q}"`).join('; ') : 'none 
 // remedy acts on the draft after it exists. Generic, like everything in this file: no client
 // content, and nothing may be added, so the playbook is not needed.
 
+/** How far under the limit the model is asked to land. The check counts exactly and the model
+ *  does not: asked for the bare excess plus 3 (first trial, 2026-10-05) it stopped one word over
+ *  in 1 of 3 cases. The code still does the final count, and an email still over falls back to
+ *  the full rewrite. */
+export const SHORTEN_TARGET_UNDER = 10
+
 export const WRITER_V2_SHORTEN_INSTRUCTIONS = `You shorten cold emails that are over their word limit. You are given one or more emails from a sequence that has already been written and checked. Each is too long, and nothing else about it is wrong.
 
-For each email, cut words until it is within its limit:
-- Keep the meaning, every fact, every personal detail and the question. Keep the greeting line.
-- Keep each sentence listed under "keep word for word" exactly as it is.
-- Add nothing new: no new claim, fact, name, number, idea or sentence. Only remove or tighten.
-- Cut filler, repetition, and second ways of saying the same thing first.
-- No dashes of any kind. One paragraph per line, with a blank line between paragraphs. Do not write a sign-off or a footer.
+For each email, cut words until it lands about ${SHORTEN_TARGET_UNDER} words under its limit.
 
-Return ONLY one JSON object, no prose before or after:
+KEEP, whatever else goes:
+- the greeting line;
+- the personal detail about the prospect;
+- the consequence for the reader: what they would lose or risk;
+- the offer: what we do;
+- the question;
+- each sentence listed under "keep word for word", exactly as it is.
+
+CUT FIRST:
+- lead-in phrases ("The thing is,", "What we hear is", "To be honest,");
+- repetition: a second way of saying something already said;
+- extra qualifiers and filler words.
+
+Add nothing new: no new claim, fact, name, number, idea or sentence. Only remove or tighten. No dashes of any kind. One paragraph per line, with a blank line between paragraphs. Do not write a sign-off or a footer.
+
+Return ONLY the shortened email text in this JSON shape, with no explanation, notes or prose before or after:
 { "emails": [ { "email": 2, "body": "the shortened email, greeting line first" } ] }`
 
-/** Words to remove beyond the bare excess. The check counts exactly and the model does not,
- *  so asking for exactly the excess lands one or two words over as often as not. */
-export const SHORTEN_MARGIN_WORDS = 3
+
+/** The output cap per email asked for: the longest email (110 words) is about 180 tokens, plus
+ *  the JSON around it. A tight cap, because the answer is the text and nothing else; one call in
+ *  the first trial wrote 1,210 tokens for two short emails. A truncated answer is a failed
+ *  shorten and falls back to the full rewrite. */
+export const SHORTEN_MAX_TOKENS_PER_EMAIL = 300
 
 export function writerV2ShortenMessage(emails: Array<{ email: number; body: string; words: number; max: number; keep: string[] }>): string {
   return emails.map(e => [
-    `EMAIL ${e.email}: ${e.words} words as sent (greeting and the two-line sign-off included); the limit is ${e.max}. Remove at least ${e.words - e.max + SHORTEN_MARGIN_WORDS} words.`,
+    `EMAIL ${e.email}: ${e.words} words as sent (greeting and the two-line sign-off included); the limit is ${e.max}. Aim for about ${e.max - SHORTEN_TARGET_UNDER}: remove about ${e.words - e.max + SHORTEN_TARGET_UNDER} words.`,
     e.keep.length ? `Keep word for word:\n${e.keep.map(s => `- ${s}`).join('\n')}` : 'Keep word for word: nothing listed.',
     `Body:\n${e.body}`,
   ].join('\n')).join('\n\n')
