@@ -321,12 +321,15 @@ async function runProposal(
       .from('strategy_documents')
       .select('id, document_type, status, content, organisation_id, icp_filter_spec, icp_filter_spec_proposed')
       .eq('id', documentId)
-      .single()
+      // maybeSingle, not single: a missing row is an empty answer, not an error, so the only
+      // error this read can return is a failure of the read itself.
+      .maybeSingle()
 
-    if (docError || !doc) {
-      logger.warn('proposeIcpFilterSpec: document not found', {
-        ...context, error: docError?.message ?? 'no row',
-      })
+    // A read that FAILED is not "not found". Reporting it as a skip, at warn, is how a transient
+    // gateway cut on this read used to leave a promoted ICP with no proposal and no trace (F2a).
+    if (docError) return fail('read the document', docError.message, context)
+    if (!doc) {
+      logger.warn('proposeIcpFilterSpec: document not found', { ...context, error: 'no row' })
       return { outcome: 'skipped', why: 'not_found' }
     }
     if (doc.document_type !== 'icp') return { outcome: 'skipped', why: 'not_icp' }

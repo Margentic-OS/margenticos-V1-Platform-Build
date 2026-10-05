@@ -121,6 +121,15 @@ reason and the refusal's own text. A version with neither a spec nor a refusal s
 specification not built yet", because straight after a change the build is still running,
 and if it lasts the build never ran. Neither state is shown to the client.
 
+**A failed proposal is a refusal too. Added 2026-10-05 (F2a).** When a targeting change cannot
+be turned into a proposal (`proposeIcpFilterSpec` returns `failed`), the outcome is written to
+the same column with reason `proposal_failed`, naming the step and its error. The page then
+says "Search settings not updated": the search keeps the settings it had, and saving the ICP
+again retries. A successful proposal, or an unchanged one, clears the mark. A document that is
+not the active ICP writes nothing. A document READ that errors is a failure now, not a skip:
+before 2026-10-05 a gateway cut on that read was reported as "not found" at warn and nothing
+else.
+
 **What it does not do.** It needs someone to open the page. Nothing yet alerts on an active
 ICP with no spec; that monitor is its own Backlog row.
 

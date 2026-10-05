@@ -27,7 +27,9 @@ export type SpecRefusalReason =
   | 'proposal_failed'
   | 'unexpected'
 
-export interface SpecRefusalRecord {
+// A type alias, not an interface: the record is stored as jsonb, and only a type alias
+// satisfies the Json index signature the database types require.
+export type SpecRefusalRecord = {
   reason: SpecRefusalReason
   detail: string
   recorded_at: string

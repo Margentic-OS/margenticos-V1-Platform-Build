@@ -124,10 +124,18 @@ export async function POST(request: NextRequest) {
       checkInId,
     })
 
-    if (!run.ok) {
+    // ONE EVENT PER FAILURE, grouped by where it went wrong. A single event for the whole run put
+    // a gateway timeout, a circuit-breaker trip and a new fault into one issue, titled after
+    // whichever message came last, so the new fault read as more of the old noise (F2a).
+    for (const failure of run.failures) {
       Sentry.captureException(
-        new Error(`Queue worker run failed: ${run.errors.join(' | ')}`),
-        { level: 'error', extra: { run } },
+        new Error(`Queue worker ${failure.step}: ${failure.text}`),
+        {
+          level: 'error',
+          fingerprint: ['queue-worker', failure.step, failure.jobType ?? 'none'],
+          tags: { step: failure.step, job_type: failure.jobType ?? 'none' },
+          extra: { failure, worker_id: run.workerId },
+        },
       )
     }
 
