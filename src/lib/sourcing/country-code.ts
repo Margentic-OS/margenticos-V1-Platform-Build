@@ -147,11 +147,14 @@ export function toIso2CountryCode(raw: string | null | undefined): string | null
 
   const key = normaliseKey(trimmed)
 
-  // Already canonical: a bare two-letter code is taken as ISO-2 as-is.
-  if (/^[A-Z]{2}$/.test(key)) return key
-
+  // The alias table FIRST: "UK" is two letters and not an ISO-2 code (GB is). Checked after
+  // the bare-code test below, the UK alias could never fire, and a "UK" prospect routed to
+  // the catch-all campaign instead of the GB one (campaign-routing.ts).
   const mapped = COUNTRY_ALIASES[key]
   if (mapped) return mapped
+
+  // Already canonical: a bare two-letter code is taken as ISO-2 as-is.
+  if (/^[A-Z]{2}$/.test(key)) return key
 
   logger.warn('country-code: unmapped country name, stored verbatim', {
     raw: trimmed,
