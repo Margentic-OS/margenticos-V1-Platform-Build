@@ -18,6 +18,7 @@ import { fetchWebsiteSource } from './sources/website'
 import { fetchWebSearchSource } from './sources/web-search'
 import type { ProspectContext, RawSourceData } from './types'
 import type { ProspectRowExtras } from './prospect-context'
+import { stripNulls } from './strip-nulls'
 
 /**
  * Run all four sources in parallel. Failures are isolated per source: each returns an
@@ -63,10 +64,12 @@ export async function fetchAllSources(
     fetchWebSearchSource(ctx),
   ])
 
-  return {
+  // Cleaned HERE as well as at each write: text derived from these sources reaches writes that
+  // carry no stripNulls of their own (trigger_data, the firm fact quote, writer v2's record).
+  return stripNulls({
     linkedin:   linkedIn,
     apollo:     apollo,
     website:    website,
     web_search: webSearch,
-  }
+  })
 }
