@@ -26,7 +26,7 @@
 -- the service client. RLS on with no policies AND anon/authenticated revoked by name, per the
 -- database security rules (RLS must not be the only layer).
 --
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-10-05, production and test database; anon and authenticated hold none of the eight privileges on campaign_automation_log or its sequence, service_role all; RLS on; columns read back)
 
 ALTER TABLE public.organisations
   ADD COLUMN IF NOT EXISTS outbound_daily_cap integer

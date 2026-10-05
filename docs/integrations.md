@@ -55,12 +55,27 @@ The provider accepts only its own list of ~100 time zones and Europe/London is n
 `Europe/Isle_of_Man` is (an IANA link to London: same GMT/BST and change dates), so a UK
 window is stored as Isle_of_Man and shown as London.
 
+**A regional campaign switches itself on with its first leads (2026-10-05).** It is created
+paused. The first upload that gives it leads activates it (`src/lib/outbound/regional-activation.ts`,
+called at the end of `handleUploadLeads`) and re-splits the daily limits so the client total
+stays at `organisations.outbound_daily_cap`: each regional campaign gets its
+`campaigns.daily_limit_share`, the catch-all gets the cap minus the shares of the live regional
+campaigns (derived, never stored). MargenticOS: cap 90, UK/IE share 15, so US carries 90 until
+UK/IE has leads and 75 after. Limits that go down are written before limits that go up, the
+activation comes last, and every write is read back from the provider; if a limit write fails
+nothing is activated. A campaign is auto-activated ONCE (`auto_activated_at`): if an operator
+pauses it afterwards, no upload switches it back on. No cap configured means the campaign is
+left paused and the refusal is logged. Every activation, limit change, refusal and failure is
+in `campaign_automation_log` and listed on the upload panel under "Automatic campaign changes".
+
 **Adding a regional campaign, in this order.**
 1. Create it on the provider, paused, copying the existing campaign's settings.
 2. Merge and deploy any routing code first. Code that predates regions treats two campaigns
    in a segment as ambiguous and marks EVERY pending prospect failed on the next upload.
-3. Register it (Campaign registration panel), then set `region_name` and `region_countries`
-   on its row, and give the catch-all its `region_name`.
+3. Register it (Campaign registration panel), then set `region_name`, `region_countries` and
+   `daily_limit_share` on its row, give the catch-all its `region_name`, and set the client's
+   `organisations.outbound_daily_cap`. Leave the new campaign paused: the first upload with
+   leads for it switches it on.
 4. Sync its sequence shell (upload panel). Until it has a shell of the right step count the
    upload refuses it and reports `no_shell`; the other campaign's batch still goes.
 
@@ -72,6 +87,10 @@ window is stored as Isle_of_Man and shown as London.
   is translated to GB by `toIso2CountryCode`.
 - Panel row says "Send window could not be read": the provider read failed; the upload is
   unaffected, only the display.
+- A regional campaign got leads but is still paused: read "Automatic campaign changes" on the
+  upload panel (or `campaign_automation_log`). A refusal names the missing config; a failure
+  names the provider call. Fix, then activate it by hand or let the next upload with leads for
+  it try again only if `auto_activated_at` is still NULL.
 
 ## Campaign stats and status — where the dashboard numbers come from
 

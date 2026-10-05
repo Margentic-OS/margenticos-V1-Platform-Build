@@ -361,6 +361,17 @@ Fields:
                     campaign routes as it always did. CHECK-constrained to upper-case
                     two-letter codes.
   region_name     — the label the upload panel shows ("UK/IE"). Display only.
+  daily_limit_share — a regional campaign's daily limit once it has leads (added 2026-10-05).
+                    The catch-all has none: its limit is organisations.outbound_daily_cap minus
+                    the live regional shares.
+  auto_activated_at — when an upload switched this regional campaign on. Set once.
+
+Table: campaign_automation_log (2026-10-05). Every automatic activation, daily-limit change,
+refusal and failure made by an upload: organisation_id, campaign_id, action
+(activated / daily_limit_set / refused / failed), from_value, to_value, detail, created_at.
+Service-role only: RLS on with no policies, anon and authenticated revoked by name. Shown on
+the operator upload panel. organisations.outbound_daily_cap is the client's total sends per day
+across all campaigns; NULL means limits are not managed and regional campaigns stay paused.
 
 A client may have several campaigns for one segment, one per region, each with its own send
 window. The upload picks between them by the prospect's country
