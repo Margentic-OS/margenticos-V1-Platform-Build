@@ -40,3 +40,26 @@ describe('LeadUploadPanel: regional campaigns', () => {
     expect(screen.getByText(/^Send window could not be read: .*503/)).toBeInTheDocument()
   })
 })
+
+describe('LeadUploadPanel: automatic campaign changes', () => {
+  const props = {
+    orgId: 'org-under-test', instantlyApiActive: true, pendingCount: 0, unresearchedCount: 0,
+    suppressionBlockedCount: 0, primarySegmentId: null, campaigns: [],
+  }
+
+  it('PLANTED: shows every logged activation and limit change, refusals marked', () => {
+    render(<LeadUploadPanel {...props} automationLog={[
+      { id: 3, createdAt: '2026-10-06T09:00:00Z', action: 'activated', detail: 'UK/IE activated automatically: this upload gave it its first leads.' },
+      { id: 2, createdAt: '2026-10-06T09:00:00Z', action: 'daily_limit_set', detail: "US daily limit 90 to 75, keeping the client's total at 90 a day." },
+      { id: 1, createdAt: '2026-10-05T22:00:00Z', action: 'refused', detail: 'UK/IE received its first leads but was left paused: no cap.' },
+    ]} />)
+    expect(screen.getByText(/UK\/IE activated automatically/)).toBeInTheDocument()
+    expect(screen.getByText(/US daily limit 90 to 75/)).toBeInTheDocument()
+    expect(screen.getByText(/left paused: no cap/).className).toMatch(/8B2020/)
+  })
+
+  it('says what will happen when nothing has been changed yet', () => {
+    render(<LeadUploadPanel {...props} />)
+    expect(screen.getByText(/switched on by the upload that gives it its first leads/)).toBeInTheDocument()
+  })
+})

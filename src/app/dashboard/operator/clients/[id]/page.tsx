@@ -27,7 +27,7 @@ import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
 import { ClientProfileBlock } from './ClientProfileBlock'
 import { SetupStatusPanel } from './SetupStatusPanel'
 import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
-import { LeadUploadPanel } from './LeadUploadPanel'
+import { LeadUploadPanel, type AutomationLogLine } from './LeadUploadPanel'
 import { describeRegion, describeSendSettings } from '@/lib/outbound/campaign-region-text'
 import { readCampaignSendSettings } from '@/lib/integrations/handlers/instantly/campaign-send-settings'
 import { MailboxOrderPanel } from './MailboxOrderPanel'
@@ -220,6 +220,17 @@ export default async function ClientDetailPage({
         .then(settings => describeSendSettings(settings))
         .catch(err => `Send window could not be read: ${err instanceof Error ? err.message : String(err)}`),
     })))
+  // The latest automatic campaign changes (activation, daily limits, refusals). Service role:
+  // the table is service-only. A failed read is shown as a line of its own, never as "none".
+  const { data: automationRows, error: automationErr } = await serviceRole
+    .from('campaign_automation_log')
+    .select('id, created_at, action, detail')
+    .eq('organisation_id', org.id)
+    .order('created_at', { ascending: false })
+    .limit(10)
+  const automationLog: AutomationLogLine[] = automationErr
+    ? [{ id: -1, createdAt: new Date().toISOString(), action: 'failed', detail: `The automatic-change log could not be read: ${automationErr.message}` }]
+    : (automationRows ?? []).map(r => ({ id: r.id, createdAt: r.created_at, action: r.action as AutomationLogLine['action'], detail: r.detail }))
   const uploadedCount = requireCount(uploadedCountResult, `prospects already uploaded for organisation ${org.id}`)
   const primarySegmentId = primarySegResult.data?.id ?? null
   const clientUser = clientUserResult.data
@@ -352,6 +363,7 @@ export default async function ClientDetailPage({
                 suppressionBlockedCount={suppressionBlockedCount}
                 primarySegmentId={primarySegmentId}
                 campaigns={campaigns}
+                automationLog={automationLog}
               />
 
               <WriterStoppedPanel

@@ -46,6 +46,18 @@ interface Props {
   suppressionBlockedCount: number
   primarySegmentId: string | null
   campaigns: CampaignForSync[]
+  /**
+   * The latest automatic campaign changes for this client, newest first: activations, daily
+   * limit changes and refusals made by uploads. Empty when there have been none.
+   */
+  automationLog?: AutomationLogLine[]
+}
+
+export interface AutomationLogLine {
+  id: number
+  createdAt: string
+  action: 'activated' | 'daily_limit_set' | 'refused' | 'failed'
+  detail: string
 }
 
 type UploadPanelState =
@@ -56,7 +68,7 @@ type UploadPanelState =
 
 type SyncState = 'idle' | 'syncing' | 'done' | 'error'
 
-export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, unresearchedCount, suppressionBlockedCount, primarySegmentId, campaigns }: Props) {
+export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, unresearchedCount, suppressionBlockedCount, primarySegmentId, campaigns, automationLog = [] }: Props) {
   const router = useRouter()
   const [uploadState, setUploadState] = useState<UploadPanelState>({ phase: 'idle' })
   const [isPending, startTransition] = useTransition()
@@ -144,6 +156,20 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, unres
                 onSync={() => handleSync(c.internalId, primarySegmentId)}
               />
             ))
+          )}
+        </div>
+        <div className="px-5 py-4 border-t border-border-card">
+          <h3 className="text-[12px] font-semibold text-text-primary">Automatic campaign changes</h3>
+          {automationLog.length === 0 ? (
+            <p className="text-[11px] text-text-secondary mt-1">None yet. A paused regional campaign is switched on by the upload that gives it its first leads, and the daily limits are re-split then.</p>
+          ) : (
+            <ul className="mt-1 space-y-1">
+              {automationLog.map(line => (
+                <li key={line.id} className={`text-[11px] ${line.action === 'failed' || line.action === 'refused' ? 'text-[#8B2020]' : 'text-text-secondary'}`}>
+                  {formatDate(line.createdAt)}: {line.detail}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>
