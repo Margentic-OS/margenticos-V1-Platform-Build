@@ -38,6 +38,18 @@ function fakeSupabase(
 
   const client = {
     from(table: string) {
+      // The global suppression list, read before every batch. This suite has no suppressed
+      // addresses, so the honest answer is an empty list. Without this branch the read fell
+      // through to the prospect rows and every candidate read as suppressed (D2b, 5 Oct 2026).
+      if (table === 'suppressed_emails') {
+        const emptyList: Record<string, unknown> = {
+          select: () => emptyList,
+          in: () => emptyList,
+          is: () => emptyList,
+          then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
+        }
+        return emptyList
+      }
       let ids: string[] = []
       let mode: 'rows' | 'count' | 'single' = 'rows'
 
